@@ -79,6 +79,69 @@ describe('createChatClient', () => {
     await assert.rejects(client.chat([{ role: 'user', content: 'hi' }]), { name: 'TimeoutError' })
   })
 
+  test('带工具时发送 tools 和 tool_choice，并解析返回的 tool_calls', async () => {
+    server = await startMockServer((_req, res) =>
+      sendJson(res, 200, {
+        model: 'mock-model',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: null,
+              tool_calls: [{ id: 'call_a', type: 'function', function: { name: 'echo', arguments: '{"text":"hi"}' } }],
+            },
+            finish_reason: 'tool_calls',
+          },
+        ],
+      }),
+    )
+    const tools = [{ type: 'function' as const, function: { name: 'echo', description: 'd', parameters: { type: 'object' } } }]
+    const result = await createChatClient(configFor(server.baseUrl)).chat([{ role: 'user', content: 'hi' }], {
+      tools,
+      toolChoice: 'none',
+    })
+
+    const body = server.requests[0]?.body as Record<string, unknown>
+    assert.deepEqual(body.tools, tools)
+    assert.equal(body.tool_choice, 'none')
+    assert.equal(result.finishReason, 'tool_calls')
+    assert.equal(result.message.content, null)
+    assert.deepEqual(result.message.tool_calls, [
+      { id: 'call_a', type: 'function', function: { name: 'echo', arguments: '{"text":"hi"}' } },
+    ])
+  })
+
+  test('没有工具时请求里不带 tools 和 tool_choice，回答里也没有 tool_calls 字段', async () => {
+    server = await startMockServer((_req, res) => sendJson(res, 200, completion('ok')))
+    const result = await createChatClient(configFor(server.baseUrl)).chat([{ role: 'user', content: 'hi' }], {
+      tools: [],
+      toolChoice: 'auto',
+    })
+    const body = server.requests[0]?.body as Record<string, unknown>
+    assert.equal('tools' in body, false)
+    assert.equal('tool_choice' in body, false)
+    assert.equal('tool_calls' in result.message, false)
+  })
+
+  test('补全缺失的 tool_call id，arguments 是对象时转成 JSON 字符串', async () => {
+    server = await startMockServer((_req, res) =>
+      sendJson(res, 200, {
+        model: 'mock-model',
+        choices: [
+          {
+            message: { role: 'assistant', content: '', tool_calls: [{ function: { name: 'echo', arguments: { text: 'x' } } }] },
+            finish_reason: 'tool_calls',
+          },
+        ],
+      }),
+    )
+    const result = await createChatClient(configFor(server.baseUrl)).chat([{ role: 'user', content: 'hi' }])
+    const call = result.message.tool_calls?.[0]
+    assert.ok(call?.id)
+    assert.equal(call.type, 'function')
+    assert.deepEqual(JSON.parse(call.function.arguments), { text: 'x' })
+  })
+
   test('listModels 返回排序后的模型 ID', async () => {
     server = await startMockServer((_req, res) => sendJson(res, 200, { data: [{ id: 'b' }, { id: 'a' }] }))
     assert.deepEqual(await createChatClient(configFor(server.baseUrl)).listModels(), ['a', 'b'])

@@ -47,6 +47,9 @@ export interface ChatOptions {
   temperature?: number
   maxTokens?: number
   signal?: AbortSignal
+  /** 为空时请求里不带 tools 和 tool_choice */
+  tools?: readonly ToolDefinition[]
+  toolChoice?: ToolChoice
 }
 
 export interface Usage {
@@ -62,11 +65,18 @@ export interface ChatResult {
   model: string
 }
 
+/** 接口原始返回的工具调用。部分提供商缺 id、type，或者 arguments 直接是对象 */
+export interface RawToolCall {
+  id?: string
+  type?: string
+  function: { name: string; arguments?: unknown }
+}
+
 /** 接口原始返回结构 */
 export interface RawChatCompletion {
   model: string
   choices: Array<{
-    message: { role: 'assistant'; content: string | null; tool_calls?: ToolCall[] }
+    message: { role: 'assistant'; content: string | null; tool_calls?: RawToolCall[] | null }
     finish_reason: string
   }>
   usage?: { prompt_tokens?: number; completion_tokens?: number }

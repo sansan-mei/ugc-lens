@@ -1,5 +1,5 @@
 import type { LlmConfig } from '../config.ts'
-import type { ChatMessage, ChatOptions, ChatResult, RawChatCompletion } from './types.ts'
+import type { ChatMessage, ChatOptions, ChatResult, RawChatCompletion, RawToolCall, ToolCall } from './types.ts'
 
 export class LlmError extends Error {
   override name = 'LlmError'
@@ -12,8 +12,23 @@ export class LlmError extends Error {
 }
 
 export interface ChatClient {
-  chat(messages: ChatMessage[], options?: ChatOptions): Promise<ChatResult>
+  chat(messages: readonly ChatMessage[], options?: ChatOptions): Promise<ChatResult>
   listModels(): Promise<string[]>
+}
+
+/** 各家返回的 tool_calls 细节不完全一致（缺 id、arguments 是对象），统一成标准格式 */
+function normalizeToolCalls(raw: RawToolCall[] | null | undefined): ToolCall[] {
+  return (raw ?? []).map((call, index) => ({
+    id: call.id || `call_${index + 1}`,
+    type: 'function',
+    function: {
+      name: call.function.name,
+      arguments:
+        typeof call.function.arguments === 'string'
+          ? call.function.arguments
+          : JSON.stringify(call.function.arguments ?? {}),
+    },
+  }))
 }
 
 export function createChatClient(config: LlmConfig): ChatClient {
@@ -43,11 +58,15 @@ export function createChatClient(config: LlmConfig): ChatClient {
       if (!config.model) {
         throw new LlmError('未设置模型：设置 UGC_LENS_MODEL，可先运行 npm run models 查看可选模型')
       }
+      const hasTools = (options.tools?.length ?? 0) > 0
       const body = {
         model: config.model,
         messages,
         temperature: options.temperature,
         max_tokens: options.maxTokens,
+        // 没有工具时不发这两个字段：部分提供商遇到空的 tools 数组会报错
+        tools: hasTools ? options.tools : undefined,
+        tool_choice: hasTools ? (options.toolChoice ?? 'auto') : undefined,
       }
       const raw = await request<RawChatCompletion>(
         '/chat/completions',
@@ -56,8 +75,16 @@ export function createChatClient(config: LlmConfig): ChatClient {
       )
       const choice = raw.choices[0]
       if (!choice) throw new LlmError(`${config.provider} 返回的 choices 为空`)
+
+      const toolCalls = normalizeToolCalls(choice.message.tool_calls)
+      const message: ChatResult['message'] = {
+        role: 'assistant',
+        content: choice.message.content ?? (toolCalls.length > 0 ? null : ''),
+      }
+      if (toolCalls.length > 0) message.tool_calls = toolCalls
+
       return {
-        message: { role: 'assistant', content: choice.message.content ?? '' },
+        message,
         finishReason: choice.finish_reason,
         usage: {
           input_tokens: raw.usage?.prompt_tokens ?? 0,

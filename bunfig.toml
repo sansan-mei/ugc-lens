@@ -1,0 +1,3 @@
+# 依赖版本必须固定：bun add 时写入精确版本号，不加 ^ 或 ~
+[install]
+exact = true

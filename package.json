@@ -1,0 +1,23 @@
+{
+  "name": "ugc-lens",
+  "version": "0.0.0",
+  "description": "面向评论、弹幕等用户互动内容的轻量分析 Agent",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "node --test \"test/**/*.test.ts\"",
+    "chat": "node examples/01_chat.ts",
+    "models": "node examples/01_list_models.ts",
+    "multi": "node examples/02_multi_turn.ts",
+    "loop": "node examples/03_agent_loop.ts",
+    "smoke": "node examples/00_hello.ts && node examples/01_list_models.ts && node examples/03_agent_loop.ts 1"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.5",
+    "typescript": "7.0.2"
+  }
+}

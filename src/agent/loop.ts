@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import type { ChatMessage, ChatResult, ToolCall, ToolChoice, Usage } from '../llm/types.ts'
+import { denyAll, type Approver } from '../tools/approval.ts'
 import { toToolDefinition, type AgentTool, type ToolContext } from '../tools/types.ts'
 import type { RunEvent, RunEventListener } from './events.ts'
 import type { AgentModel } from './model.ts'
@@ -59,6 +60,10 @@ export interface RunAgentOptions {
   limits?: Partial<AgentLimits>
   signal?: AbortSignal
   onEvent?: RunEventListener
+  /** 工具解析相对路径、执行命令的目录，默认 process.cwd() */
+  cwd?: string
+  /** 有副作用的工具执行前的确认函数，默认一律拒绝 */
+  approve?: Approver
 }
 
 const FINALIZE_LABELS: Partial<Record<StopReason, string>> = {
@@ -85,7 +90,12 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentRunResult
 
   const deadline = AbortSignal.timeout(limits.timeoutMs)
   const signal = options.signal ? AbortSignal.any([options.signal, deadline]) : deadline
-  const toolContext: ToolContext = { run_id, signal }
+  const toolContext: ToolContext = {
+    run_id,
+    signal,
+    cwd: options.cwd ?? process.cwd(),
+    approve: options.approve ?? denyAll,
+  }
 
   const steps: AgentStep[] = []
   const usage: Usage = { input_tokens: 0, output_tokens: 0 }

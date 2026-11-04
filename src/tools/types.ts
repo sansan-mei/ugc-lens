@@ -1,4 +1,5 @@
 import type { ToolDefinition } from '../llm/types.ts'
+import type { Approver } from './approval.ts'
 
 export type JsonSchema = Record<string, unknown>
 
@@ -6,6 +7,10 @@ export interface ToolContext {
   run_id: string
   /** 运行被取消或超时时触发，耗时长的工具应该监听它 */
   signal: AbortSignal
+  /** 相对路径和命令的基准目录 */
+  cwd: string
+  /** 有副作用的操作执行前调用，返回 false 时工具应放弃执行 */
+  approve: Approver
 }
 
 export interface AgentTool {

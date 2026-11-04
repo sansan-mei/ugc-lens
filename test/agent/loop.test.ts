@@ -198,6 +198,28 @@ describe('runAgent', () => {
     await assert.rejects(runAgent({ model, messages: initial }), /HTTP 500/)
   })
 
+  test('工具拿到 cwd 和确认函数；没有提供确认函数时一律拒绝', async () => {
+    const seen: Array<{ cwd: string; approved: boolean }> = []
+    const probe: AgentTool = {
+      name: 'probe',
+      description: '记录上下文',
+      parameters: { type: 'object', properties: {} },
+      execute: async (_args, ctx) => {
+        seen.push({ cwd: ctx.cwd, approved: await ctx.approve({ kind: 'run_command', command: 'x', cwd: ctx.cwd }) })
+        return 'ok'
+      },
+    }
+    const script = () => createFakeModel([{ tool_calls: [{ name: 'probe' }] }, { content: 'done' }])
+
+    await runAgent({ model: script(), messages: initial, tools: [probe] })
+    await runAgent({ model: script(), messages: initial, tools: [probe], cwd: '/work', approve: async () => true })
+
+    assert.deepEqual(seen, [
+      { cwd: process.cwd(), approved: false },
+      { cwd: '/work', approved: true },
+    ])
+  })
+
   test('事件顺序：run_start 开头、run_end 结尾，工具事件成对出现', async () => {
     const events: RunEvent[] = []
     const model = createFakeModel([{ tool_calls: [{ name: 'echo' }, { name: 'missing' }] }, { content: 'ok' }])

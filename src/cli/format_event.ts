@@ -1,5 +1,12 @@
 import type { RunEvent } from '../agent/events.ts'
 
+const MAX_ARGS_CHARS = 200
+
+function formatArgs(args: unknown): string {
+  const text = JSON.stringify(args) ?? ''
+  return text.length > MAX_ARGS_CHARS ? `${text.slice(0, MAX_ARGS_CHARS)}…` : text
+}
+
 /** 把运行事件转成一行便于阅读的文本，命令行和示例共用 */
 export function formatEvent(event: RunEvent): string {
   switch (event.type) {
@@ -16,7 +23,7 @@ export function formatEvent(event: RunEvent): string {
         `（input=${event.usage.input_tokens} output=${event.usage.output_tokens}）`
       )
     case 'tool_start':
-      return `    → 工具 ${event.name}(${JSON.stringify(event.args)})`
+      return `    → 工具 ${event.name}(${formatArgs(event.args)})`
     case 'tool_end':
       return `    ${event.ok ? '✓' : '✗'} 工具 ${event.name} ${event.ok ? '成功' : '失败'}（${event.duration_ms}ms）`
     case 'pipeline_stage':

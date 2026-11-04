@@ -69,15 +69,24 @@
 
 ### 第 4 步：接入真实模型的 function call
 
-- 目标：把假模型换成真实模型，实现第一个工具 `get_current_time`。
+- 目标：把假模型换成真实模型，实现三个基础工具 `read_file`、`write_file`、`run_command`。
 - 要掌握的概念：
   - 请求里的 `tools` 字段：工具名、描述、参数的 JSON Schema
   - 返回里的 `tool_calls`：`id`、`function.name`、`function.arguments`（是字符串，需要自己 `JSON.parse`）
   - 工具结果消息：`{ role: "tool", tool_call_id, content }`，`tool_call_id` 必须对应上
   - `tool_choice`：`auto` / `none` / 指定工具
   - 模型可能在一次返回里请求多个工具（并行调用）
-- 完成标准：问“现在几点，离今年结束还有几天”，模型调用工具后答对；打印完整 `steps`。
-
+  - 有副作用的工具需要人工确认，确认方式由入口层决定
+- 完成标准：问“现在几点，离今年结束还有几天”，模型调用工具后回答；打印完整 `steps`。
+- 笔记：
+  - 代码：`src/llm/client.ts`（发送 tools、解析 tool_calls）、`src/agent/llm_model.ts`（把客户端包装成 `AgentModel`）、`src/tools/builtin/`（三个工具和只读白名单）、`src/tools/approval.ts`（确认请求）、`src/cli/approve.ts`（命令行 y/N 确认）。
+  - 运行：`npm run tools -- "问题"`。不在终端里运行时，需要确认的操作一律拒绝。
+  - 循环代码没有改动，只给 `ToolContext` 加了 `cwd` 和 `approve`。第 3 步的 `AgentModel` 接口设计让真实模型可以直接替换假模型。
+  - 没有工具时请求里不带 `tools` 和 `tool_choice`，部分提供商遇到空数组会报错。
+  - 客户端会统一各家 tool_calls 的格式差异：缺 `id` 时补上，`arguments` 是对象时转成字符串。
+  - DeepSeek 实测：先调用 `date` 取得时间（只读命令，不需要确认），再想用 `python3` 计算天数，被拒绝后改为自己推算。推算结果有一处前后不一致（“距 1 月 1 日 57 天”与“到 12 月 31 日含今天 58 天”），说明日期计算这类事情应该交给工具做。
+  - 坑：`readline` 的 `question()` 在输入流结束时既不返回也不报错，确认函数会一直挂住。需要同时监听 `close` 事件，测试里已覆盖。
+  - 测试：`test/llm/client.test.ts`（tools 往返）、`test/agent/llm_model.test.ts`（真实客户端 + 循环，走本地 HTTP 服务）、`test/tools/`（三个工具、白名单、参数辅助函数）、`test/cli/approve.test.ts`。
 ### 第 5 步：工具注册与参数校验
 
 - 目标：抽象出统一的 `Tool` 定义，用 Zod 描述参数，新增 `calculate` 工具。
@@ -153,7 +162,7 @@
 - [x] 第 1 步　调用一次模型
 - [x] 第 2 步　多轮对话
 - [x] 第 3 步　Agent 循环骨架（假模型）
-- [ ] 第 4 步　真实模型的 function call
+- [x] 第 4 步　真实模型的 function call
 - [ ] 第 5 步　工具注册与参数校验
 - [ ] 第 6 步　预算与稳定性
 - [ ] 第 7 步　统一数据格式与第一个数据源

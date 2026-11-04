@@ -16,3 +16,9 @@ test('每种事件都能格式化成非空文本', async () => {
   assert.match(lines.join('\n'), /✗ 工具 missing 失败/)
   assert.match(formatEvent({ type: 'pipeline_stage', run_id: 'r', stage: '统计', progress: 0.5 }), /统计 50%/)
 })
+
+test('工具参数过长时截断显示', () => {
+  const line = formatEvent({ type: 'tool_start', run_id: 'r', step: 1, call_id: 'c', name: 'write_file', args: { content: 'x'.repeat(1_000) } })
+  assert.ok(line.length < 300)
+  assert.ok(line.endsWith('…)'))
+})

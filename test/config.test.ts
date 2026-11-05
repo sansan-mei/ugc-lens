@@ -83,6 +83,13 @@ describe('loadLlmConfig', () => {
     )
   })
 
+  test('max_retries 默认为 3，可以在配置文件或参数里修改', () => {
+    assert.equal(loadLlmConfig({ provider: 'ollama' }, env.dir).maxRetries, 3)
+    writeConfig({ provider: 'ollama', max_retries: 0 })
+    assert.equal(loadLlmConfig({}, env.dir).maxRetries, 0)
+    assert.equal(loadLlmConfig({ max_retries: 5 }, env.dir).maxRetries, 5)
+  })
+
   test('配置文件不是合法 JSON 时报错', () => {
     mkdirSync(join(env.dir, '.ugc-lens'), { recursive: true })
     writeFileSync(join(env.dir, '.ugc-lens', 'config.json'), '{ broken')

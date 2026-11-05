@@ -70,13 +70,19 @@ describe('createChatClient', () => {
     assert.equal(server.requests.length, 0)
   })
 
-  test('超过 timeoutMs 时中断请求', async () => {
+  test('超过 timeoutMs 时中断请求，作为可重试的 LlmError', async () => {
     server = await startMockServer(async (_req, res) => {
       await new Promise((resolve) => setTimeout(resolve, 500))
       sendJson(res, 200, completion('late'))
     })
-    const client = createChatClient(configFor(server.baseUrl, { timeoutMs: 50 }))
-    await assert.rejects(client.chat([{ role: 'user', content: 'hi' }]), { name: 'TimeoutError' })
+    const client = createChatClient(configFor(server.baseUrl, { timeoutMs: 50, maxRetries: 1 }), { retry: { baseDelayMs: 1 } })
+    await assert.rejects(client.chat([{ role: 'user', content: 'hi' }]), (error: unknown) => {
+      assert.ok(error instanceof LlmError)
+      assert.equal(error.retryable, true)
+      assert.match(error.message, /超过 50ms 未完成.*已重试 1 次/)
+      return true
+    })
+    assert.equal(server.requests.length, 2)
   })
 
   test('带工具时发送 tools 和 tool_choice，并解析返回的 tool_calls', async () => {
@@ -146,5 +152,93 @@ describe('createChatClient', () => {
     server = await startMockServer((_req, res) => sendJson(res, 200, { data: [{ id: 'b' }, { id: 'a' }] }))
     assert.deepEqual(await createChatClient(configFor(server.baseUrl)).listModels(), ['a', 'b'])
     assert.equal(server.requests[0]?.url, '/v1/models')
+  })
+})
+
+describe('createChatClient 重试', () => {
+  const fastRetry = { retry: { baseDelayMs: 1, maxDelayMs: 2 } }
+
+  test('503 两次后成功：共请求 3 次，每次重试都通知', async () => {
+    let count = 0
+    server = await startMockServer((_req, res) => {
+      count++
+      if (count <= 2) return sendJson(res, 503, { error: 'busy' })
+      sendJson(res, 200, completion('ok'))
+    })
+    const retries: number[] = []
+    const result = await createChatClient(configFor(server.baseUrl), fastRetry).chat([{ role: 'user', content: 'hi' }], {
+      onRetry: (info) => retries.push(info.attempt),
+    })
+    assert.equal(result.message.content, 'ok')
+    assert.equal(server.requests.length, 3)
+    assert.deepEqual(retries, [1, 2])
+  })
+
+  test('429 带 retry-after-ms 时按它等待', async () => {
+    let count = 0
+    server = await startMockServer((_req, res) => {
+      count++
+      if (count === 1) {
+        res.writeHead(429, { 'Content-Type': 'application/json', 'retry-after-ms': '30' })
+        res.end('{"error":"rate limited"}')
+        return
+      }
+      sendJson(res, 200, completion('ok'))
+    })
+    const delays: number[] = []
+    await createChatClient(configFor(server.baseUrl), fastRetry).chat([{ role: 'user', content: 'hi' }], {
+      onRetry: (info) => delays.push(info.delayMs),
+    })
+    assert.deepEqual(delays, [30])
+  })
+
+  test('400、401、402、404 不重试', async () => {
+    for (const status of [400, 401, 402, 404]) {
+      server = await startMockServer((_req, res) => sendJson(res, status, { error: 'no' }))
+      await assert.rejects(createChatClient(configFor(server.baseUrl), fastRetry).chat([{ role: 'user', content: 'hi' }]), {
+        name: 'LlmError',
+      })
+      assert.equal(server.requests.length, 1, String(status))
+      await server.close()
+    }
+    server = undefined
+  })
+
+  test('重试用完后抛出 LlmError，注明重试次数和状态码', async () => {
+    server = await startMockServer((_req, res) => sendJson(res, 500, { error: 'down' }))
+    const client = createChatClient({ ...configFor(server.baseUrl), maxRetries: 2 }, fastRetry)
+    await assert.rejects(client.chat([{ role: 'user', content: 'hi' }]), (error: unknown) => {
+      assert.ok(error instanceof LlmError)
+      assert.equal(error.status, 500)
+      assert.match(error.message, /已重试 2 次/)
+      return true
+    })
+    assert.equal(server.requests.length, 3)
+  })
+
+  test('连接失败属于网络错误，会重试', async () => {
+    const closed = await startMockServer((_req, res) => sendJson(res, 200, completion('ok')))
+    await closed.close()
+    const retries: string[] = []
+    const client = createChatClient({ ...configFor(closed.baseUrl), maxRetries: 1 }, fastRetry)
+    await assert.rejects(
+      client.chat([{ role: 'user', content: 'hi' }], { onRetry: (info) => retries.push(info.error.message) }),
+      /网络错误.*已重试 1 次/,
+    )
+    assert.equal(retries.length, 1)
+  })
+
+  test('调用方取消时不重试，原样抛出取消错误', async () => {
+    server = await startMockServer(async (_req, res) => {
+      await new Promise((resolve) => setTimeout(resolve, 500))
+      sendJson(res, 200, completion('late'))
+    })
+    const controller = new AbortController()
+    setTimeout(() => controller.abort(), 30)
+    await assert.rejects(
+      createChatClient(configFor(server.baseUrl), fastRetry).chat([{ role: 'user', content: 'hi' }], { signal: controller.signal }),
+      { name: 'AbortError' },
+    )
+    assert.equal(server.requests.length, 1)
   })
 })

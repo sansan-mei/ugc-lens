@@ -1,19 +1,29 @@
 import type { LlmConfig } from '../config.ts'
+import { DEFAULT_RETRY_POLICY, isRetryableStatus, parseRetryAfter, withRetry, type RetryInfo, type RetryPolicy } from './retry.ts'
 import type { ChatMessage, ChatOptions, ChatResult, RawChatCompletion, RawToolCall, ToolCall } from './types.ts'
 
 export class LlmError extends Error {
   override name = 'LlmError'
   readonly status?: number
+  /** 网络错误、请求超时、408/429/5xx 为 true */
+  readonly retryable: boolean
+  readonly retryAfterMs?: number
 
-  constructor(message: string, status?: number) {
-    super(message)
-    this.status = status
+  constructor(message: string, options: { status?: number; retryable?: boolean; retryAfterMs?: number; cause?: unknown } = {}) {
+    super(message, { cause: options.cause })
+    this.status = options.status
+    this.retryable = options.retryable ?? false
+    this.retryAfterMs = options.retryAfterMs
   }
 }
 
 export interface ChatClient {
   chat(messages: readonly ChatMessage[], options?: ChatOptions): Promise<ChatResult>
   listModels(): Promise<string[]>
+}
+
+export interface ChatClientOptions {
+  retry?: Partial<RetryPolicy>
 }
 
 /** 各家返回的 tool_calls 细节不完全一致（缺 id、arguments 是对象），统一成标准格式 */
@@ -31,26 +41,56 @@ function normalizeToolCalls(raw: RawToolCall[] | null | undefined): ToolCall[] {
   }))
 }
 
-export function createChatClient(config: LlmConfig): ChatClient {
+function describeNetworkError(error: unknown): string {
+  const cause = (error as { cause?: { code?: string; message?: string } }).cause
+  return cause?.code ?? cause?.message ?? (error as Error).message
+}
+
+export function createChatClient(config: LlmConfig, options: ChatClientOptions = {}): ChatClient {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
   if (config.apiKey) headers.Authorization = `Bearer ${config.apiKey}`
+  const policy: RetryPolicy = {
+    ...DEFAULT_RETRY_POLICY,
+    ...(config.maxRetries === undefined ? {} : { maxRetries: config.maxRetries }),
+    ...options.retry,
+  }
 
-  async function request<T>(path: string, init: RequestInit, signal?: AbortSignal): Promise<T> {
+  async function requestOnce<T>(path: string, init: RequestInit, signal?: AbortSignal): Promise<T> {
     const timeout = AbortSignal.timeout(config.timeoutMs)
-    const response = await fetch(`${config.baseUrl}${path}`, {
-      ...init,
-      headers,
-      signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
-    })
-    const text = await response.text()
+    let response: Response
+    let text: string
+    try {
+      response = await fetch(`${config.baseUrl}${path}`, {
+        ...init,
+        headers,
+        signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+      })
+      text = await response.text()
+    } catch (error) {
+      // 调用方取消或运行总超时：原样抛出，由循环判断停止原因
+      if (signal?.aborted) throw error
+      if (timeout.aborted) {
+        throw new LlmError(`${config.provider} 请求超过 ${config.timeoutMs}ms 未完成`, { retryable: true, cause: error })
+      }
+      throw new LlmError(`${config.provider} 网络错误：${describeNetworkError(error)}`, { retryable: true, cause: error })
+    }
+
     if (!response.ok) {
-      throw new LlmError(`${config.provider} 返回 HTTP ${response.status}: ${text.slice(0, 500)}`, response.status)
+      throw new LlmError(`${config.provider} 返回 HTTP ${response.status}: ${text.slice(0, 500)}`, {
+        status: response.status,
+        retryable: isRetryableStatus(response.status),
+        retryAfterMs: parseRetryAfter(response.headers),
+      })
     }
     try {
       return JSON.parse(text) as T
     } catch {
       throw new LlmError(`${config.provider} 返回的不是 JSON: ${text.slice(0, 200)}`)
     }
+  }
+
+  function request<T>(path: string, init: RequestInit, signal?: AbortSignal, onRetry?: (info: RetryInfo) => void): Promise<T> {
+    return withRetry(() => requestOnce<T>(path, init, signal), { policy, signal, onRetry })
   }
 
   return {
@@ -72,6 +112,7 @@ export function createChatClient(config: LlmConfig): ChatClient {
         '/chat/completions',
         { method: 'POST', body: JSON.stringify(body) },
         options.signal,
+        options.onRetry,
       )
       const choice = raw.choices[0]
       if (!choice) throw new LlmError(`${config.provider} 返回的 choices 为空`)

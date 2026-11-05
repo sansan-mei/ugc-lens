@@ -1,4 +1,5 @@
 /** OpenAI 兼容 Chat Completions 接口的类型（只保留目前用到的字段） */
+import type { RetryInfo } from './retry.ts'
 
 export interface ToolCall {
   id: string
@@ -50,6 +51,8 @@ export interface ChatOptions {
   /** 为空时请求里不带 tools 和 tool_choice */
   tools?: readonly ToolDefinition[]
   toolChoice?: ToolChoice
+  /** 每次重试前调用，用于显示进度 */
+  onRetry?: (info: RetryInfo) => void
 }
 
 export interface Usage {

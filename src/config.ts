@@ -17,6 +17,7 @@ export interface LlmConfigFile {
   base_url?: string | null
   api_key_env?: string | null
   timeout_ms?: number
+  max_retries?: number
 }
 
 /** 解析完成、可以直接使用的模型配置 */
@@ -26,6 +27,8 @@ export interface LlmConfig {
   baseUrl: string
   apiKey?: string
   timeoutMs: number
+  /** 网络错误、超时、限流、服务端错误时最多重试几次，未设置时为 3 */
+  maxRetries?: number
 }
 
 export class ConfigError extends Error {
@@ -114,5 +117,6 @@ export function loadLlmConfig(
     baseUrl: baseUrl.replace(/\/+$/, ''),
     apiKey,
     timeoutMs: overrides.timeout_ms ?? file.timeout_ms ?? 120_000,
+    maxRetries: overrides.max_retries ?? file.max_retries ?? 3,
   }
 }

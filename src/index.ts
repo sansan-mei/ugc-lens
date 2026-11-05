@@ -1,4 +1,4 @@
-/** 代码 API。命令行和以后的 MCP 服务只通过这些函数使用核心功能 */
+/** 代码 API。命令行和 MCP 服务只通过这些函数使用核心功能 */
 
 export { loadLlmConfig, ConfigError, type LlmConfig, type LlmConfigFile } from './config.ts'
 export { createChatClient, LlmError, type ChatClient, type ChatClientOptions } from './llm/client.ts'

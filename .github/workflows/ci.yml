@@ -36,3 +36,6 @@ jobs:
           npm install --no-audit --no-fund ./ugc-lens-*.tgz
           npx ugc-lens --version
           npx ugc-lens --help
+          node --input-type=module -e "import { createMcpServer } from 'ugc-lens/mcp'; await createMcpServer().close()"
+          node --input-type=module -e "import { readFile } from 'node:fs/promises'; await readFile(new URL('./skills/ugc-lens/SKILL.md', import.meta.resolve('ugc-lens/package.json')), 'utf8')"
+          UGC_LENS_TEST_CLI="$RUNNER_TEMP/node_modules/ugc-lens/dist/cli/index.js" node --test "$GITHUB_WORKSPACE/test/cli/mcp.test.ts"

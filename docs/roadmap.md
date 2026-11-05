@@ -261,6 +261,13 @@
 
 - 目标：把数据工具和 `analyze`、`ask` 作为 MCP 工具暴露出去，附 `SKILL.md`。
 - 完成标准：在 Claude Code 里配置后，能直接让它分析某个文件。
+- 笔记：
+  - `ugc-lens mcp [--cwd <目录>]` 通过 stdio 接入宿主；stdout 只承载协议，配置、缓存和报告按工作目录解析。普通子命令不会提前加载 SDK。
+  - 使用官方 `@modelcontextprotocol/server` 2.4.0，SDK 负责现代与 2025 协议兼容、参数校验、取消和传输；测试使用同版本官方客户端，不自行实现 JSON-RPC。
+  - `src/mcp/server.ts` 暴露 `load_dataset`、原有四个查询工具、`analyze`、`ask`。宿主可以自己查询数据，也可调用已有分析/追问流水线；握手与工具发现无需模型配置。
+  - `ask` 返回 conversation_id，传回 ID 继续追问，不同会话与数据集隔离；同一会话并发请求返回可恢复的错误。断开与取消传递到底层请求。
+  - `skills/ugc-lens/SKILL.md` 随 npm 包发布；README 提供 Claude Code、通用 stdio 配置和源码接入方式；代码 API 从 `ugc-lens/mcp` 导出。
+  - 验证：类型检查、全部测试；真实 stdio 子进程连接本地 HTTP 模拟模型，导入后连续追问；2025 协议握手与 EOF；本机 Claude Code 在临时配置目录中显示 Connected。未调用真实模型做验收。
 
 ### 第 13 步：playbook 与 learnings
 
@@ -298,7 +305,7 @@
 - [x] 第 10 步　监听目录
 - [x] 第 10.5 步　npm 入口与发布
 - [x] 第 11 步　默认交互对话与工具调度
-- [ ] 第 12 步　MCP 服务
+- [x] 第 12 步　MCP 服务
 - [ ] 第 13 步　playbook 与 learnings
 - [ ] 第 14 步　更多文件格式
 - [ ] 第 15 步　图形界面（可选）

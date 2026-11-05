@@ -71,7 +71,7 @@ describe('命令行入口', () => {
   })
 
   test('命令 --help 打印该命令的用法，不读取配置', async () => {
-    for (const command of ['init', 'analyze', 'ask', 'watch']) {
+    for (const command of ['init', 'analyze', 'ask', 'watch', 'mcp']) {
       const r = await run(command, '--help')
       assert.equal(r.code, 0)
       assert.match(r.stdout, new RegExp(`ugc-lens ${command}`))

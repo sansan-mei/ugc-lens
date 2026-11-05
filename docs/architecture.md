@@ -63,7 +63,7 @@ ugc-lens 是一个**分析用户互动内容（评论、弹幕、回复等）的
 
 - 命令行：直接运行 `ugc-lens` 进入持续对话（第 11 步），模型根据自然语言选择工具；`ugc-lens init`（交互式初始化：选提供商、列出 /models 选模型、填 key、发一次测试调用，写入全局配置）、`ugc-lens analyze <文件>`（生成报告）、`ugc-lens ask <文件> <问题> [追问...]`（追问，回答带 ID）、`ugc-lens watch <目录>`（监听目录，第 6.7 节）。结果打印到标准输出，进度打印到标准错误，可以直接重定向到文件。
 - 配置从环境变量、当前目录的 `.env` 和 `.ugc-lens/config.json`、全局 `~/.ugc-lens/config.json` 读取（优先级从高到低，见 [providers.md](providers.md) 第 4 节）。任务状态和报告仍写在当前目录的 `.ugc-lens/` 下，只有模型配置进全局目录。
-- 代码 API：`src/index.ts` 导出 `loadDataset`、`analyzeDataset`、`askDataset`、`watchDirectory`、`openTaskStore`、模型客户端和配置读取等，命令行和以后的 MCP 都只用这些。
+- 代码 API：`src/index.ts` 导出 `loadDataset`、`analyzeDataset`、`askDataset`、`watchDirectory`、`openTaskStore`、模型客户端和配置读取等，命令行和 MCP 复用这些核心能力。
 - 发布：开发时直接运行 `.ts`；发布前用 `tsc -p tsconfig.build.json` 把 `src/` 编译到 `dist/`（含类型声明），因为 Node 不对 `node_modules` 里的 `.ts` 做类型剥离。包里只放 `dist/`、README、LICENSE。
 - CI（GitHub Actions）：`ci.yml` 在每次推送和 PR 时跑类型检查、测试、编译，并把 `npm pack` 的包装到临时目录里运行 `--help`。`release.yml` 在 master 上 `package.json` 的版本号和 npm 上的不同时发布，用 npm Trusted Publishing（OIDC，不存 token），然后打 `v版本号` 标签。
 
@@ -75,6 +75,17 @@ ugc-lens 是一个**分析用户互动内容（评论、弹幕、回复等）的
 - 导入后的数据集保留在内存，后续可以直接追问；生成报告复用固定流水线，输出保存路径和报告内容，不让模型编造执行结果。
 - 监听使用独立的会话级取消信号，在后台运行，启动成功后工具立即返回，用户可以继续对话。一次会话只启用一个监听；停止或退出时取消并等待资源清理。任务按监听目录隔离持久化，完成和失败消息显示在终端，状态可由工具读取。
 - `src/cli/chat.ts` 负责输入输出；`/exit`、`/quit`、Ctrl+D 或 Ctrl+C 退出并清理监听，单轮请求失败后仍可继续输入。模型配置沿用现有优先级，缺配置时提示运行 `ugc-lens init`。
+
+### 2.4 MCP 服务（roadmap 第 12 步）
+
+- `ugc-lens mcp [--cwd <目录>]` 提供本地 stdio MCP 服务，由宿主启动和停止；不启动 HTTP 服务、不监听端口。标准输出仅用于 MCP 协议，诊断信息只写标准错误。
+- 使用官方 TypeScript SDK 处理握手、协议校验、工具发现、请求取消与 stdio 传输，避免自行维护 JSON-RPC 协议。依赖固定精确版本；CLI 动态加载 MCP 入口，普通命令不提前加载 SDK。
+- `src/mcp/server.ts` 创建独立服务实例；每个实例拥有数据集和追问历史，不与默认 CLI 对话共享内存。`--cwd` 决定配置、映射缓存、报告与相对输入路径的基准，不修改进程工作目录。
+- 工具为 `load_dataset`、已有的四个数据查询工具、`analyze` 和 `ask`。数据查询复用 `createDataTools` 的 schema 和实现；`analyze` 调用固定流水线；`ask` 调用 `askDataset`，返回引用校验结果。提供 file 时自动导入，也可用 dataset_id 选择已导入的数据。
+- 模型配置按需读取：握手、工具发现及空的数据集列表不需要 API key；只有导入、分析、追问时才创建模型客户端。配置仍沿用 providers.md 的优先级。
+- `ask` 返回 conversation_id，后续传回同一 ID 延续上下文；不同会话分开保存，同一会话绑定同一数据集，并发写同一会话时返回可恢复的错误。
+- 参数由现有 Zod 工具及 SDK 校验；业务错误返回 `isError: true` 的工具结果，协议错误由 SDK 处理。请求取消传递到底层 fetch、导入和流水线；断开、EOF 或信号退出时取消未完成请求并清理资源。
+- 仓库内附 `skills/ugc-lens/SKILL.md`，随 npm 包发布，用于指导宿主选择查询或完整流水线；README 提供 Claude Code 与通用 stdio 配置。不会自动修改用户的宿主配置或安装技能。
 
 ## 3. Agent 循环
 

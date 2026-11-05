@@ -12,9 +12,11 @@ import { UsageError } from './common.ts'
 import { runChat } from './chat.ts'
 import { INIT_USAGE, runInit } from './init.ts'
 import { runWatch, WATCH_USAGE } from './watch.ts'
+import { MCP_USAGE, runMcp } from './mcp.ts'
 
 const COMMANDS = {
   init: { run: runInit, usage: INIT_USAGE },
+  mcp: { run: runMcp, usage: MCP_USAGE },
   analyze: { run: runAnalyze, usage: ANALYZE_USAGE },
   ask: { run: runAsk, usage: ASK_USAGE },
   watch: { run: runWatch, usage: WATCH_USAGE },
@@ -28,6 +30,7 @@ const MAIN_USAGE = `ugc-lens：分析评论、弹幕等用户互动内容
   ugc-lens analyze <文件>               生成 Markdown 分析报告
   ugc-lens ask <文件> <问题> [追问...]   追问，回答带 [ID] 引用
   ugc-lens watch <目录>                 监听目录，新的 *_all.json 写完后自动分析
+  ugc-lens mcp [--cwd <目录>]           通过 stdio 向宿主提供 MCP 工具
   ugc-lens <命令> --help                查看命令的选项
   ugc-lens --version
 

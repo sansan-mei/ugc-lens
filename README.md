@@ -1,6 +1,6 @@
 # ugc-lens
 
-面向中文社媒用户互动内容（评论、回复、弹幕等）的轻量分析 Agent。直接启动后用自然语言描述目标，它会选择工具导入数据、生成带原文引用的报告、连续追问或监听目录。以 npm 包形式提供命令行和代码调用，MCP 服务后续提供。
+面向中文社媒用户互动内容（评论、回复、弹幕等）的轻量分析 Agent。直接启动后用自然语言描述目标，它会选择工具导入数据、生成带原文引用的报告、连续追问或监听目录。以 npm 包形式提供命令行和代码调用，也提供 stdio MCP 服务供宿主调用。
 
 > 状态：0.0.x 试用版。目前只支持 JSON 文件，接口和报告格式还可能调整。
 
@@ -80,6 +80,49 @@ ugc-lens <命令> --help    # 查看全部选项
 - 报告包括：概况、IP 属地、关键词、弹幕高峰、各方向（主要观点、吐槽点、正面评价、争议）的主题和原文引用，末尾是耗时和 token 用量。
 - 统计、去重、关键词、引用校验都由代码完成，模型只负责分块总结和合并，一个 10 万条评论的文件大约用 6～7 万 token。
 - `watch` 的任务状态存在 `.ugc-lens/tasks.json`，按 Ctrl+C 停止后再启动会继续没做完的任务。
+
+## MCP 接入
+
+先用 `ugc-lens init` 配置模型。MCP 由宿主启动，不需要自己开一个服务终端。Claude Code 中可以添加：
+
+```bash
+claude mcp add --transport stdio ugc-lens -- npx -y ugc-lens@0.0.4 mcp --cwd /绝对路径/数据项目
+```
+
+测试本地源码时：
+
+```bash
+claude mcp add --transport stdio ugc-lens -- node /绝对路径/ugc-lens/src/cli/index.ts mcp --cwd /绝对路径/数据项目
+```
+
+两种配置选一种。在 Claude Code 的 `/mcp` 中确认连接，然后直接说“分析 `/绝对路径/video_all.json`，重点看价格”，宿主会选择工具。`--cwd` 指定配置、缓存、报告和相对数据路径的基准目录；服务沿用环境变量、项目配置、全局配置的优先级。
+
+其他支持 stdio 的宿主可使用同等配置：
+
+```json
+{
+  "mcpServers": {
+    "ugc-lens": {
+      "command": "npx",
+      "args": ["-y", "ugc-lens@0.0.4", "mcp", "--cwd", "/绝对路径/数据项目"]
+    }
+  }
+}
+```
+
+| 工具 | 用途 |
+|---|---|
+| `load_dataset` | 导入 JSON，返回数据集 ID |
+| `list_datasets` | 列出本次服务已导入的数据 |
+| `get_dataset_stats` | 查看数据概况 |
+| `search_feedback` | 按关键词、类型、点赞等筛选并分页 |
+| `get_feedback` | 查看全文和回复链 |
+| `analyze` | 自动导入并生成完整报告，返回正文和保存路径 |
+| `ask` | 调用配置的模型回答，返回引用核对结果及追问 ID |
+
+`analyze`、`ask` 可以传 `file` 自动导入，也可用 `dataset_id`；两者不能同时提供。`ask` 返回 `conversation_id`，继续追问时传回这个 ID 和新 `question`，可省略文件。数据集和对话只在当前服务进程内保留；报告和映射缓存保存在磁盘。MCP 本身不使用宿主的模型授权，识别结构和模型分析仍需要 ugc-lens 的模型配置；握手和工具发现不需要 key。
+
+技能指引位于 [skills/ugc-lens/SKILL.md](skills/ugc-lens/SKILL.md)，随 npm 包提供，可按宿主的技能安装方式添加。代码调用者可从 `ugc-lens/mcp` 导入 `createMcpServer` 创建独立实例。
 
 ## 代码调用
 

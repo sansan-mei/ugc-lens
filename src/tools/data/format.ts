@@ -16,6 +16,13 @@ export function clock(seconds: number): string {
   return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`
 }
 
+/** 按 UTF-16 长度截取，但不把 emoji 这类代理对拆成两半：半个字符会让请求体无法解析 */
+export function sliceText(text: string, max: number): string {
+  if (text.length <= max) return text
+  const end = /[\ud800-\udbff]/.test(text[max - 1] ?? '') ? max - 1 : max
+  return text.slice(0, Math.max(0, end))
+}
+
 /** 正文里的换行压成空格，一条占一行，模型更容易对应 ID */
 export function oneLine(text: string): string {
   return text.replace(/\s*\n\s*/g, ' ')
@@ -49,7 +56,7 @@ export function formatItem(item: FeedbackItem, options: FormatItemOptions = {}):
 
   const text = options.compact ? compactRepeats(oneLine(item.text)) : oneLine(item.text)
   const max = options.maxChars ?? Infinity
-  const body = text.length > max ? `${text.slice(0, max)}…（全文 ${text.length} 字）` : text
+  const body = text.length > max ? `${sliceText(text, max)}…（全文 ${text.length} 字）` : text
   return `${parts.join(' ')} ${name}${body}`
 }
 

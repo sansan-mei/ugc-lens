@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { compactRepeats, formatItem, takeLines } from '../../../src/tools/data/format.ts'
+import { compactRepeats, formatItem, sliceText, takeLines } from '../../../src/tools/data/format.ts'
 import { makeItem } from '../../helpers/dataset.ts'
 
 test('formatItem：ID 在最前，带上类型、点赞、日期、属地、上一级和作者', () => {
@@ -36,4 +36,14 @@ test('takeLines：超过上限时停下，但至少保留一行', () => {
   assert.deepEqual(takeLines(['aaaa', 'bbbb', 'cccc'], 9), { shown: ['aaaa', 'bbbb'], omitted: 1 })
   assert.deepEqual(takeLines(['a'.repeat(100), 'b'], 10), { shown: ['a'.repeat(100)], omitted: 1 })
   assert.deepEqual(takeLines([], 10), { shown: [], omitted: 0 })
+})
+
+test('截断不拆开 emoji 这类占两个 UTF-16 单位的字符，避免产生半个字符', () => {
+  const lone = /[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/
+  for (let max = 1; max <= 6; max++) {
+    const line = formatItem(makeItem({ id: 'a', text: '好😰😰😰😰😰😰' }), { maxChars: max })
+    assert.doesNotMatch(line, lone, `maxChars=${max}`)
+  }
+  assert.equal(sliceText('好😰', 2), '好')
+  assert.equal(sliceText('好😰', 3), '好😰')
 })

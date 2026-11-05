@@ -27,4 +27,5 @@ npm run ask          # 用数据工具追问，回答带评论 ID 作为证据�
 npm run chunks       # 新词发现、关键词、弹幕高峰和分块结果，不调用模型做分析
 npm run summarize    # 分块总结：每块调用一次模型，打印各方向的观点、引用和 token 用量（需要 .env）
 npm run analyze      # 完整分析，Markdown 报告打印出来并保存到 .ugc-lens/reports/（需要 .env）
+npm run watch -- <目录> # 监听目录，新出现的 *_all.json 写完后自动分析（需要 .env）
 ```：按步骤实现，每一步的目标、要掌握的概念和完成标准

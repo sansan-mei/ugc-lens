@@ -213,6 +213,16 @@
 
 - 目标：`watch` 命令，新文件写入完成后自动触发分析；任务状态持久化，重启后继续未完成的任务。
 - 完成标准：把文件复制进目录后自动生成报告；同一文件不重复分析。
+- 用户决定：按文件名规则触发，默认只认 `*_all.json`，可配置；搜集工具全部完成后才写 `*_all.json`，文件出现就算数据齐了；分析过的文件被覆盖也跳过，只分析一次；启动时已有的文件默认不分析，加 `--existing` 才分析。
+- 笔记：
+  - 代码：`src/store/tasks.ts`（任务状态）、`src/watch/`（`pattern.ts` 文件名规则和扫描，`index.ts` 的 `watchDirectory`）、`src/cli/`（`index.ts` 命令行入口，`watch.ts` 参数和输出格式）。设计见 `docs/architecture.md` 第 6.7 节。运行：`npm run watch -- <目录>`，或 `node src/cli/index.ts watch <目录> [--pattern ...] [--existing] [--retry-failed]`。
+  - 为什么只认 `*_all.json`：搜集工具每个视频文件夹里有 comment、danmaku、summary、detail、all 五个 JSON，全分析会把同一个视频分析好几遍。
+  - 写完判定：文件出现后再等大小和修改时间 2 秒不变。大文件写入要时间，`fs.watch` 在文件刚创建时就会触发。
+  - 发现新文件：`fs.watch` 递归监听 + 每 30 秒定时扫描兜底。没有用 chokidar，少一个依赖。
+  - 任务按绝对路径记录在 `.ugc-lens/tasks.json`，先写临时文件再改名。文件损坏时报错，不自动清空（清空后分析过的文件会被重复分析）。
+  - 被 Ctrl+C 打断的任务保持 `running`，下次启动时和 `pending` 一起重新排队；失败的不自动重试，`--retry-failed` 才重试。
+  - 真实验证：监听临时目录，复制进荒野独居的 `bilibili_comment.json` 和 `bilibili_all.json`，只有 all 被分析：7 块 + 合并，8 次调用，输入 6.0 万、输出 5.1 千 token，约 20 秒出报告；目录里原有的文件没有分析。重启后覆盖 all 文件，没有重复分析。
+  - 测试：`test/store/tasks.test.ts`、`test/watch/pattern.test.ts`、`test/watch/index.test.ts`（真实临时目录 + 注入的分析函数）、`test/cli/watch.test.ts`。
 
 ---
 
@@ -256,7 +266,7 @@
 - [x] 第 8 步　数据工具
 - [x] 第 9 步　分析流水线
 - [ ] 第 9.5 步　通用文本记录（推迟到发布后）
-- [ ] 第 10 步　监听目录
+- [x] 第 10 步　监听目录
 - [ ] 第 11 步　MCP 服务
 - [ ] 第 12 步　playbook 与 learnings
 - [ ] 第 13 步　更多文件格式与发布

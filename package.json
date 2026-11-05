@@ -19,7 +19,8 @@
     "retry": "node examples/06_retry_budget.ts",
     "stats": "node examples/07_dataset_stats.ts",
     "ask": "node examples/08_ask.ts",
-    "smoke": "node examples/00_hello.ts && node examples/01_list_models.ts && node examples/03_agent_loop.ts 1 && node examples/04_tools.ts < /dev/null && node examples/06_retry_budget.ts retry && node examples/07_dataset_stats.ts --fresh && node examples/08_ask.ts \"评论里有人提到价格吗？\""
+    "chunks": "node examples/09_chunks.ts",
+    "smoke": "node examples/00_hello.ts && node examples/01_list_models.ts && node examples/03_agent_loop.ts 1 && node examples/04_tools.ts < /dev/null && node examples/06_retry_budget.ts retry && node examples/07_dataset_stats.ts --fresh && node examples/08_ask.ts \"评论里有人提到价格吗？\" && node examples/09_chunks.ts"
   },
   "devDependencies": {
     "@types/node": "22.20.5",

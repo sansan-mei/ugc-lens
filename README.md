@@ -24,4 +24,5 @@ npm run params       # 参数纠错实验（需要 .env）
 npm run retry        # 重试演示与 token 预算（budget 部分需要 .env）
 npm run stats        # 模型识别 JSON 文件结构，转换成统一格式并打印统计（需要 .env）
 npm run ask          # 用数据工具追问，回答带评论 ID 作为证据（需要 .env）
+npm run chunks       # 新词发现、关键词、弹幕高峰和分块结果，不调用模型做分析
 ```：按步骤实现，每一步的目标、要掌握的概念和完成标准

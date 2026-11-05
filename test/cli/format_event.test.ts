@@ -22,3 +22,9 @@ test('工具参数过长时截断显示', () => {
   assert.ok(line.length < 300)
   assert.ok(line.endsWith('…)'))
 })
+
+test('重试事件显示原因和等待时间', () => {
+  const text = formatEvent({ type: 'model_retry', run_id: 'r', step: 2, attempt: 1, delay_ms: 1_500, reason: 'HTTP 503' })
+  assert.match(text, /第 2 步\] 模型调用失败：HTTP 503/)
+  assert.match(text, /1\.5 秒后第 1 次重试/)
+})

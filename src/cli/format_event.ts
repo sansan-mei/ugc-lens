@@ -22,6 +22,8 @@ export function formatEvent(event: RunEvent): string {
         `${event.tool_calls > 0 ? `请求 ${event.tool_calls} 个工具` : '文字回答'}` +
         `（input=${event.usage.input_tokens} output=${event.usage.output_tokens}）`
       )
+    case 'model_retry':
+      return `  [第 ${event.step} 步] 模型调用失败：${event.reason}\n  [第 ${event.step} 步] ${(event.delay_ms / 1000).toFixed(1)} 秒后第 ${event.attempt} 次重试`
     case 'tool_start':
       return `    → 工具 ${event.name}(${formatArgs(event.args)})`
     case 'tool_end':

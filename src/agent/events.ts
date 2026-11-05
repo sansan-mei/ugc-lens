@@ -6,6 +6,8 @@ export type RunEvent =
   | { type: 'model_start'; run_id: string; step: number; final: boolean }
   | { type: 'model_delta'; run_id: string; step: number; text: string }
   | { type: 'model_end'; run_id: string; step: number; usage: Usage; tool_calls: number }
+  /** 模型接口暂时性错误，等待 delay_ms 后进行第 attempt 次重试 */
+  | { type: 'model_retry'; run_id: string; step: number; attempt: number; delay_ms: number; reason: string }
   | { type: 'tool_start'; run_id: string; step: number; call_id: string; name: string; args: unknown }
   | {
       type: 'tool_end'

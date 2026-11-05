@@ -243,6 +243,26 @@ describe('runAgent', () => {
     assert.equal(second?.result, 'n=3')
   })
 
+  test('模型接口重试时发出 model_retry 事件，带上步数和等待时间', async () => {
+    const events: RunEvent[] = []
+    const model = {
+      async complete(request: Parameters<ReturnType<typeof createFakeModel>['complete']>[0]) {
+        request.onRetry?.({ attempt: 1, delayMs: 1_000, error: new Error('HTTP 503') })
+        return createFakeModel([{ content: 'ok' }]).complete(request)
+      },
+    }
+    await runAgent({ model, messages: initial, onEvent: (e) => events.push(e) })
+    const retry = events.find((e) => e.type === 'model_retry')
+    assert.deepEqual(retry && { ...retry, run_id: undefined }, {
+      type: 'model_retry',
+      run_id: undefined,
+      step: 1,
+      attempt: 1,
+      delay_ms: 1_000,
+      reason: 'HTTP 503',
+    })
+  })
+
   test('事件顺序：run_start 开头、run_end 结尾，工具事件成对出现', async () => {
     const events: RunEvent[] = []
     const model = createFakeModel([{ tool_calls: [{ name: 'echo' }, { name: 'missing' }] }, { content: 'ok' }])

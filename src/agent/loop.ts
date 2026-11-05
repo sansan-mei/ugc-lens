@@ -120,7 +120,14 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentRunResult
 
   const callModel = async (step: number, toolChoice: ToolChoice, final: boolean): Promise<ChatResult> => {
     emit({ type: 'model_start', run_id, step, final })
-    const result = await options.model.complete({ messages, tools: definitions, toolChoice, signal })
+    const result = await options.model.complete({
+      messages,
+      tools: definitions,
+      toolChoice,
+      signal,
+      onRetry: ({ attempt, delayMs, error }) =>
+        emit({ type: 'model_retry', run_id, step, attempt, delay_ms: delayMs, reason: error.message.slice(0, 200) }),
+    })
     usage.input_tokens += result.usage.input_tokens
     usage.output_tokens += result.usage.output_tokens
     emit({

@@ -129,6 +129,17 @@
 
 - 目标：定义 `FeedbackItem` / `Dataset`，实现 media_crawl 的 B 站数据适配器。
 - 完成标准：读入一个 `bilibili_all.json`，转换成统一格式并打印统计数量。
+- 笔记：
+  - 代码：`src/dataset/types.ts`（统一格式）、`src/dataset/stats.ts`（`computeStats`）、`src/sources/`（文件识别 `detectFile`、`loadDataset`、B 站适配器 `media_crawl/bilibili.ts`）。格式说明见 `docs/architecture.md` 第 5 节。
+  - 运行：`npm run stats` 读测试样本；`node examples/07_dataset_stats.ts <文件>` 读自己的文件。
+  - 先看真实数据再定格式：本机 26 个 `bilibili_all.json`（3330 条评论、7306 条回复、33637 条弹幕）全部转换成功，ID 没有重复，弹幕时间全部能解析。
+  - 文件里没有视频 ID，只能从路径取：优先找 BV 号目录，其次取目录名末尾的 av 号。两者都没有就报错，不猜。
+  - 时间单位不统一：评论 `time` 是毫秒，`pubdate` 是秒，弹幕 `time` 是视频内的 `时:分:秒`。统一转成 ISO 时间和 `video_time_sec`。
+  - 平台显示的回复数（`replyCount` 合计 14335）远大于实际搜集到的（7306），统计里分开给出 `reported` 和 `collected`，分析结论要考虑样本不完整。
+  - 原始数据用 Zod 校验：格式不对时报出具体位置（如 `video_comments.0.content`），而不是在后面某处读到 `undefined`。
+  - 文件识别用白名单：只认 `bilibili_all.json`；小红书、知乎等文件名明确提示“暂不支持”，`all_search.json` 等汇总文件忽略。
+  - 测试样本：从真实文件截取几条，用户名、mid、rpid、弹幕发送者、封面替换成假值，`@用户名` 替换为 `@某用户`。
+  - 测试：`test/sources/index.test.ts`、`test/sources/media_crawl/bilibili.test.ts`、`test/sources/validate.test.ts`、`test/dataset/stats.test.ts`。
 
 ### 第 8 步：数据工具
 
@@ -184,7 +195,7 @@
 - [x] 第 4 步　真实模型的 function call
 - [x] 第 5 步　工具注册与参数校验
 - [x] 第 6 步　预算与稳定性
-- [ ] 第 7 步　统一数据格式与第一个数据源
+- [x] 第 7 步　统一数据格式与第一个数据源
 - [ ] 第 8 步　数据工具
 - [ ] 第 9 步　分析流水线
 - [ ] 第 10 步　监听目录

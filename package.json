@@ -1,15 +1,52 @@
 {
   "name": "ugc-lens",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "description": "面向评论、弹幕等用户互动内容的轻量分析 Agent",
-  "type": "module",
+  "keywords": [
+    "ugc",
+    "comments",
+    "danmaku",
+    "bilibili",
+    "llm",
+    "agent",
+    "analysis",
+    "评论分析",
+    "弹幕"
+  ],
+  "homepage": "https://github.com/sansan-mei/ugc-lens#readme",
+  "bugs": {
+    "url": "https://github.com/sansan-mei/ugc-lens/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sansan-mei/ugc-lens.git"
+  },
   "license": "MIT",
+  "author": "MEI",
+  "type": "module",
+  "bin": {
+    "ugc-lens": "dist/cli/index.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
   "engines": {
     "node": ">=22.18"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "node --test \"test/**/*.test.ts\"",
+    "build": "node scripts/build.ts",
+    "prepublishOnly": "npm run typecheck && npm test && npm run build",
     "chat": "node examples/01_chat.ts",
     "models": "node examples/01_list_models.ts",
     "multi": "node examples/02_multi_turn.ts",

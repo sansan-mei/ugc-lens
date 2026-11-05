@@ -15,5 +15,5 @@
     "outDir": "dist",
     "rootDir": "."
   },
-  "include": ["src", "examples", "test"]
+  "include": ["src", "examples", "test", "scripts"]
 }

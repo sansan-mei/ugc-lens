@@ -264,7 +264,7 @@ export function estimateSummarize(options: Pick<SummarizeOptions, 'dataset' | 'p
 }
 
 /** 部分思考模型（如开着思考模式的 DeepSeek）不接受指定工具，返回 400 */
-function rejectsToolChoice(error: unknown): boolean {
+export function rejectsToolChoice(error: unknown): boolean {
   return (error as { status?: number }).status === 400 && /tool_choice/i.test((error as Error).message)
 }
 

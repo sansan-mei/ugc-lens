@@ -83,7 +83,7 @@ const content = z.strictObject({
 })
 
 export const mappingSchema = z.strictObject({
-  platform: z.string().min(1).describe('平台：bilibili、douyin、xhs、zhihu、youtube、weibo、kuaishou，判断不了填 unknown'),
+  platform: z.string().min(1).describe('平台：bilibili、douyin、xhs、zhihu、youtube、weibo、kuaishou，通用记录或判断不了填 unknown'),
   content: content.optional(),
   collections: z.array(collection).min(1).describe('互动内容集合：评论、弹幕、回答等'),
 })

@@ -20,7 +20,7 @@ import { defineTool } from '../tools/define.ts'
 import { watchDirectory, type WatchEvent } from '../watch/index.ts'
 
 const SESSION_ACTIONS = `你也负责完成用户的操作目标。用户不需要选择子命令：
-- 可以先用 list_files 查找 JSON 数据；位置或目标不明确才询问，不擅自批量分析所有文件。
+- 可以先用 list_files 查找 支持格式的数据；位置或目标不明确才询问，不擅自批量分析所有文件。
 - load_dataset 导入后直接用数据查询工具回答，后续追问复用数据。多个数据集时指定 dataset_id。
 - 需要完整报告时用 analyze_dataset，可直接提供 file；报告由固定流水线生成，说明保存位置。
 - 用户要求持续监听时用 start_watch，之后仍能对话；用 watch_status 查进度，stop_watch 停止。
@@ -96,7 +96,7 @@ export function createSession(options: SessionOptions): ChatSession {
       },
     }),
     defineTool({
-      name: 'load_dataset', description: '导入用户指定的 JSON 数据文件，返回数据集 ID，之后用数据工具查询并连续追问。',
+      name: 'load_dataset', description: '导入用户指定的 JSON/JSONL/CSV/TSV/TXT/Markdown/LOG 数据文件，返回数据集 ID，之后用数据工具查询并连续追问。',
       parameters: z.object({ file: z.string().min(1) }),
       async execute({ file }, ctx) {
         const dataset = await importFile(file, ctx.signal)
@@ -113,7 +113,7 @@ export function createSession(options: SessionOptions): ChatSession {
       },
     }),
     defineTool({
-      name: 'start_watch', description: '后台监听目录，新 JSON 文件写入完成后生成报告；不阻塞后续对话。默认只处理新增 *_all.json。一次只监听一个目录。',
+      name: 'start_watch', description: '后台监听目录，新匹配文件写入完成后生成报告；不阻塞后续对话。默认只处理新增 *_all.json。一次只监听一个目录。',
       parameters: z.object({ dir: z.string().min(1), existing: z.boolean().default(false), patterns: z.array(z.string().min(1)).min(1).optional(), directions: z.array(z.string().min(1)).min(1).optional() }),
       async execute({ dir, existing, patterns, directions }, ctx) {
         ctx.signal.throwIfAborted()

@@ -189,3 +189,24 @@ test('停止时取消正在进行的分析，任务保持 running，下次启动
   assert.ok(!w.events.some((e) => e.type === 'failed'))
   assert.deepEqual(w.events.at(-1), { type: 'stopped', interrupted: file })
 })
+
+test('显式 pattern 可监听 TXT、JSONL 和 CSV，并通过共用导入器读取', async () => {
+  const { loadDataset } = await import('../../src/ingest/index.ts')
+  const { createFakeModel } = await import('../../src/agent/fake_model.ts')
+  const model = createFakeModel([{ tool_calls: [{ name: 'submit_mapping', args: { platform: 'unknown', collections: [{ kind: 'record', path: '$.rows', fields: { text: 'column_1', id: 'source_id' } }] } }] }, { content: '完成' }])
+  const store = await openTaskStore(join(root, 'tasks.json'))
+  const imported: string[] = []
+  const w = await start(store, { patterns: ['*.txt', '*.jsonl', '*.csv'], analyze: async (file, signal) => {
+    const dataset = await loadDataset(file, { signal, model, cacheDir: join(root, 'mappings') })
+    assert.ok(dataset.items.every((item) => item.kind === 'record'))
+    imported.push(dataset.items[0]!.text)
+    return OUTCOME
+  } })
+  try {
+    await put(join(data, 'a.txt'), '服务体验不错')
+    await put(join(data, 'b.jsonl'), '"售后需要改进"')
+    await put(join(data, 'c.csv'), '回答\n价格有点高')
+    await w.waitFor((event) => event.type === 'done', 3)
+    assert.deepEqual(new Set(imported), new Set(['服务体验不错', '售后需要改进', '价格有点高']))
+  } finally { await w.stop() }
+})

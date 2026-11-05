@@ -148,10 +148,10 @@ function liked(item: FeedbackItem): boolean {
  * 返回 undefined 表示整串去掉。
  */
 export function dropLowInfo(thread: Thread): { thread?: Thread; dropped: number } {
-  const replies = thread.replies.filter((reply) => liked(reply) || !isLowInfo(reply.text))
+  const replies = thread.replies.filter((reply) => reply.kind === 'record' || liked(reply) || !isLowInfo(reply.text))
   const dropped = thread.replies.length - replies.length
   const empty = replies.length === 0 && thread.omitted_replies === 0 && thread.duplicates === 0
-  if (empty && !liked(thread.root) && !(thread.root.reply_count ?? 0) && isLowInfo(thread.root.text)) {
+  if (thread.root.kind !== 'record' && empty && !liked(thread.root) && !(thread.root.reply_count ?? 0) && isLowInfo(thread.root.text)) {
     return { dropped: dropped + 1 }
   }
   return { thread: dropped === 0 ? thread : { ...thread, replies }, dropped }
@@ -163,8 +163,8 @@ export function contentLabels(dataset: Dataset): Map<string, string> | undefined
   return new Map(dataset.contents.map((content, i) => [content.id, `@${i + 1}`]))
 }
 
-function body(text: string, max: number): string {
-  const value = compactRepeats(oneLine(stripReplyPrefix(text)))
+function body(text: string, max: number, stripPrefix = true): string {
+  const value = compactRepeats(oneLine(stripPrefix ? stripReplyPrefix(text) : text))
   return value.length > max ? `${sliceText(value, max)}…（全文 ${value.length} 字）` : value
 }
 
@@ -177,7 +177,7 @@ function itemLine(item: FeedbackItem, label: string, max: number, labels: Map<st
   if (item.author?.location) parts.push(item.author.location)
   if (labels) parts.push(labels.get(item.content_id) ?? `@${item.content_id}`)
   const name = item.author?.name ? `${item.author.name}：` : ''
-  return `${parts.join(' ')} ${name}${body(item.text, max)}`
+  return `${parts.join(' ')} ${name}${body(item.text, item.kind === 'record' ? Infinity : max, item.kind !== 'record')}`
 }
 
 /** 编号从 start 开始：一级内容是 start，回复依次加一 */

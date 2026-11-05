@@ -11,13 +11,13 @@ export { createFakeModel, type FakeModel, type FakeReply, type FakeScript } from
 export { runAgent, DEFAULT_LIMITS, type AgentLimits, type AgentRunResult, type RunAgentOptions, type StopReason } from './agent/loop.ts'
 export type { RunEvent, RunEventListener } from './agent/events.ts'
 
-export { loadDataset, datasetId, ImportError, type ImportErrorCode, type LoadDatasetOptions } from './ingest/index.ts'
+export { loadDataset, datasetId, ImportError, type ImportErrorCode, type LoadDatasetOptions, type InputFormat } from './ingest/index.ts'
 export type { ContentInfo, Dataset, FeedbackAuthor, FeedbackItem, FeedbackKind, ImportReport } from './dataset/types.ts'
 export { computeStats, type DatasetStats } from './dataset/stats.ts'
 export { findCitations, getFeedback, getReplies, searchFeedback, type FeedbackPage, type FeedbackQuery } from './dataset/query.ts'
 
 export { analyzeDataset, type AnalyzeOptions, type AnalyzeProgress, type AnalyzeResult } from './pipeline/analyze.ts'
-export { DEFAULT_DIRECTIONS, type Finding, type FindingRef } from './pipeline/summarize.ts'
+export { DEFAULT_DIRECTIONS, RECORD_DIRECTIONS, type Finding, type FindingRef } from './pipeline/summarize.ts'
 export type { Theme } from './pipeline/merge.ts'
 export { askDataset, type AskOptions, type AskResult } from './ask/index.ts'
 

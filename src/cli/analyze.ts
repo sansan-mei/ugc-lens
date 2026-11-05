@@ -3,7 +3,7 @@ import { parseArgs } from 'node:util'
 import { loadLlmConfig } from '../config.ts'
 import { loadDataset } from '../ingest/index.ts'
 import { analyzeDataset } from '../pipeline/analyze.ts'
-import { abortOnInterrupt, analysisModel, formatAnalyzeProgress, positiveNumber, splitList, UsageError } from './common.ts'
+import { mappingSource, abortOnInterrupt, analysisModel, formatAnalyzeProgress, positiveNumber, splitList, UsageError } from './common.ts'
 
 export const ANALYZE_USAGE = `用法：ugc-lens analyze <文件> [选项]
 
@@ -56,7 +56,7 @@ export async function runAnalyze(argv: readonly string[]): Promise<void> {
   const { signal } = abortOnInterrupt('正在取消')
 
   const dataset = await loadDataset(args.file, { model, signal })
-  console.error(`已导入 ${dataset.items.length} 条（文件结构${dataset.mapping.from_cache ? '规则来自缓存' : '由模型识别'}）`)
+  console.error(`已导入 ${dataset.items.length} 条（文件结构${mappingSource(dataset.mapping)}）`)
   const result = await analyzeDataset({
     memory: { cwd: process.cwd(), onWarning: (message) => console.error(message) },
     model,

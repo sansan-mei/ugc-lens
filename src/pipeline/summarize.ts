@@ -10,6 +10,11 @@ import type { Chunk, ChunkPlan } from './chunk.ts'
 import { contentLabels } from './chunk.ts'
 
 export const DEFAULT_DIRECTIONS = ['主要观点', '吐槽点', '正面评价', '争议'] as const
+export const RECORD_DIRECTIONS = ['主要主题', '反复出现的问题', '需求与建议', '差异与分歧'] as const
+
+export function defaultDirections(dataset: Dataset): readonly string[] {
+  return dataset.items.some((item) => item.kind === 'record') ? RECORD_DIRECTIONS : DEFAULT_DIRECTIONS
+}
 
 /** 原文超过这么多字时，模型才需要附上摘句；短内容报告里直接显示原文 */
 export const LONG_TEXT_CHARS = 80
@@ -130,7 +135,7 @@ function describeDataset(dataset: Dataset): string {
     return labels ? `${labels.get(content.id)} ${title}` : title
   })
   const more = dataset.contents.length > 20 ? `\n……共 ${dataset.contents.length} 个` : ''
-  return contents.length > 0 ? `数据来自 ${dataset.platform}，被评论的内容：\n${contents.join('\n')}${more}` : `数据来自 ${dataset.platform}。`
+  return contents.length > 0 ? `数据来自 ${dataset.platform}，内容信息：\n${contents.join('\n')}${more}` : `数据来自 ${dataset.platform}。`
 }
 
 /** 各块的 system prompt 完全相同，请求开头一致，能命中提供商的提示词缓存 */
@@ -140,7 +145,7 @@ export function buildSystemPrompt(dataset: Dataset, plan: ChunkPlan, directions:
     '- [编号] 赞数 回复数 日期 IP 属地 用户名：正文。以 ↳ 开头的是上一条的回复。“（同样 +N）”表示另有 N 条内容相同。',
   ]
   if (hasDanmaku) formats.push('- 弹幕块：[编号] ×重复次数 首次出现的时间 正文。')
-  return `你在分析一批用户写的内容（评论、回复等）。内容分成若干块，每次给你一块，每行一条：
+  return `你在分析一批文本内容（通用记录、评论、回复等）。内容分成若干块，每次给你一块，每行一条：
 ${formats.join('\n')}
 没有的字段不显示。
 
@@ -160,7 +165,7 @@ ${describeDataset(dataset)}`
 }
 
 function chunkMessage(chunk: Chunk, total: number): string {
-  const kind = chunk.kind === 'danmaku' ? '弹幕' : '评论和回复'
+  const kind = chunk.kind === 'danmaku' ? '弹幕' : '文本记录'
   return `第 ${chunk.index + 1}/${total} 块（${kind}）：\n${chunk.lines.join('\n')}`
 }
 
@@ -240,7 +245,7 @@ interface Prepared {
 }
 
 function prepare(options: Pick<SummarizeOptions, 'dataset' | 'plan' | 'directions' | 'maxFindings' | 'playbook'>): Prepared {
-  const directions = options.directions?.length ? options.directions : DEFAULT_DIRECTIONS
+  const directions = options.directions?.length ? options.directions : defaultDirections(options.dataset)
   const maxFindings = options.maxFindings ?? 8
   const tool: ToolDefinition = {
     type: 'function',

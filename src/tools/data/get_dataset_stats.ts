@@ -43,7 +43,7 @@ export function formatDatasetStats(dataset: Dataset, maxChars: number): string {
   const counts = Object.entries(stats.items)
     .filter(([, count]) => count > 0)
     .map(([kind, count]) => `${kind} ${count}`)
-  lines.push(`\n互动内容：${counts.join('，') || '无'}`)
+  lines.push(`\n${stats.items.record > 0 ? '文本记录' : '互动内容'}：${counts.join('，') || '无'}`)
   const { reported, collected } = stats.replies
   if (reported > 0) {
     lines.push(`回复：平台显示 ${reported} 条，实际搜集到 ${collected} 条（${((collected / reported) * 100).toFixed(0)}%），回复是不完整的样本`)
@@ -53,9 +53,9 @@ export function formatDatasetStats(dataset: Dataset, maxChars: number): string {
     lines.push(`IP 属地（${stats.with_location} 条有属地）：${stats.locations.map((l) => `${l.name} ${l.count}`).join('，')}`)
   }
 
-  const top = searchFeedback(dataset, { kinds: ['comment', 'answer'], sort: 'likes', limit: 5 })
+  const top = searchFeedback(dataset, { kinds: ['comment', 'answer', 'record'], sort: 'likes', limit: 5 })
   if (top.items.length > 0 && top.items[0]?.likes !== undefined) {
-    lines.push('\n点赞最多的评论：')
+    lines.push(stats.items.record > 0 ? '\n点赞最多的记录：' : '\n点赞最多的评论：')
     for (const item of top.items) lines.push(formatItem(item, { maxChars: SNIPPET_CHARS, showContent: hasManyContents(dataset) }))
   }
   lines.push('\n要查看具体内容，用 search_feedback 筛选，或用 get_feedback 按 ID 读取。')

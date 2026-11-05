@@ -30,7 +30,7 @@ test('computeStats：按类型计数，回复数分为平台显示与实际搜�
     ]),
   )
   assert.equal(stats.contents, 1)
-  assert.deepEqual(stats.items, { comment: 2, reply: 1, danmaku: 1, answer: 0 })
+  assert.deepEqual(stats.items, { comment: 2, reply: 1, danmaku: 1, answer: 0, record: 0 })
   assert.deepEqual(stats.replies, { reported: 5, collected: 1 }, '回复自身的 reply_count 不计入')
 })
 

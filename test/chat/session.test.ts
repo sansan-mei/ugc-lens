@@ -137,3 +137,21 @@ test('真实目录监听在后台分析，退出会取消正在运行的分析',
     assert.equal(cancelled, true)
   } finally { await session.close(); await rm(cwd, { recursive: true, force: true }) }
 })
+
+test('持续对话可以直接导入纯文本并按 record 检索，追问继续复用数据', async () => {
+  const cwd = await mkdtemp(join(tmpdir(), 'ugc-text-session-'))
+  const model = createFakeModel([
+    { tool_calls: [{ name: 'load_dataset', args: { file: 'notes.txt' } }] },
+    { tool_calls: [{ name: 'search_feedback', args: { kinds: ['record'], query: '售后' } }] },
+    { content: '希望改善售后 [line_3]' }, { content: '上次提到售后 [line_3]' },
+  ])
+  const session = createSession({ model, cwd })
+  try {
+    await writeFile(join(cwd, 'notes.txt'), '价格太贵\n\n希望改善售后')
+    const first = await session.ask('看看文本中的建议')
+    assert.match(first.answer, /line_3/)
+    const second = await session.ask('接着说')
+    assert.ok(second.messages.some((m) => m.role === 'tool' && m.content?.includes('记录 希望改善售后')))
+    assert.equal(model.requests.at(-1)?.messages.filter((m) => m.role === 'user').length, 2)
+  } finally { await session.close(); await rm(cwd, { recursive: true, force: true }) }
+})

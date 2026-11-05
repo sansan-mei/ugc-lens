@@ -5,6 +5,7 @@ const KIND_LABELS: Record<FeedbackItem['kind'], string> = {
   reply: '回复',
   danmaku: '弹幕',
   answer: '回答',
+  record: '记录',
 }
 
 export function clock(seconds: number): string {

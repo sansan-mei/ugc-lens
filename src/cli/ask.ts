@@ -3,7 +3,7 @@ import type { AgentRunResult } from '../agent/loop.ts'
 import { askDataset } from '../ask/index.ts'
 import { loadLlmConfig } from '../config.ts'
 import { loadDataset } from '../ingest/index.ts'
-import { abortOnInterrupt, askModel, UsageError } from './common.ts'
+import { mappingSource, abortOnInterrupt, askModel, UsageError } from './common.ts'
 import { formatEvent } from './format_event.ts'
 
 export const ASK_USAGE = `用法：ugc-lens ask <文件> <问题> [追问...]
@@ -38,7 +38,7 @@ export async function runAsk(argv: readonly string[]): Promise<void> {
   const { signal } = abortOnInterrupt('正在取消')
 
   const dataset = await loadDataset(args.file, { model, signal })
-  console.error(`已导入 ${dataset.items.length} 条（文件结构${dataset.mapping.from_cache ? '规则来自缓存' : '由模型识别'}）`)
+  console.error(`已导入 ${dataset.items.length} 条（文件结构${mappingSource(dataset.mapping)}）`)
 
   let history: AgentRunResult['messages'] | undefined
   for (const [i, question] of args.questions.entries()) {

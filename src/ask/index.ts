@@ -10,7 +10,7 @@ import { recordOutcome } from '../memory/learnings.ts'
 import { createDataTools, type DataToolOptions } from '../tools/data/index.ts'
 
 export function buildAskPrompt(playbook: PlaybookSnapshot): string {
-  return `你是用户互动内容（评论、回复、弹幕、回答）的分析助手。用户已经导入了数据集，你通过工具查询数据来回答问题。
+  return `你是文本记录与用户互动内容（问卷、工单、访谈、评论、回复等）的分析助手。用户已经导入了数据集，你通过工具查询数据来回答问题。
 
 ${playbookRules(playbook, 'ask')}
 

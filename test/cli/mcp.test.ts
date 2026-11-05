@@ -107,3 +107,35 @@ test('握手前 EOF 也会退出，错误的工作目录不输出协议外正文
     }
   } finally { isolated.restore() }
 })
+
+test('实际安装入口可通过 MCP 导入 TXT、CSV、JSONL 后按 record 查询', { timeout: 10_000 }, async () => {
+  const isolated = isolateEnv()
+  const mapping = { platform: 'unknown', collections: [{ kind: 'record', path: '$.rows', fields: { id: 'column_1', text: 'column_2' } }] }
+  const server = await startMockServer((request, response) => {
+    const body = request.body as { messages: Array<{ role: string }>; tools?: Array<{ function: { name: string } }> }
+    if (body.messages.some((m) => m.role === 'tool')) return sendJson(response, 200, completion('完成'))
+    return sendJson(response, 200, { choices: [{ message: { role: 'assistant', content: null, tool_calls: [{ id: 'mapping', type: 'function', function: { name: 'submit_mapping', arguments: JSON.stringify(mapping) } }] }, finish_reason: 'tool_calls' }] })
+  })
+  const project = join(isolated.dir, 'project')
+  await mkdir(join(project, '.ugc-lens'), { recursive: true })
+  await writeFile(join(project, '.ugc-lens', 'config.json'), JSON.stringify({ llm: { provider: 'custom', model: 'mock-model', base_url: server.baseUrl, max_retries: 0 } }))
+  await writeFile(join(project, 'survey.csv'), '编号,回答\n001,希望增加售后支持\n002,价格偏高')
+  await writeFile(join(project, 'notes.txt'), '客服回复慢\n\n希望改善售后')
+  await writeFile(join(project, 'answers.ndjson'), '"交付速度快"\n"希望改善售后"')
+  const transport = new StdioClientTransport({ command: process.execPath, args: [CLI, 'mcp', '--cwd', project], cwd: isolated.dir, env: { HOME: isolated.dir }, stderr: 'pipe' })
+  const client = new Client({ name: 'formats-test', version: '1' })
+  try {
+    await client.connect(transport)
+    for (const file of ['survey.csv', 'notes.txt', 'answers.ndjson']) {
+      const imported = await client.callTool({ name: 'load_dataset', arguments: { file } })
+      assert.equal(Boolean(imported.isError), false, JSON.stringify(imported))
+      const block = imported.content.find((b) => b.type === 'text')!
+      assert.equal(block.type, 'text')
+      const { dataset_id } = JSON.parse(block.text)
+      const result = await client.callTool({ name: 'search_feedback', arguments: { dataset_id, kinds: ['record'], query: '售后' } })
+      assert.match(JSON.stringify(result), /售后/)
+      assert.equal(Boolean(result.isError), false)
+    }
+    assert.ok(server.requests.length > 0, 'CSV 走真实 HTTP 路径识别列')
+  } finally { await client.close(); await server.close(); isolated.restore() }
+})

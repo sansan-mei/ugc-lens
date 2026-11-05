@@ -197,3 +197,17 @@ test('启用 memory 后 MCP 提供经验与待审工具；追问冻结规则，�
     assert.doesNotMatch(loadPlaybook(memory).text, /先列出证据/)
   } finally { await connection.close(); rmSync(cwd, { recursive: true, force: true }) }
 })
+
+test('MCP 可在没有模型配置时导入 TXT 并查询来源行号', async () => {
+  const { writeFile } = await import('node:fs/promises')
+  const { join } = await import('node:path')
+  const env = isolateEnv()
+  const connection = await connect({ cwd: env.dir })
+  try {
+    await writeFile(join(env.dir, 'notes.txt'), '客服回复慢\n\n希望改善售后')
+    const imported = await connection.client.callTool({ name: 'load_dataset', arguments: { file: 'notes.txt' } })
+    assert.equal(Boolean(imported.isError), false, text(imported))
+    const search = await connection.client.callTool({ name: 'search_feedback', arguments: { kinds: ['record'], query: '售后' } })
+    assert.match(text(search), /line_3.*记录.*希望改善售后/)
+  } finally { await connection.close(); env.restore() }
+})

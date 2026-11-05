@@ -108,7 +108,7 @@ test('loadDataset：没有缓存也没有模型、模型给不出规则、不是
   await assert.rejects(loadDataset(BV_FIXTURE, { cacheDir }), isImportError('no_model'))
   await assert.rejects(loadDataset(BV_FIXTURE, { cacheDir, model: createFakeModel([{ content: '我不知道' }]) }), isImportError('inference_failed'))
 
-  const text = join(dir, 'notes.txt')
+  const text = join(dir, 'broken.json')
   await writeFile(text, 'hello')
   await assert.rejects(loadDataset(text, { cacheDir }), isImportError('not_json'))
   await assert.rejects(loadDataset(join(dir, 'missing.json'), { cacheDir }), isImportError('read_failed'))

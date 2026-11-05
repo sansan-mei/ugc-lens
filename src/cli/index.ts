@@ -25,7 +25,7 @@ const COMMANDS = {
   watch: { run: runWatch, usage: WATCH_USAGE },
 } as const
 
-const MAIN_USAGE = `ugc-lens：分析评论、弹幕等用户互动内容
+const MAIN_USAGE = `ugc-lens：分析文本记录、评论、弹幕等内容
 
 用法：
   ugc-lens                             持续对话，自动选择导入、查询、分析和监听工具

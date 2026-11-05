@@ -47,3 +47,7 @@ export function abortOnInterrupt(message: string): AbortController {
   })
   return controller
 }
+
+export function mappingSource(mapping: { from_cache: boolean; builtin?: boolean }): string {
+  return mapping.builtin ? '由内置规则读取' : mapping.from_cache ? '规则来自缓存' : '由模型识别'
+}

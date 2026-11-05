@@ -55,8 +55,8 @@ function repeatCounter(dataset: Dataset): (item: FeedbackItem) => number {
   return (item) => counts.get(keyOf(item)) ?? 1
 }
 
-function inline(text: string, max: number): string {
-  const value = compactRepeats(oneLine(stripReplyPrefix(text))).trim()
+function inline(text: string, max: number, stripPrefix = true): string {
+  const value = compactRepeats(oneLine(stripPrefix ? stripReplyPrefix(text) : text)).trim()
   return value.length > max ? `${sliceText(value, max)}…` : value
 }
 
@@ -71,7 +71,7 @@ function quoteLine(ref: Theme['refs'][number], dataset: Dataset, repeats: (item:
   ].filter(Boolean)
   const count = repeats(item)
   const same = count > 1 ? `（类似内容 ${n(count)} 条）` : ''
-  const text = ref.quote ? `……${ref.quote}……` : inline(item.text, QUOTE_CHARS)
+  const text = ref.quote ? `……${ref.quote}……` : inline(item.text, QUOTE_CHARS, item.kind !== 'record')
   return `${indent}> ${text}${same}${meta.length > 0 ? ` —— ${meta.join(' · ')}` : ''} \`${item.id}\``
 }
 
@@ -85,12 +85,14 @@ function overview(input: ReportInput): string[] {
   const { stats, coverage: c, danmaku } = input
   const lines = ['## 概况', '']
   const kinds = [
+    stats.items.record ? `记录 ${n(stats.items.record)} 条` : '',
     stats.items.comment ? `评论 ${n(stats.items.comment)} 条` : '',
     stats.items.answer ? `回答 ${n(stats.items.answer)} 条` : '',
     stats.items.reply ? `回复 ${n(stats.items.reply)} 条` : '',
     stats.items.danmaku ? `弹幕 ${n(stats.items.danmaku)} 条` : '',
   ].filter(Boolean)
-  lines.push(`- 互动内容：${kinds.join('、') || '无'}`)
+  const generic = (stats.items.record ?? 0) > 0
+  lines.push(`- ${generic ? '文本记录' : '互动内容'}：${kinds.join('、') || '无'}`)
   if (stats.replies.reported > stats.replies.collected) {
     lines.push(`- 回复：平台显示 ${n(stats.replies.reported)} 条，搜集到 ${n(stats.replies.collected)} 条`)
   }
@@ -98,10 +100,10 @@ function overview(input: ReportInput): string[] {
   if (c.items_total > 0) {
     const notes = [
       c.sampled ? '内容较多，按热度保留一部分、其余随机抽样' : '',
-      c.threads_merged > 0 ? `内容相同的一级评论合并了 ${n(c.threads_merged)} 条` : '',
+      c.threads_merged > 0 ? `内容相同的${generic ? '记录' : '一级评论'}合并了 ${n(c.threads_merged)} 条` : '',
       c.low_info > 0 ? `很短的内容（如“哈哈”“666”）${n(c.low_info)} 条只计数` : '',
     ].filter(Boolean)
-    lines.push(`- 分析范围：评论和回复 ${n(c.items_included)}/${n(c.items_total)} 条（${percent(c.items_included, c.items_total)}）${notes.length > 0 ? `；${notes.join('；')}` : ''}`)
+    lines.push(`- 分析范围：${generic ? '文本记录' : '评论和回复'} ${n(c.items_included)}/${n(c.items_total)} 条（${percent(c.items_included, c.items_total)}）${notes.length > 0 ? `；${notes.join('；')}` : ''}`)
   }
   if (danmaku && danmaku.total > 0) {
     lines.push(`- 弹幕：去重后 ${n(c.danmaku_unique)} 种，分析了重复最多的 ${n(c.danmaku_groups_included)} 种，代表 ${n(c.danmaku_represented)} 条（${percent(c.danmaku_represented, c.danmaku_total)}）`)
@@ -113,10 +115,10 @@ function overview(input: ReportInput): string[] {
   return lines
 }
 
-function keywordSection(keywords: readonly TermStat[], danmaku: DanmakuSummary | undefined): string[] {
+function keywordSection(keywords: readonly TermStat[], danmaku: DanmakuSummary | undefined, generic = false): string[] {
   const lines: string[] = []
   const format = (terms: readonly TermStat[]) => terms.map((t) => `${t.word}（${n(t.docs)}）`).join('、')
-  if (keywords.length > 0) lines.push(`- 评论：${format(keywords)}`)
+  if (keywords.length > 0) lines.push(`- ${generic ? '文本记录' : '评论'}：${format(keywords)}`)
   if (danmaku && danmaku.terms.length > 0) lines.push(`- 弹幕：${format(danmaku.terms)}`)
   return lines.length > 0 ? ['## 关键词', '', '括号里是包含这个词的条数。', '', ...lines] : []
 }
@@ -183,6 +185,6 @@ export function renderReport(input: ReportInput): string {
   const content = dataset.contents.length === 1 ? dataset.contents[0] : undefined
   const meta = [dataset.platform, content?.author, content?.published_at?.slice(0, 10), content?.url].filter(Boolean)
   if (meta.length > 0) header.push(meta.join(' · '), '')
-  const sections = [overview(input), keywordSection(input.keywords, input.danmaku), peakSection(input.danmaku), themeSections(input), runSection(input.run)]
+  const sections = [overview(input), keywordSection(input.keywords, input.danmaku, (input.stats.items.record ?? 0) > 0), peakSection(input.danmaku), themeSections(input), runSection(input.run)]
   return [...header, ...sections.filter((s) => s.length > 0).flatMap((s) => [...s, ''])].join('\n').replace(/\n{3,}/g, '\n\n').trimEnd() + '\n'
 }

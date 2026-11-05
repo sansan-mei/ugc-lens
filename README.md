@@ -1,8 +1,8 @@
 # ugc-lens
 
-面向中文社媒用户互动内容（评论、回复、弹幕等）的轻量分析 Agent。直接启动后用自然语言描述目标，它会选择工具导入数据、生成带原文引用的报告、连续追问或监听目录。以 npm 包形式提供命令行和代码调用，也提供 stdio MCP 服务供宿主调用。
+面向中文文本记录和社媒用户互动内容（问卷、工单、访谈、评论、回复、弹幕等）的轻量分析 Agent。直接启动后用自然语言描述目标，它会选择工具导入数据、生成带原文引用的报告、连续追问或监听目录。以 npm 包形式提供命令行和代码调用，也提供 stdio MCP 服务供宿主调用。
 
-> 状态：0.0.x 试用版。目前只支持 JSON 文件，接口和报告格式还可能调整。
+> 状态：0.0.x 试用版。支持 JSON、JSONL/NDJSON、CSV/TSV、TXT、Markdown 和日志文本，接口和报告格式还可能调整。
 
 ## 安装
 
@@ -81,6 +81,35 @@ ugc-lens <命令> --help    # 查看全部选项
 - 统计、去重、关键词、引用校验都由代码完成，模型只负责分块总结和合并，一个 10 万条评论的文件大约用 6～7 万 token。
 - `watch` 的任务状态存在 `.ugc-lens/tasks.json`，按 Ctrl+C 停止后再启动会继续没做完的任务。
 
+## 输入格式
+
+所有入口共用导入器：命令行、持续对话、MCP 和代码 API 都支持下列格式。
+
+| 格式 | 读取方式 |
+|---|---|
+| JSON | 保留原有任意结构识别；字符串数组可直接导入 |
+| JSONL / NDJSON | 每个非空行一个 JSON 对象或字符串，对象可以包含嵌套字段；同一文件保持类型一致 |
+| CSV | 首个非空记录为表头，支持逗号或分号分隔、引号内换行和双引号转义 |
+| TSV | 首个非空记录为表头，制表符分隔，支持带引号的字段 |
+| TXT / LOG | 每个非空行作为一条记录，ID 对应原始行号，例如 `line_3` |
+| MD / Markdown | 用空行分隔段落，保留段内换行，ID 对应段落起始行 |
+
+CSV/TSV 列由模型识别，规则会缓存；列名或顺序变化后重新识别。前导零 ID、日期等单元格保留为字符串，再按映射转换已知元数据字段。表头需要唯一且非空，损坏的 JSONL 行、CSV 引号或列数会明确报错。TXT、LOG、Markdown 和字符串数组用内置映射，无需额外调用模型识别格式；生成报告和问答仍使用配置的模型。
+
+通用数据使用 `record` 类型，可分析商品评价、问卷开放题、客服工单、访谈等。报告使用“文本记录”等名称，默认方向为主要主题、反复出现的问题、需求与建议、差异与分歧，也可用 `--focus` 指定方向。短答案如“好”“无”会保留，不套用评论的低信息过滤。长记录也不采用评论的 500 字截断；超过分块软上限时独立成块，仍受 `--chars` 总预算限制，放不下的记录会体现在报告覆盖率里。
+
+```bash
+ugc-lens analyze survey.csv --focus 主要问题,改进建议
+ugc-lens analyze feedback.jsonl
+ugc-lens ask notes.txt "有哪些反复出现的问题？"
+ugc-lens analyze interviews.md
+ugc-lens watch ./data --pattern "*.jsonl,*.ndjson,*.csv,*.tsv,*.txt,*.md,*.log"
+# 在源码目录测试，无需构建：
+node src/cli/index.ts analyze survey.csv
+```
+
+监听默认仍只匹配 `*_all.json`；其他格式通过 `--pattern` 指定。文件上限 100 MB，支持 UTF-8（含 BOM）和带 BOM 的 UTF-16 LE/BE。GBK 等编码需先转为 UTF-8；Excel 工作簿、PDF、Word 等二进制文件不属于此次支持范围。CSV 主要用于文本记录，暂不提供数值表格分析或执行公式。
+
 ## 分析手册与经验
 
 分析规则放在 Markdown 手册里，按“项目 `.ugc-lens/playbook.md` → 全局 `~/.ugc-lens/playbook.md` → 包内默认”选择。`init` 首次创建全局副本，已有内容会保留。
@@ -106,7 +135,7 @@ ugc-lens playbook --reject <ID>       # 丢弃待审修改
 先用 `ugc-lens init` 配置模型。MCP 由宿主启动，不需要自己开一个服务终端。Claude Code 中可以添加：
 
 ```bash
-claude mcp add --transport stdio ugc-lens -- npx -y ugc-lens@0.0.5 mcp --cwd /绝对路径/数据项目
+claude mcp add --transport stdio ugc-lens -- npx -y ugc-lens@0.0.6 mcp --cwd /绝对路径/数据项目
 ```
 
 测试本地源码时：
@@ -124,7 +153,7 @@ claude mcp add --transport stdio ugc-lens -- node /绝对路径/ugc-lens/src/cli
   "mcpServers": {
     "ugc-lens": {
       "command": "npx",
-      "args": ["-y", "ugc-lens@0.0.5", "mcp", "--cwd", "/绝对路径/数据项目"]
+      "args": ["-y", "ugc-lens@0.0.6", "mcp", "--cwd", "/绝对路径/数据项目"]
     }
   }
 }

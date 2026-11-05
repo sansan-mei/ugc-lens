@@ -1,9 +1,9 @@
 /** 平台名，由模型根据文件内容判断，如 bilibili、xhs；判断不了时为 unknown */
 export type Platform = string
 
-export type FeedbackKind = 'comment' | 'reply' | 'danmaku' | 'answer'
+export type FeedbackKind = 'comment' | 'reply' | 'danmaku' | 'answer' | 'record'
 
-export const FEEDBACK_KINDS = ['comment', 'reply', 'danmaku', 'answer'] as const satisfies readonly FeedbackKind[]
+export const FEEDBACK_KINDS = ['comment', 'reply', 'danmaku', 'answer', 'record'] as const satisfies readonly FeedbackKind[]
 
 export interface FeedbackAuthor {
   id?: string
@@ -86,6 +86,7 @@ export interface Dataset {
   contents: ContentInfo[]
   items: FeedbackItem[]
   imported_at: string
-  mapping: { fingerprint: string; from_cache: boolean }
+  source?: { format: string }
+  mapping: { fingerprint: string; from_cache: boolean; builtin?: boolean }
   report: ImportReport
 }

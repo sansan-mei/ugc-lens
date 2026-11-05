@@ -12,7 +12,7 @@ import { planChunks, type ChunkPlan } from './chunk.ts'
 import { mergeFindings, type MergeResult, type Theme } from './merge.ts'
 import { renderReport } from './report.ts'
 import {
-  DEFAULT_DIRECTIONS,
+  defaultDirections,
   estimateSummarize,
   summarizeChunks,
   type ChunkSummary,
@@ -76,7 +76,7 @@ export async function analyzeDataset(options: AnalyzeOptions): Promise<AnalyzeRe
   const started = performance.now()
   const now = options.now ?? (() => new Date())
   const { dataset } = options
-  const directions = options.directions?.length ? options.directions : DEFAULT_DIRECTIONS
+  const directions = options.directions?.length ? options.directions : defaultDirections(dataset)
 
   const stats = computeStats(dataset)
   const { tokenizer } = createTokenizerFor(dataset.items.map((item) => item.text))

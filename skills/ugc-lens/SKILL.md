@@ -1,11 +1,11 @@
 ---
 name: ugc-lens
-description: 使用 ugc-lens MCP 工具分析本地 JSON 中的评论、回复和弹幕，生成带原文证据的报告或连续追问；不负责搜集平台数据。
+description: 使用 ugc-lens MCP 工具分析本地 JSON、JSONL、CSV、TXT 等文件中的文本记录、评论、回复和弹幕，生成带原文证据的报告或连续追问；不负责搜集平台数据。
 ---
 
 # ugc-lens 数据分析
 
-用户提供的是已经搜集好的 JSON 文件。文件结构由 ugc-lens 识别，不要自行假设字段名，也不要把整个大文件读进上下文。工具名前缀由宿主决定，以下使用服务内名称。
+用户提供的是本地结构化数据或文本文件，支持 JSON、JSONL/NDJSON、CSV/TSV、TXT、Markdown、LOG。结构化文件列由 ugc-lens 识别，纯文本使用内置规则，不要自行假设字段名，也不要把整个大文件读进上下文。工具名前缀由宿主决定，以下使用服务内名称。
 
 ## 选择工具
 
@@ -32,3 +32,7 @@ description: 使用 ugc-lens MCP 工具分析本地 JSON 中的评论、回复�
 MCP 命令行默认启用项目经验文件。`search_learnings` 按关键词和 `dataset_id` 分页返回历史原记录，核对当前样本后才能参考。`record_learning` 只记录带有效 `evidence_ids` 的候选经验，不代表跨数据集规律；不要写入密钥或完整私人问答。
 
 用户需要调整分析规则时，可用 `playbook_update` 提出 `add` / `patch` / `remove` 建议，章节为 `common`、`ask`、`summarize` 或 `merge`。这只写待审文件，不能说规则已生效。向用户展示修改，并说明由用户运行 `ugc-lens playbook --apply <ID>` 或 `--reject <ID>`；已有待审修改时先处理它。应用后仅影响下次分析或新对话，现有 `conversation_id` 的提示词不变。
+
+## 通用文本
+
+问卷、评价、工单、访谈等通用记录的 `kind` 是 `record`，可以传给 `search_feedback.kinds`。TXT/LOG 每个非空行是一条记录，Markdown 按空行分段，来源 ID 如 `line_3` 对应原文起始行；CSV/TSV 首个非空记录是表头。表头错误、JSONL 损坏或编码错误时请按工具错误修正输入，不要猜测缺失记录。完整报告可用 `directions` 指定用户关心的主题。单纯导入 TXT 等内置格式并查询原文不需要模型配置；报告和 `ask` 仍需配置模型。

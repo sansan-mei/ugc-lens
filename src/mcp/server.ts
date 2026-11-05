@@ -37,7 +37,7 @@ interface AskConversation {
 }
 
 const selector = {
-  file: z.string().min(1).optional().describe('JSON 文件路径，相对于服务工作目录；提供后自动导入'),
+  file: z.string().min(1).optional().describe('JSON、JSONL、CSV、TSV、TXT、Markdown 或 LOG 文件路径，相对于服务工作目录；提供后自动导入'),
   dataset_id: z.string().min(1).optional().describe('已导入的数据集 ID，不能与 file 同时提供；只有一个数据集时可省略'),
 }
 
@@ -50,7 +50,7 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
   const store = { list: () => [...datasets.values()], get: (id: string) => datasets.get(id) }
   const version = (JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')) as { version: string }).version
   const server = new McpServer({ name: 'ugc-lens', version }, {
-    instructions: '分析本地 JSON 评论、回复与弹幕。load_dataset 导入后可直接使用数据工具查询；analyze 生成报告；ask 使用配置的模型回答并返回 conversation_id，继续追问时传回该 ID。所有相对路径以服务 cwd 为准。',
+    instructions: '分析本地 结构化数据与文本记录。load_dataset 导入后可直接使用数据工具查询；analyze 生成报告；ask 使用配置的模型回答并返回 conversation_id，继续追问时传回该 ID。所有相对路径以服务 cwd 为准。',
   })
   let models: { ask: AgentModel; analysis: AgentModel; name?: string } | undefined
   const getModels = () => {
@@ -73,7 +73,7 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
     const cached = store.list().find((dataset) => dataset.file_path === path)
     if (cached) return cached
     const dataset = await (options.load ?? loadDataset)(path, {
-      model: getModels().analysis, signal, cacheDir: join(cwd, '.ugc-lens', 'mappings'),
+      model: { complete: (request) => getModels().analysis.complete(request) }, signal, cacheDir: join(cwd, '.ugc-lens', 'mappings'),
     })
     signal.throwIfAborted()
     datasets.set(dataset.id, dataset)
@@ -88,7 +88,7 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
     ...dataTools,
     ...(options.memory ? createMemoryTools(store, options.memory) : []),
     defineTool({
-      name: 'load_dataset', description: '导入本地 JSON 评论、回复或弹幕文件，返回 dataset_id。后续查询可复用，不需要反复发送原始文件。',
+      name: 'load_dataset', description: '导入本地 结构化数据或文本文件，返回 dataset_id。后续查询可复用，不需要反复发送原始文件。',
       parameters: z.object({ file: z.string().min(1) }),
       async execute({ file }, ctx) {
         const dataset = await importFile(file, ctx.signal)
@@ -96,7 +96,7 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
       },
     }),
     defineTool({
-      name: 'analyze', description: '对本地 JSON 文件或已导入数据生成完整的 Markdown 分析报告，返回报告正文和保存路径。需要配置 ugc-lens 模型。',
+      name: 'analyze', description: '对本地数据文件或已导入数据生成完整的 Markdown 分析报告，返回报告正文和保存路径。需要配置 ugc-lens 模型。',
       parameters: z.object({
         ...selector,
         directions: z.array(z.string().min(1)).min(1).optional().describe('关注方向；不传使用默认分析方向'),

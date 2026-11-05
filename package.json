@@ -1,7 +1,7 @@
 {
   "name": "ugc-lens",
-  "version": "0.0.5",
-  "description": "面向评论、弹幕等用户互动内容的轻量分析 Agent",
+  "version": "0.0.6",
+  "description": "面向文本记录、评论、弹幕等内容的轻量分析 Agent",
   "keywords": [
     "ugc",
     "comments",

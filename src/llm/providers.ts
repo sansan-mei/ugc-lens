@@ -7,6 +7,8 @@ export interface ProviderPreset {
   baseUrl: string | Record<Region, string>
   /** 不需要 key 的本地服务为 undefined */
   apiKeyEnv?: string
+  /** 关闭思考模式时加进请求体的字段；没有的提供商不发送任何字段 */
+  thinkingOff?: Record<string, unknown>
 }
 
 export const PROVIDERS = {
@@ -15,6 +17,7 @@ export const PROVIDERS = {
     name: 'DeepSeek',
     baseUrl: 'https://api.deepseek.com/v1',
     apiKeyEnv: 'DEEPSEEK_API_KEY',
+    thinkingOff: { thinking: { type: 'disabled' } },
   },
   qwen: {
     id: 'qwen',
@@ -24,6 +27,7 @@ export const PROVIDERS = {
       global: 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1',
     },
     apiKeyEnv: 'DASHSCOPE_API_KEY',
+    thinkingOff: { enable_thinking: false },
   },
   kimi: {
     id: 'kimi',
@@ -39,6 +43,7 @@ export const PROVIDERS = {
       global: 'https://api.z.ai/api/paas/v4',
     },
     apiKeyEnv: 'GLM_API_KEY',
+    thinkingOff: { thinking: { type: 'disabled' } },
   },
   minimax: {
     id: 'minimax',

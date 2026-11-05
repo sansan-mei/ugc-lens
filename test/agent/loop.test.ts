@@ -290,4 +290,12 @@ describe('createFakeModel', () => {
     const model = createFakeModel(() => ({ tool_calls: [{ name: 'echo' }] }))
     await assert.rejects(runAgent({ model, messages: initial, tools: [echo], limits: { maxSteps: 1 } }), /剧本错误/)
   })
+
+  test('指定工具时没有调用、或调用了别的工具，视为剧本错误', async () => {
+    const request = { messages: initial, tools: [], toolChoice: { type: 'function' as const, function: { name: 'echo' } }, signal: new AbortController().signal }
+    await assert.rejects(createFakeModel([{ content: 'hi' }]).complete(request), /指定了工具 echo/)
+    await assert.rejects(createFakeModel([{ tool_calls: [{ name: 'other' }] }]).complete(request), /指定了工具 echo/)
+    const ok = await createFakeModel([{ tool_calls: [{ name: 'echo' }] }]).complete(request)
+    assert.equal(ok.message.tool_calls?.[0]?.function.name, 'echo')
+  })
 })

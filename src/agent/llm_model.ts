@@ -4,6 +4,7 @@ import type { AgentModel } from './model.ts'
 export interface LlmModelOptions {
   temperature?: number
   maxTokens?: number
+  disableThinking?: boolean
 }
 
 /** 把模型客户端包装成 Agent 循环使用的 AgentModel */

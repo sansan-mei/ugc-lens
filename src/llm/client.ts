@@ -1,4 +1,5 @@
 import type { LlmConfig } from '../config.ts'
+import { PROVIDERS, type ProviderPreset } from './providers.ts'
 import { DEFAULT_RETRY_POLICY, isRetryableStatus, parseRetryAfter, withRetry, type RetryInfo, type RetryPolicy } from './retry.ts'
 import type { ChatMessage, ChatOptions, ChatResult, RawChatCompletion, RawToolCall, ToolCall } from './types.ts'
 
@@ -39,6 +40,17 @@ function normalizeToolCalls(raw: RawToolCall[] | null | undefined): ToolCall[] {
           : JSON.stringify(call.function.arguments ?? {}),
     },
   }))
+}
+
+const LONE_SURROGATE = /[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/g
+
+/** 数据里可能本来就有半个代理对（来源文件损坏或被截断），JSON.stringify 会写成 \\udXXX，部分提供商拒绝解析 */
+function wellFormed(messages: readonly ChatMessage[]): ChatMessage[] {
+  return messages.map((message) => {
+    if (typeof message.content !== 'string') return message
+    const content = message.content.replace(LONE_SURROGATE, '\ufffd')
+    return content === message.content ? message : { ...message, content }
+  })
 }
 
 function describeNetworkError(error: unknown): string {
@@ -101,12 +113,13 @@ export function createChatClient(config: LlmConfig, options: ChatClientOptions =
       const hasTools = (options.tools?.length ?? 0) > 0
       const body = {
         model: config.model,
-        messages,
+        messages: wellFormed(messages),
         temperature: options.temperature,
         max_tokens: options.maxTokens,
         // 没有工具时不发这两个字段：部分提供商遇到空的 tools 数组会报错
         tools: hasTools ? options.tools : undefined,
         tool_choice: hasTools ? (options.toolChoice ?? 'auto') : undefined,
+        ...(options.disableThinking && config.provider !== 'custom' ? (PROVIDERS[config.provider] as ProviderPreset).thinkingOff : undefined),
       }
       const raw = await request<RawChatCompletion>(
         '/chat/completions',
@@ -124,15 +137,13 @@ export function createChatClient(config: LlmConfig, options: ChatClientOptions =
       }
       if (toolCalls.length > 0) message.tool_calls = toolCalls
 
-      return {
-        message,
-        finishReason: choice.finish_reason,
-        usage: {
-          input_tokens: raw.usage?.prompt_tokens ?? 0,
-          output_tokens: raw.usage?.completion_tokens ?? 0,
-        },
-        model: raw.model,
+      const usage: ChatResult['usage'] = {
+        input_tokens: raw.usage?.prompt_tokens ?? 0,
+        output_tokens: raw.usage?.completion_tokens ?? 0,
       }
+      const cached = raw.usage?.prompt_cache_hit_tokens ?? raw.usage?.prompt_tokens_details?.cached_tokens
+      if (cached !== undefined) usage.cached_input_tokens = cached
+      return { message, finishReason: choice.finish_reason, usage, model: raw.model }
     },
 
     async listModels() {

@@ -41,8 +41,8 @@ export interface ToolDefinition {
   function: { name: string; description: string; parameters: Record<string, unknown> }
 }
 
-/** auto：模型自己决定是否调用工具；none：只能用文字回答 */
-export type ToolChoice = 'auto' | 'none'
+/** auto：模型自己决定是否调用工具；none：只能用文字回答；指定 function：必须调用这个工具 */
+export type ToolChoice = 'auto' | 'none' | { type: 'function'; function: { name: string } }
 
 export interface ChatOptions {
   temperature?: number
@@ -51,6 +51,11 @@ export interface ChatOptions {
   /** 为空时请求里不带 tools 和 tool_choice */
   tools?: readonly ToolDefinition[]
   toolChoice?: ToolChoice
+  /**
+   * 关闭思考模式（提供商预设里有 thinkingOff 时才生效）。思考内容按输出 token 计费，
+   * 而且部分提供商在思考模式下不接受指定工具的 tool_choice。
+   */
+  disableThinking?: boolean
   /** 每次重试前调用，用于显示进度 */
   onRetry?: (info: RetryInfo) => void
 }
@@ -58,6 +63,8 @@ export interface ChatOptions {
 export interface Usage {
   input_tokens: number
   output_tokens: number
+  /** input_tokens 中命中提供商提示词缓存的部分，提供商不返回时没有这个字段 */
+  cached_input_tokens?: number
 }
 
 export interface ChatResult {
@@ -82,5 +89,12 @@ export interface RawChatCompletion {
     message: { role: 'assistant'; content: string | null; tool_calls?: RawToolCall[] | null }
     finish_reason: string
   }>
-  usage?: { prompt_tokens?: number; completion_tokens?: number }
+  usage?: {
+    prompt_tokens?: number
+    completion_tokens?: number
+    /** DeepSeek */
+    prompt_cache_hit_tokens?: number
+    /** OpenAI 及多数兼容接口 */
+    prompt_tokens_details?: { cached_tokens?: number } | null
+  }
 }

@@ -56,6 +56,12 @@ export function createFakeModel(script: FakeScript, options: { delayMs?: number 
       if (request.toolChoice === 'none' && reply.tool_calls?.length) {
         throw new Error(`假模型剧本错误：第 ${call} 次调用的 tool_choice 为 none，却返回了工具调用`)
       }
+      if (typeof request.toolChoice === 'object') {
+        const forced = request.toolChoice.function.name
+        if (!reply.tool_calls?.length || reply.tool_calls.some((item) => item.name !== forced)) {
+          throw new Error(`假模型剧本错误：第 ${call} 次调用指定了工具 ${forced}，返回的工具调用不符`)
+        }
+      }
 
       const toolCalls: ToolCall[] = (reply.tool_calls ?? []).map((item, index) => ({
         id: `call_${call}_${index + 1}`,

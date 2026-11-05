@@ -117,6 +117,48 @@ describe('createChatClient', () => {
     ])
   })
 
+  test('disableThinking：按提供商预设加上关闭思考的字段，没有预设的提供商不加', async () => {
+    server = await startMockServer((_req, res) => sendJson(res, 200, completion('ok')))
+    const hi = [{ role: 'user' as const, content: 'hi' }]
+    await createChatClient(configFor(server.baseUrl, { provider: 'deepseek' })).chat(hi, { disableThinking: true })
+    await createChatClient(configFor(server.baseUrl, { provider: 'deepseek' })).chat(hi)
+    await createChatClient(configFor(server.baseUrl, { provider: 'openai' })).chat(hi, { disableThinking: true })
+    const bodies = server.requests.map((r) => r.body as Record<string, unknown>)
+    assert.deepEqual(bodies[0]?.thinking, { type: 'disabled' })
+    assert.equal('thinking' in bodies[1]!, false)
+    assert.deepEqual(Object.keys(bodies[2]!).sort(), ['messages', 'model'])
+  })
+
+  test('发送前把消息里的半个代理对换成 U+FFFD，否则部分提供商拒绝解析请求', async () => {
+    server = await startMockServer((_req, res) => sendJson(res, 200, completion('ok')))
+    await createChatClient(configFor(server.baseUrl)).chat([{ role: 'user', content: '坏\ud83d字😰' }])
+    const body = server.requests[0]?.body as { messages: Array<{ content: string }> }
+    assert.equal(body.messages[0]?.content, '坏\ufffd字😰')
+  })
+
+  test('tool_choice 可以指定必须调用的工具', async () => {
+    server = await startMockServer((_req, res) => sendJson(res, 200, completion('ok')))
+    const tools = [{ type: 'function' as const, function: { name: 'echo', description: 'd', parameters: { type: 'object' } } }]
+    const toolChoice = { type: 'function' as const, function: { name: 'echo' } }
+    await createChatClient(configFor(server.baseUrl)).chat([{ role: 'user', content: 'hi' }], { tools, toolChoice })
+    assert.deepEqual((server.requests[0]?.body as Record<string, unknown>).tool_choice, toolChoice)
+  })
+
+  test('解析提示词缓存命中的 token：DeepSeek 和 OpenAI 两种写法，没有时不带这个字段', async () => {
+    const usages = [
+      { prompt_tokens: 100, completion_tokens: 5, prompt_cache_hit_tokens: 80 },
+      { prompt_tokens: 100, completion_tokens: 5, prompt_tokens_details: { cached_tokens: 64 } },
+      { prompt_tokens: 100, completion_tokens: 5 },
+    ]
+    let call = 0
+    server = await startMockServer((_req, res) => sendJson(res, 200, { ...completion('ok'), usage: usages[call++] }))
+    const client = createChatClient(configFor(server.baseUrl))
+    const results = []
+    for (let i = 0; i < usages.length; i++) results.push((await client.chat([{ role: 'user', content: 'hi' }])).usage)
+    assert.deepEqual(results.map((u) => u.cached_input_tokens), [80, 64, undefined])
+    assert.equal('cached_input_tokens' in results[2]!, false)
+  })
+
   test('没有工具时请求里不带 tools 和 tool_choice，回答里也没有 tool_calls 字段', async () => {
     server = await startMockServer((_req, res) => sendJson(res, 200, completion('ok')))
     const result = await createChatClient(configFor(server.baseUrl)).chat([{ role: 'user', content: 'hi' }], {

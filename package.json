@@ -22,6 +22,7 @@
     "chunks": "node examples/09_chunks.ts",
     "summarize": "node examples/09_summarize.ts",
     "analyze": "node examples/09_analyze.ts",
+    "watch": "node src/cli/index.ts watch",
     "smoke": "node examples/00_hello.ts && node examples/01_list_models.ts && node examples/03_agent_loop.ts 1 && node examples/04_tools.ts < /dev/null && node examples/06_retry_budget.ts retry && node examples/07_dataset_stats.ts --fresh && node examples/08_ask.ts \"评论里有人提到价格吗？\" && node examples/09_chunks.ts && node examples/09_summarize.ts && node examples/09_analyze.ts > /dev/null"
   },
   "devDependencies": {

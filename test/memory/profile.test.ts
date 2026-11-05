@@ -4,7 +4,7 @@ import { test } from 'node:test'
 import { join } from 'node:path'
 import { createFakeModel } from '../../src/agent/fake_model.ts'
 import { createSession } from '../../src/chat/session.ts'
-import { configureProfile, loadProfile, recordProfile, visibleProfile, learnProfile, profilePath } from '../../src/memory/profile.ts'
+import { configureProfile, loadProfile, recordProfile, visibleProfile, learnProfile, profilePath, hasLearningSignal } from '../../src/memory/profile.ts'
 import { toolSandbox } from '../helpers/tool_context.ts'
 
 function fixture() {
@@ -14,12 +14,35 @@ function fixture() {
 const input = { key: 'goal', text: '希望推广产品', quote: '我想推广产品', scope: 'project' as const }
 const source = { userText: input.quote, id: 'turn:1' }
 
-test('画像默认关闭，不额外调用模型；开启后逐步学习并记录来源', async () => {
+test('只发文件或通用分析不学习，附带要求和追问是关注信号', () => {
+  for (const text of ['data.json', '/tmp/data.csv', '分析一下这个文件', '请帮我分析 data.json', '生成完整分析报告', 'analyze this file', '']) assert.equal(hasLearningSignal(text), false, text)
+  for (const text of ['分析 data.json，重点看价格争议', '为什么有人觉得贵？', '只看购买意愿，不用讲视频内容', '以后情感分析多用表格']) assert.equal(hasLearningSignal(text), true, text)
+})
+
+test('附带要求记录关注维度，不向提取模型传入答复或数据集', async () => {
+  const { memory, cleanup } = fixture()
+  try {
+    const model = createFakeModel([{ tool_calls: [{ name: 'submit_profile', args: { entries: [{ key: 'focus_pricing', text: '关注价格争议', quote: '重点看价格争议', scope: 'project' }] } }] }])
+    await learnProfile(memory, model, '分析 data.json，重点看价格争议')
+    assert.equal(visibleProfile(memory).entries[0]!.text, '关注价格争议')
+    assert.equal(visibleProfile(memory).entries[0]!.status, 'candidate')
+    assert.deepEqual(model.requests[0]!.messages.map((m) => m.role), ['system', 'user'])
+    assert.equal(model.requests[0]!.messages[1]!.content, '分析 data.json，重点看价格争议')
+    assert.match(model.requests[0]!.messages[0]!.content!, /不是总结模型的回答/)
+  } finally { cleanup() }
+})
+
+test('关注点学习默认开启，普通文件分析不调用模型；关闭状态保留', async () => {
   const { memory, cleanup } = fixture()
   const model = createFakeModel([{ tool_calls: [{ name: 'submit_profile', args: { entries: [input] } }] }])
   try {
-    assert.equal(await learnProfile(memory, model, source.userText), undefined)
+    assert.equal(loadProfile(memory).enabled, true)
+    assert.equal(await learnProfile(memory, model, '分析这个文件'), undefined)
+    assert.throws(() => recordProfile(memory, { ...input, quote: '分析这个文件' }, { userText: '分析这个文件', id: 'turn:generic' }), /没有可记录/)
+    assert.equal(loadProfile(memory).entries.length, 0)
     assert.equal(model.requests.length, 0)
+    configureProfile(memory, 'disable')
+    assert.equal(await learnProfile(memory, model, source.userText), undefined)
     configureProfile(memory, 'enable')
     const result = await learnProfile(memory, model, source.userText)
     assert.ok(result?.usage)
@@ -70,7 +93,7 @@ test('项目和 profile 隔离，画像不从数据材料、密钥或越权指�
   try {
     configureProfile(memory, 'enable'); recordProfile(memory, input, source)
     assert.equal(visibleProfile({ ...memory, cwd: join(memory.homeDir, 'other') }).entries.length, 0)
-    assert.equal(visibleProfile({ ...memory, profile: 'other' }).enabled, false)
+    assert.equal(visibleProfile({ ...memory, profile: 'other' }).entries.length, 0)
     assert.throws(() => profilePath({ ...memory, profile: '../bad' }), /名称/)
     assert.throws(() => recordProfile(memory, input, { userText: '别人说的', id: 'turn:x' }), /原文/)
     assert.throws(() => recordProfile(memory, input, { userText: `评论：${input.quote}`, id: 'turn:x' }), /引用材料/)

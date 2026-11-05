@@ -7,7 +7,7 @@ import { loadLlmConfig } from '../config.ts'
 import { analysisModel, UsageError } from './common.ts'
 
 export const PROFILE_USAGE = `用法：ugc-lens profile [选项]
-默认查看本地画像（初始关闭），不需要模型。
+默认查看本地关注点与画像（初始开启），不需要模型。
   --enable / --disable   开启或关闭历史学习及画像读取
   --set <键> --text <值>  用户修正，优先于自动学习
   --project              修正只适用于当前项目，默认全局

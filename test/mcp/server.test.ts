@@ -231,6 +231,7 @@ test('启用 memory 后 MCP 提供经验与待审工具；追问冻结规则，�
   const { initPlaybook, loadPlaybook, readProposal } = await import('../../src/memory/playbook.ts')
   const cwd = mkdtempSync(join(tmpdir(), 'ugc-mcp-memory-'))
   const memory = { cwd, homeDir: cwd }
+  configureProfile(memory, 'disable')
   const path = initPlaybook(memory)
   const model = createFakeModel([{ content: '第一轮 [c1]' }, { content: '第二轮 [c1]' }, { content: '新对话 [c1]' }])
   const connection = await connect({ cwd, memory, model, load: async () => dataset })

@@ -155,10 +155,10 @@ ugc-lens playbook --reject <ID>       # 丢弃待审修改
 
 ### 本地用户画像
 
-开源包不内置个人背景。画像默认关闭，开启后从后续对话里的用户发言增量学习目标、偏好、技能资源及自述人设，持续写入本地 `~/.ugc-lens/user.md`；自动学习会额外调用一次模型，用量单独显示，不包含在外层对话 token 统计中。没有开启或没有历史时使用通用分析。
+开源包不内置个人背景。关注点学习默认开启，只从用户随文件附带的要求、主动追问及明确自述中增量学习；只发文件、常规分析、寒暄或简单继续不调用学习模型。记录的是用户在意的维度和分析要求，不是模型答复，也不把提问主题当作用户经历，持续写入本地 `~/.ugc-lens/user.md`；自动学习会额外调用一次模型，用量单独显示，不包含在外层对话 token 统计中。用户已关闭或尚无有效关注点时使用通用分析，已有关闭状态会保留。
 
 ```bash
-ugc-lens profile --enable
+ugc-lens profile --enable                 # 关闭后重新开启，初始无需操作
 ugc-lens profile                          # 查看画像和条目 ID
 ugc-lens profile --set skills --text '擅长编程'
 ugc-lens profile --set goal --text '验证产品需求' --project
@@ -173,7 +173,7 @@ ugc-lens profile --learn ./my_history.txt # 仅导入自己选择的用户发言
 
 项目目标按工作目录隔离。多人共用一个系统账户时，可用 `UGC_LENS_PROFILE=alice` 选择独立画像，所有命令需使用同一变量；命名画像写到 `~/.ugc-lens/profiles/alice/user.md`。自动学习不扫描其他软件历史，不把待分析评论或模型/工具回复当成操作者资料。`--learn` 仅接受选定的纯用户发言 TXT（上限 100 KB、20000 字符和 20 段，每段最多 4000 字符）；不要把混有其他角色的完整聊天转储直接导入。
 
-需要个性化建议时，模型可调用 `read_profile`；对话内部的 `record_profile` 只接受本轮用户原文引用。MCP 宿主直接提供只读的 `read_profile`，通过 `ask` 内部对话才会按真实问题增量学习。代码 API 传入 `memory` 后遵从启用状态，`memory.profile` 可指定画像名。项目或全局旧 playbook 保留原文；默认手册现为版本 3。
+需要个性化建议时，模型可调用 `read_profile`；对话内部的 `record_profile` 只接受本轮用户原文引用。MCP 宿主直接提供只读的 `read_profile`，通过 `ask` 内部对话才会按真实问题增量学习。代码 API 传入 `memory` 后遵从启用状态，`memory.profile` 可指定画像名。项目或全局旧 playbook 保留原文；默认手册现为版本 4。
 
 画像的删除与关闭不会改写已经发送给模型的历史消息；操作后开启新对话，避免继续沿用旧上下文中的背景。
 
@@ -182,7 +182,7 @@ ugc-lens profile --learn ./my_history.txt # 仅导入自己选择的用户发言
 先用 `ugc-lens init` 配置模型。MCP 由宿主启动，不需要自己开一个服务终端。Claude Code 中可以添加：
 
 ```bash
-claude mcp add --transport stdio ugc-lens -- npx -y ugc-lens@0.0.8 mcp --cwd /绝对路径/数据项目
+claude mcp add --transport stdio ugc-lens -- npx -y ugc-lens@0.0.9 mcp --cwd /绝对路径/数据项目
 ```
 
 测试本地源码时：
@@ -200,7 +200,7 @@ claude mcp add --transport stdio ugc-lens -- node /绝对路径/ugc-lens/src/cli
   "mcpServers": {
     "ugc-lens": {
       "command": "npx",
-      "args": ["-y", "ugc-lens@0.0.8", "mcp", "--cwd", "/绝对路径/数据项目"]
+      "args": ["-y", "ugc-lens@0.0.9", "mcp", "--cwd", "/绝对路径/数据项目"]
     }
   }
 }

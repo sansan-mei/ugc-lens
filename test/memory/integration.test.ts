@@ -7,13 +7,16 @@ import { createFakeModel } from '../../src/agent/fake_model.ts'
 import { askDataset } from '../../src/ask/index.ts'
 import { createSession } from '../../src/chat/session.ts'
 import { searchLearnings } from '../../src/memory/learnings.ts'
+import { configureProfile } from '../../src/memory/profile.ts'
 import { DEFAULT_PLAYBOOK, initPlaybook, loadPlaybook, proposePlaybook, reviewPlaybook } from '../../src/memory/playbook.ts'
 import { estimateSummarize } from '../../src/pipeline/summarize.ts'
 import { analyzeDataset } from '../../src/pipeline/analyze.ts'
 import { fixtureDataset, makeDataset, makeItem } from '../helpers/dataset.ts'
 function sandbox() {
   const cwd = mkdtempSync(join(tmpdir(), 'ugc-rules-'))
-  return { memory: { cwd, homeDir: cwd }, cleanup: () => rmSync(cwd, { recursive: true, force: true }) }
+  const homeDir = join(cwd, 'home')
+  configureProfile({ cwd, homeDir }, 'disable')
+  return { memory: { cwd, homeDir }, cleanup: () => rmSync(cwd, { recursive: true, force: true }) }
 }
 
 test('回归样本：规则改变进入真实流水线提示词并改变报告；运行中冻结，下一次才重新读取', async () => {

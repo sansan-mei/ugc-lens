@@ -130,6 +130,16 @@ ugc-lens playbook --reject <ID>       # 丢弃待审修改
 
 代码 API 默认使用包内规则，不写经验文件。传入 `memory: { cwd: process.cwd() }` 启用项目规则和记录；也可将 `loadPlaybook(...)` 返回的快照通过 `playbook` 传给 `askDataset` / `analyzeDataset`。
 
+## 情感分析与采样
+
+在持续对话或 `ask` 中直接说“分析这份数据的情感分数和正负面比例”，模型会调用 `analyze_sentiment`。它分批让 AI 对每条原文给出 -1～1 的分数及理由，再由代码汇总，最后让对话模型解读。可指定评价对象、`kinds` 和 `content_id`；不指定对象时评估文本整体情绪，情绪不等于对某个选择的支持/反对。
+
+每条记录等权，不按点赞加权。分数 >0.2 为正面、<-0.2 为负面，其余中性；无法判断单独计数。比例以已评估条数（含无法判断）为分母，均值仅使用有效数值；同时返回导入样本内的实际评估覆盖率。完整逐条评分保存在当前工作目录 `.ugc-lens/sentiment/*.json`。默认独立 token 预算 30000，达到预算后返回已完成部分；预算为软上限，失败、遗漏和超长未处理项均不会算作中性。此用量在工具结果中单独返回，不包含在外层对话的 token 统计中。当前 `analyze` 固定报告流水线不会自动增加情感调用。
+
+采样数据可以分析样本内主题和情绪，搜集占平台全量的比例并不等于采样完成率。缺少采样设计元数据时，不推测置信度或整体误差保证，也不把样本内比例说成平台全量比例。默认手册已更新；已有项目或全局 `playbook.md` 保留原文，需要手动同步上述采样和情感规则，新对话才会加载。
+
+代码调用可使用 `analyzeSentiment({ dataset, model, target?, kinds?, contentId?, tokenBudget? })`，返回完整逐条评分和汇总，不自动写文件。
+
 ## MCP 接入
 
 先用 `ugc-lens init` 配置模型。MCP 由宿主启动，不需要自己开一个服务终端。Claude Code 中可以添加：
@@ -166,6 +176,7 @@ claude mcp add --transport stdio ugc-lens -- node /绝对路径/ugc-lens/src/cli
 | `get_dataset_stats` | 查看数据概况 |
 | `search_feedback` | 按关键词、类型、点赞等筛选并分页 |
 | `get_feedback` | 查看全文和回复链 |
+| `analyze_sentiment` | 分批逐条情感评分，返回汇总、示例和完整结果路径 |
 | `analyze` | 自动导入并生成完整报告，返回正文和保存路径 |
 | `ask` | 调用配置的模型回答，返回引用核对结果及追问 ID |
 

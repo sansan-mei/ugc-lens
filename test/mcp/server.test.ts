@@ -33,9 +33,30 @@ test('握手和工具发现不需要模型配置，数据工具沿用原有 sche
       assert.equal(registered.annotations?.readOnlyHint, true)
     }
     for (const name of ['load_dataset', 'analyze', 'ask']) assert.ok(tools.some((tool) => tool.name === name))
+    assert.equal(tools.find((tool) => tool.name === 'analyze_sentiment')?.annotations?.readOnlyHint, false)
     const listed = await connection.client.callTool({ name: 'list_datasets' })
     assert.equal(Boolean(listed.isError), false)
     assert.match(text(listed), /没有|无|未/)
+  } finally { await connection.close(); env.restore() }
+})
+
+test('MCP 情感工具调用分析模型并返回逐条结果路径', async () => {
+  const env = isolateEnv()
+  const scoring = createFakeModel([{ tool_calls: [{ name: 'submit_sentiment', args: { scores: [
+    { id: 'c1', score: -0.7, reason: '认为价格太贵' },
+    { id: 'c2', score: 0.8, reason: '肯定内容' },
+  ] } }] }])
+  const connection = await connect({ cwd: env.dir, model: createFakeModel([]), analysisModel: scoring, load: async () => dataset })
+  try {
+    await connection.client.callTool({ name: 'load_dataset', arguments: { file: 'data.json' } })
+    const response = await connection.client.callTool({ name: 'analyze_sentiment', arguments: {} })
+    assert.ok(!response.isError)
+    const result = JSON.parse(text(response))
+    assert.equal(result.summary.evaluated, dataset.items.length)
+    assert.equal(result.summary.counts.positive, 1)
+    assert.equal(result.summary.counts.negative, 1)
+    assert.ok(result.path.startsWith(env.dir))
+    assert.equal(scoring.requests.length, 1)
   } finally { await connection.close(); env.restore() }
 })
 

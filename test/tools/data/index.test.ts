@@ -64,6 +64,16 @@ describe('数据工具', () => {
     assert.match(result, new RegExp(dataset.contents[0]!.title!.slice(0, 5)))
   })
 
+  test('采样比例只是数量对照，不自动判定样本不完整或无效', async () => {
+    const result = await toolsFor([makeDataset([
+      makeItem({ id: 'c', reply_count: 3 }),
+      makeItem({ id: 'r', kind: 'reply', parent_id: 'c' }),
+    ])])('get_dataset_stats')
+    assert.match(result, /33%/)
+    assert.doesNotMatch(result, /回复是不完整的样本/)
+    assert.match(result, /不能仅凭.*比例/)
+  })
+
   test('search_feedback：每行一条，ID 在最前，末尾说明总数和下一页的 offset', async () => {
     const call = toolsFor()
     const first = (await call('search_feedback', { kinds: ['reply'], sort: 'oldest', limit: 5 })).split('\n')

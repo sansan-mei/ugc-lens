@@ -22,7 +22,7 @@ test('回归样本：规则改变进入真实流水线提示词并改变报告�
     const dataset = await fixtureDataset()
     const path = initPlaybook(memory)
     const baseline = loadPlaybook(memory)
-    const changed = baseline.text.replace('版本：1', '版本：2').replace('## 共同规则\n', '## 共同规则\n- 优先突出价格争议。\n')
+    const changed = baseline.text.replace(/版本：\d+/, `版本：${baseline.version + 1}`).replace('## 共同规则\n', '## 共同规则\n- 优先突出价格争议。\n')
     const run = async (editDuringRun: boolean) => {
       const model = createFakeModel((request, call) => {
         if (editDuringRun && call === 1) writeFileSync(path, changed)

@@ -75,7 +75,7 @@ const FINALIZE_LABELS: Partial<Record<StopReason, string>> = {
 
 export function finalizeNotice(reason: StopReason): string {
   const label = FINALIZE_LABELS[reason] ?? reason
-  return `【系统说明】已达到${label}，不能再调用工具。请基于以上已有信息直接回答用户的问题，并说明哪些信息还不足。`
+  return `【系统说明】已达到${label}，不能再调用工具。请基于已核对的信息回答，并说明尚未完成的分析。运行限制不代表源数据缺失或采样无效；只说明影响当前结论的具体限制，不机械生成“数据不足”。`
 }
 
 export async function runAgent(options: RunAgentOptions): Promise<AgentRunResult> {

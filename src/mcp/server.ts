@@ -83,7 +83,7 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
     if (args.file && args.dataset_id) throw new Error('file 和 dataset_id 只能提供一个')
     return args.file ? importFile(args.file, signal) : resolveDataset(store, args.dataset_id)
   }
-  const dataTools = createDataTools(store)
+  const dataTools = createDataTools(store, { sentimentModel: { complete: (request) => getModels().analysis.complete(request) } })
   const tools = [
     ...dataTools,
     ...(options.memory ? createMemoryTools(store, options.memory) : []),
@@ -142,7 +142,7 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
       },
     }),
   ]
-  const readOnly = new Set([...dataTools.map((tool) => tool.name), 'search_learnings'])
+  const readOnly = new Set([...dataTools.filter((tool) => tool.name !== 'analyze_sentiment').map((tool) => tool.name), 'search_learnings'])
   for (const tool of tools) {
     server.registerTool(tool.name, {
       description: tool.description,

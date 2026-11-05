@@ -1,8 +1,10 @@
 import * as z from 'zod'
+import type { AgentModel } from '../../agent/model.ts'
 import type { Dataset } from '../../dataset/types.ts'
 import type { DatasetStore } from '../../dataset/store.ts'
 
 export interface DataToolOptions {
+  sentimentModel?: AgentModel
   /** 每次工具结果的字符上限 */
   maxOutputChars?: number
 }

@@ -11,6 +11,7 @@ description: 使用 ugc-lens MCP 工具分析本地 JSON、JSONL、CSV、TXT 等
 
 - 需要完整分析报告时调用 `analyze`，用 `file` 指定路径，可用 `directions` 指定用户关注点。工具会自动导入、运行流水线并保存报告；向用户给出返回的报告路径。
 - 宿主自己回答具体问题时，先 `load_dataset`，再用 `get_dataset_stats`、`search_feedback` 和 `get_feedback` 查证。只有一个数据集时可以省略 `dataset_id`；有多个时用 `list_datasets` 选择。
+- 需要情感数值或分布时调用 `analyze_sentiment`，由服务配置的模型分批逐条评分、代码汇总。可以传 `target` 指定评价对象，或按 `kinds`、`content_id` 筛选。最后一轮根据汇总解释，不凭检索示例估计百分比；情绪不等于支持/反对立场。
 - 需要 ugc-lens 配置的模型代为查询并回答时调用 `ask`，第一次用 `file` 或 `dataset_id` 和 `question`；同一数据集连续追问时传回 `conversation_id`，不需要重复导入。新问题需要独立上下文时不传这个 ID。
 
 ## 查询和证据
@@ -18,6 +19,8 @@ description: 使用 ugc-lens MCP 工具分析本地 JSON、JSONL、CSV、TXT 等
 `search_feedback` 的关键词以空格表示同时匹配，以 `|` 表示任意匹配；支持按点赞、类型、属地等筛选。根据返回的下一页 `offset` 翻页。搜索结果正文会截断，需要全文或回复链时调用 `get_feedback`。
 
 结论用工具结果里真实出现的 `[ID]` 引用，保留原文。区分样本中的支持数量和全平台比例；回复可能未全部搜集，不据此推断没有回复。`ask` 返回 `citations.invalid` 时不要把这些 ID 当作证据。
+
+搜集比例不是采样完成率，不能仅因非全量就断言样本无效或搜集失败。无采样设计元数据时不推测置信度；仅在问题依赖缺失字段或完整回复链时说明相应限制。情感工具的比例分母为已评估条数（含无法判断），均值只使用有效数值；必须说明实际覆盖率及失败、跳过项，不能当作全平台比例。默认独立 token 预算 30000，可用 `token_budget` 调整；用量在结果中单独返回，未并入外层 ask 的 token 统计。完整逐条结果在返回的 JSON `path` 中，汇总仅附少量示例，需要全文时用 `get_feedback` 核对。
 
 ## 路径和运行
 

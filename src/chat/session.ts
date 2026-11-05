@@ -83,7 +83,7 @@ export function createSession(options: SessionOptions): ChatSession {
     if (active === current) active = undefined
   }
   const tools = [
-    ...createDataTools(store),
+    ...createDataTools(store, { sentimentModel: model }),
     ...(options.memory ? createMemoryTools(store, options.memory, playbook) : []),
     defineTool({
       name: 'list_files',

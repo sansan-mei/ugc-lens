@@ -42,6 +42,11 @@ function assertToolPairing(messages: ChatMessage[]): void {
 }
 
 describe('runAgent', () => {
+  test('预算收尾区分运行限制与源数据质量', () => {
+    const notice = finalizeNotice('token_budget')
+    assert.match(notice, /运行限制不代表源数据缺失/)
+    assert.doesNotMatch(notice, /说明哪些信息还不足/)
+  })
   test('模型不请求工具时直接结束', async () => {
     const model = createFakeModel([{ content: '答案' }])
     const result = await runAgent({ model, messages: initial, tools: [echo] })

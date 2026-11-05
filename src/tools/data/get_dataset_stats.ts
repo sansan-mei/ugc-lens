@@ -46,7 +46,7 @@ export function formatDatasetStats(dataset: Dataset, maxChars: number): string {
   lines.push(`\n${stats.items.record > 0 ? '文本记录' : '互动内容'}：${counts.join('，') || '无'}`)
   const { reported, collected } = stats.replies
   if (reported > 0) {
-    lines.push(`回复：平台显示 ${reported} 条，实际搜集到 ${collected} 条（${((collected / reported) * 100).toFixed(0)}%），回复是不完整的样本`)
+    lines.push(`回复：平台显示 ${reported} 条，实际搜集到 ${collected} 条（${((collected / reported) * 100).toFixed(0)}%）。仅为数量对照，不能仅凭搜集比例判定采样失败或样本无效；采样设计与完成状态未在此计数中提供。`)
   }
   if (stats.time_range) lines.push(`发布时间：${stats.time_range.from.slice(0, 10)} ~ ${stats.time_range.to.slice(0, 10)}`)
   if (stats.with_location > 0) {

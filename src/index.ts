@@ -20,6 +20,7 @@ export { analyzeDataset, type AnalyzeOptions, type AnalyzeProgress, type Analyze
 export { DEFAULT_DIRECTIONS, RECORD_DIRECTIONS, type Finding, type FindingRef } from './pipeline/summarize.ts'
 export type { Theme } from './pipeline/merge.ts'
 export { askDataset, type AskOptions, type AskResult } from './ask/index.ts'
+export { analyzeSentiment, sentimentStats, type SentimentOptions, type SentimentRecord, type SentimentResult } from './sentiment/index.ts'
 
 export { openTaskStore, defaultTasksPath, type Task, type TaskStatus, type TaskStore } from './store/tasks.ts'
 export { watchDirectory, type AnalyzeOutcome, type WatchEvent, type WatchOptions } from './watch/index.ts'

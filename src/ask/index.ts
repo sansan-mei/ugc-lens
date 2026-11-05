@@ -51,7 +51,7 @@ export async function askDataset(options: AskOptions): Promise<AskResult> {
   const run = await runAgent({
     model: options.model,
     messages: [...history, { role: 'user', content: options.question }],
-    tools: [...createDataTools(store, options.tools), ...(options.memory ? createMemoryTools(store, options.memory, playbook) : [])],
+    tools: [...createDataTools(store, { ...options.tools, sentimentModel: options.tools?.sentimentModel ?? options.model }), ...(options.memory ? createMemoryTools(store, options.memory, playbook) : [])],
     limits: { ...ASK_LIMITS, ...options.limits },
     signal: options.signal,
     onEvent: options.onEvent,

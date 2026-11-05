@@ -27,9 +27,9 @@ function toolsFor(datasets = [makeDataset(items)], maxOutputChars?: number) {
 }
 
 describe('数据工具', () => {
-  test('createDataTools：四个只读工具，参数里 dataset_id 都是可选的', () => {
+  test('createDataTools：查询工具无需模型，参数里 dataset_id 都是可选的', () => {
     const tools = createDataTools(createDatasetStore([]))
-    assert.deepEqual(tools.map((t) => t.name), ['list_datasets', 'get_dataset_stats', 'search_feedback', 'get_feedback'])
+    assert.deepEqual(tools.map((t) => t.name), ['list_datasets', 'get_dataset_stats', 'search_feedback', 'get_feedback', 'get_analysis_coverage', 'get_content_timeline'])
     for (const tool of tools) {
       const required = (tool.parameters.required as string[] | undefined) ?? []
       assert.ok(!required.includes('dataset_id'), tool.name)

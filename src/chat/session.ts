@@ -11,6 +11,7 @@ import type { ChatMessage } from '../llm/types.ts'
 import { DEFAULT_PLAYBOOK, loadPlaybook, playbookInfo, type MemoryOptions, type PlaybookSnapshot } from '../memory/playbook.ts'
 import { recordOutcome } from '../memory/learnings.ts'
 import { createMemoryTools } from '../memory/tools.ts'
+import { createProfileTools, learnProfile } from '../memory/profile.ts'
 import { findCitations } from '../dataset/query.ts'
 import { analyzeDataset, type AnalyzeOptions, type AnalyzeResult } from '../pipeline/analyze.ts'
 import { openTaskStore, type TaskStore } from '../store/tasks.ts'
@@ -47,7 +48,7 @@ export interface SessionOptions {
 }
 
 export interface ChatSession {
-  ask(question: string, signal?: AbortSignal): Promise<AgentRunResult & { memory_warning?: string }>
+  ask(question: string, signal?: AbortSignal): Promise<AgentRunResult & { memory_warning?: string; profile_learning?: Awaited<ReturnType<typeof learnProfile>> }>
   close(): Promise<void>
 }
 
@@ -65,6 +66,7 @@ export function createSession(options: SessionOptions): ChatSession {
   let history: ChatMessage[] = [{ role: 'system', content: `${system}\n\n当前工作目录：${JSON.stringify(cwd)}` }]
   let active: { dir: string; controller: AbortController; done: Promise<void>; store: TaskStore } | undefined
   let busy: Promise<AgentRunResult> | undefined
+  let currentQuestion = ''
 
   const importFile = async (file: string, signal: AbortSignal): Promise<Dataset> => {
     const path = resolve(cwd, file)
@@ -83,7 +85,8 @@ export function createSession(options: SessionOptions): ChatSession {
     if (active === current) active = undefined
   }
   const tools = [
-    ...createDataTools(store, { sentimentModel: model }),
+    ...createDataTools(store, { sentimentModel: model, memory: options.memory }),
+    ...(options.memory ? createProfileTools(options.memory, () => currentQuestion) : []),
     ...(options.memory ? createMemoryTools(store, options.memory, playbook) : []),
     defineTool({
       name: 'list_files',
@@ -167,7 +170,9 @@ export function createSession(options: SessionOptions): ChatSession {
     async ask(question, signal) {
       if (lifetime.signal.aborted) throw new Error('会话已关闭')
       if (busy) throw new Error('请等待上一轮完成')
-      busy = runAgent({ model: options.model, messages: [...history, { role: 'user', content: question }], tools, cwd, limits: { maxSteps: 12 }, signal: signal ? AbortSignal.any([lifetime.signal, signal]) : lifetime.signal, onEvent: options.onEvent })
+      currentQuestion = question
+      const roundSignal = signal ? AbortSignal.any([lifetime.signal, signal]) : lifetime.signal
+      busy = runAgent({ model: options.model, messages: [...history, { role: 'user', content: question }], tools, cwd, limits: { maxSteps: 12 }, signal: roundSignal, onEvent: options.onEvent })
       try {
         const result = await busy
         const priorLength = history.length
@@ -182,8 +187,9 @@ export function createSession(options: SessionOptions): ChatSession {
             observations: { steps: result.steps.length, stop_reason: result.stop_reason, valid_citations: citations.valid.length, invalid_citations: citations.invalid.length },
           })
         }
-        return { ...result, memory_warning }
-      } finally { busy = undefined }
+        const profile_learning = result.stop_reason === 'aborted' || roundSignal.aborted ? undefined : await learnProfile(options.memory, model, question, roundSignal)
+        return { ...result, memory_warning, profile_learning }
+      } finally { busy = undefined; currentQuestion = '' }
     },
     async close() {
       lifetime.abort()

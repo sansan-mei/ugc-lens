@@ -28,6 +28,8 @@ export async function runChatFlow(session: ChatSession, io: ChatIo, signal?: Abo
           const result = await session.ask(question, signal)
           if (signal?.aborted) break
           io.print(result.answer.trim() || '本轮未完成，可以继续描述你的需求。')
+          if (result.profile_learning?.warning) io.print(result.profile_learning.warning)
+          if (result.profile_learning?.usage) io.print(`（画像学习 token ${result.profile_learning.usage.input_tokens}+${result.profile_learning.usage.output_tokens}）`)
           if (result.stop_reason !== 'completed') io.print(`（本轮停止原因：${result.stop_reason}）`)
         } catch (error) {
           if (signal?.aborted) break

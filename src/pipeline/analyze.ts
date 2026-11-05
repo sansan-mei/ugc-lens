@@ -9,6 +9,7 @@ import type { Usage } from '../llm/types.ts'
 import { loadPlaybook, playbookInfo, type MemoryOptions, type PlaybookInfo, type PlaybookSnapshot } from '../memory/playbook.ts'
 import { recordOutcome } from '../memory/learnings.ts'
 import { planChunks, type ChunkPlan } from './chunk.ts'
+import { analysisCoverage } from '../analysis/coverage.ts'
 import { mergeFindings, type MergeResult, type Theme } from './merge.ts'
 import { renderReport } from './report.ts'
 import {
@@ -49,6 +50,7 @@ export interface AnalyzeOptions {
 }
 
 export interface AnalyzeResult {
+  coverage: ReturnType<typeof analysisCoverage>
   playbook: PlaybookInfo
   memory_warning?: string
   markdown: string
@@ -115,6 +117,7 @@ export async function analyzeDataset(options: AnalyzeOptions): Promise<AnalyzeRe
   const calls = summary.calls + (merge.called ? 1 : 0)
   const generatedAt = now()
   const duration_ms = Math.round(performance.now() - started)
+  const coverage = analysisCoverage(dataset, plan, summary.chunks)
   const markdown = renderReport({
     dataset,
     stats,
@@ -123,6 +126,7 @@ export async function analyzeDataset(options: AnalyzeOptions): Promise<AnalyzeRe
     danmaku,
     themes: merge.themes,
     directions,
+    ledger: coverage,
     run: {
       playbook: playbookInfo(playbook),
       generated_at: generatedAt,
@@ -154,5 +158,5 @@ export async function analyzeDataset(options: AnalyzeOptions): Promise<AnalyzeRe
       merge_invalid_refs: merge.invalid_refs, merge_fallback: Boolean(merge.error), themes: merge.themes.length, calls,
     },
   })
-  return { playbook: playbookInfo(playbook), memory_warning, markdown, path, themes: merge.themes, stats, plan, danmaku, summary, merge, calls, usage, duration_ms }
+  return { coverage, playbook: playbookInfo(playbook), memory_warning, markdown, path, themes: merge.themes, stats, plan, danmaku, summary, merge, calls, usage, duration_ms }
 }

@@ -19,7 +19,7 @@ test('askDataset：模型通过数据工具查询，回答里的引用分为存�
 
   assert.equal(result.run.stop_reason, 'completed')
   assert.deepEqual(result.citations, { valid: ['c1', 'c2'], invalid: ['c404'] })
-  assert.deepEqual(model.requests[0]?.tools.map((t) => t.function.name), ['list_datasets', 'get_dataset_stats', 'search_feedback', 'get_feedback', 'analyze_sentiment'])
+  assert.deepEqual(model.requests[0]?.tools.map((t) => t.function.name), ['list_datasets', 'get_dataset_stats', 'search_feedback', 'get_feedback', 'analyze_sentiment', 'get_analysis_coverage', 'get_content_timeline', 'analyze_topics', 'analyze_business'])
   assert.deepEqual(model.requests[0]?.messages, [
     { role: 'system', content: ASK_SYSTEM_PROMPT },
     { role: 'user', content: '大家在吐槽什么？' },

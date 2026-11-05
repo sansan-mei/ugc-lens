@@ -2,8 +2,10 @@ import * as z from 'zod'
 import type { AgentModel } from '../../agent/model.ts'
 import type { Dataset } from '../../dataset/types.ts'
 import type { DatasetStore } from '../../dataset/store.ts'
+import type { MemoryOptions } from '../../memory/playbook.ts'
 
 export interface DataToolOptions {
+  memory?: MemoryOptions
   sentimentModel?: AgentModel
   /** 每次工具结果的字符上限 */
   maxOutputChars?: number

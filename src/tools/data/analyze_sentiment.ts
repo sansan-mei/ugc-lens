@@ -28,7 +28,7 @@ export function createAnalyzeSentimentTool(store: DatasetStore, model: AgentMode
       const path = join(dir, `${randomUUID()}.json`)
       await writeFile(path, JSON.stringify(result, null, 2), { mode: 0o600 })
       const { records, ...overview } = result
-      const examples = ['positive', 'neutral', 'negative', 'uncertain'].flatMap((label) => records.filter((row) => label === 'uncertain' ? row.status === 'uncertain' : row.status === 'scored' && (row.score! > 0.2 ? 'positive' : row.score! < -0.2 ? 'negative' : 'neutral') === label).slice(0, 2))
+      const examples = ['positive', 'neutral', 'negative', 'mixed', 'uncertain'].flatMap((label) => records.filter((row) => label === 'uncertain' ? row.status === 'uncertain' : row.status === 'scored' && (row.mixed ? 'mixed' : row.score! > 0.2 ? 'positive' : row.score! < -0.2 ? 'negative' : 'neutral') === label).slice(0, 2))
       const issues = records.filter((row) => row.status === 'failed' || row.status === 'skipped').slice(0, 2)
       return JSON.stringify({ ...overview, path, examples, issues })
     },

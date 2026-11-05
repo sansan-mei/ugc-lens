@@ -134,18 +134,55 @@ ugc-lens playbook --reject <ID>       # 丢弃待审修改
 
 在持续对话或 `ask` 中直接说“分析这份数据的情感分数和正负面比例”，模型会调用 `analyze_sentiment`。它分批让 AI 对每条原文给出 -1～1 的分数及理由，再由代码汇总，最后让对话模型解读。可指定评价对象、`kinds` 和 `content_id`；不指定对象时评估文本整体情绪，情绪不等于对某个选择的支持/反对。
 
-每条记录等权，不按点赞加权。分数 >0.2 为正面、<-0.2 为负面，其余中性；无法判断单独计数。比例以已评估条数（含无法判断）为分母，均值仅使用有效数值；同时返回导入样本内的实际评估覆盖率。完整逐条评分保存在当前工作目录 `.ugc-lens/sentiment/*.json`。默认独立 token 预算 30000，达到预算后返回已完成部分；预算为软上限，失败、遗漏和超长未处理项均不会算作中性。此用量在工具结果中单独返回，不包含在外层对话的 token 统计中。当前 `analyze` 固定报告流水线不会自动增加情感调用。
+每条记录等权，不按点赞加权。分数 >0.2 为正面、<-0.2 为负面，其余中性；正负混合单列，不因均值为 0 算作中性。无法判断单独计数，并保留反讽标记与实际评价对象。比例以已评估条数（含无法判断）为分母，均值仅使用有效数值；同时返回导入样本内的实际评估覆盖率。完整逐条评分保存在当前工作目录 `.ugc-lens/sentiment/*.json`。默认独立 token 预算 30000，达到预算后返回已完成部分；预算为软上限，失败、遗漏和超长未处理项均不会算作中性。此用量在工具结果中单独返回，不包含在外层对话的 token 统计中。当前 `analyze` 固定报告流水线不会自动增加情感调用。
 
 采样数据可以分析样本内主题和情绪，搜集占平台全量的比例并不等于采样完成率。缺少采样设计元数据时，不推测置信度或整体误差保证，也不把样本内比例说成平台全量比例。默认手册已更新；已有项目或全局 `playbook.md` 保留原文，需要手动同步上述采样和情感规则，新对话才会加载。
 
 代码调用可使用 `analyzeSentiment({ dataset, model, target?, kinds?, contentId?, tokenBudget? })`，返回完整逐条评分和汇总，不自动写文件。
+
+## 深入分析
+
+0.0.8 增加以下分析工具，持续对话和 `ask` 可按自然语言自动选择，MCP 宿主可直接调用。情感、主题、痛点及机会建议默认优先用中文表格呈现，长解释或步骤再用列表。
+
+| 能力 | 用法与统计口径 |
+|---|---|
+| 主题占比 | `analyze_topics` 先发现主题及纳入标准，或接收明确的 `topics: [{id,title,criteria}]`，再分批逐条归类；比例分母为成功归类条数，含不确定和未归类。允许多标签，总比例可以超过 100%。 |
+| 商业机会 | `analyze_business` 提供有原文摘句的痛点、假设、最小验证动作、投入和优先级；不凑数量或自动估算 ROI，可传 `goal` 指定任务。 |
+| 时间轴 | `get_content_timeline` 按内容 ID 对齐弹幕时间窗口与字幕，支持分页；无字幕不猜画面，不将同时间段的现象当作因果。 |
+| 覆盖记录 | `get_analysis_coverage` 展示各导入集合及重复信号；固定报告另展示成功块、失败块、跳过与未选择数量。成功总结块不表示已逐条归类。 |
+
+主题和商业分析可用 `kinds`、`content_id` 筛选，默认逐条阶段预算 30000；主题发现阶段额外用量在 `discovery` 中返回，不包含在逐条阶段预算内。完整结果保存在 `.ugc-lens/topics/` 和 `.ugc-lens/business/`，代码 API `classifyTopics`、`analyzeBusiness` 不自动写文件。固定 `analyze` 流水线新增覆盖及时间轴表，主题精确归类、情感和商业分析仍按需调用，不默认增加这些模型请求。
+
+### 本地用户画像
+
+开源包不内置个人背景。画像默认关闭，开启后从后续对话里的用户发言增量学习目标、偏好、技能资源及自述人设，持续写入本地 `~/.ugc-lens/user.md`；自动学习会额外调用一次模型，用量单独显示，不包含在外层对话 token 统计中。没有开启或没有历史时使用通用分析。
+
+```bash
+ugc-lens profile --enable
+ugc-lens profile                          # 查看画像和条目 ID
+ugc-lens profile --set skills --text '擅长编程'
+ugc-lens profile --set goal --text '验证产品需求' --project
+ugc-lens profile --confirm <ID>           # 确认候选
+ugc-lens profile --delete <ID>            # 删除并阻止旧引用重学
+ugc-lens profile --disable                # 停止读取与学习，保留文件
+ugc-lens profile --clear                  # 清空画像、修订并关闭
+ugc-lens profile --learn ./my_history.txt # 仅导入自己选择的用户发言，按空行分段
+```
+
+画像区分自述（`self_report`）、推断（`candidate`）和用户修正（`confirmed`）；自述不是经过外部核验的事实。每条有引用、来源摘要、时间与作用域，超过 180 天标记为过期。用户修正优先，不被模型自动覆盖；模型读取画像作为建议背景，不作为市场需求证据或操作指令。Markdown 内的 JSON 数据块可手动编辑，容量上限为 200 个当前条目和 200 个修订。
+
+项目目标按工作目录隔离。多人共用一个系统账户时，可用 `UGC_LENS_PROFILE=alice` 选择独立画像，所有命令需使用同一变量；命名画像写到 `~/.ugc-lens/profiles/alice/user.md`。自动学习不扫描其他软件历史，不把待分析评论或模型/工具回复当成操作者资料。`--learn` 仅接受选定的纯用户发言 TXT（上限 100 KB、20000 字符和 20 段，每段最多 4000 字符）；不要把混有其他角色的完整聊天转储直接导入。
+
+需要个性化建议时，模型可调用 `read_profile`；对话内部的 `record_profile` 只接受本轮用户原文引用。MCP 宿主直接提供只读的 `read_profile`，通过 `ask` 内部对话才会按真实问题增量学习。代码 API 传入 `memory` 后遵从启用状态，`memory.profile` 可指定画像名。项目或全局旧 playbook 保留原文；默认手册现为版本 3。
+
+画像的删除与关闭不会改写已经发送给模型的历史消息；操作后开启新对话，避免继续沿用旧上下文中的背景。
 
 ## MCP 接入
 
 先用 `ugc-lens init` 配置模型。MCP 由宿主启动，不需要自己开一个服务终端。Claude Code 中可以添加：
 
 ```bash
-claude mcp add --transport stdio ugc-lens -- npx -y ugc-lens@0.0.6 mcp --cwd /绝对路径/数据项目
+claude mcp add --transport stdio ugc-lens -- npx -y ugc-lens@0.0.8 mcp --cwd /绝对路径/数据项目
 ```
 
 测试本地源码时：
@@ -163,7 +200,7 @@ claude mcp add --transport stdio ugc-lens -- node /绝对路径/ugc-lens/src/cli
   "mcpServers": {
     "ugc-lens": {
       "command": "npx",
-      "args": ["-y", "ugc-lens@0.0.6", "mcp", "--cwd", "/绝对路径/数据项目"]
+      "args": ["-y", "ugc-lens@0.0.8", "mcp", "--cwd", "/绝对路径/数据项目"]
     }
   }
 }
@@ -177,6 +214,11 @@ claude mcp add --transport stdio ugc-lens -- node /绝对路径/ugc-lens/src/cli
 | `search_feedback` | 按关键词、类型、点赞等筛选并分页 |
 | `get_feedback` | 查看全文和回复链 |
 | `analyze_sentiment` | 分批逐条情感评分，返回汇总、示例和完整结果路径 |
+| `analyze_topics` | 发现主题后逐条多标签归类，精确统计样本内占比 |
+| `analyze_business` | 附原文证据、假设和验证动作的商业机会 |
+| `get_analysis_coverage` | 导入集合数量、跳过与重复正文信号 |
+| `get_content_timeline` | 按内容对齐弹幕时间与字幕，支持分页 |
+| `read_profile` | 读取已开启且当前项目可见的用户画像，需启用 memory |
 | `analyze` | 自动导入并生成完整报告，返回正文和保存路径 |
 | `ask` | 调用配置的模型回答，返回引用核对结果及追问 ID |
 

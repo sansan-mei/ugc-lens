@@ -27,7 +27,7 @@ test('分批逐条评分后等权汇总，保留无法判断，批间不带历�
   for (const request of model.requests) assert.deepEqual(request.messages.map((m) => m.role), ['system', 'user'])
   assert.equal(model.requests[0]!.messages[0]!.content, model.requests[1]!.messages[0]!.content)
   assert.deepEqual(result.records.map((r) => r.id), dataset.items.map((r) => r.id))
-  assert.deepEqual(result.summary.counts, { positive: 1, neutral: 1, negative: 1, uncertain: 1, failed: 0, skipped: 0 })
+  assert.deepEqual(result.summary.counts, { positive: 1, neutral: 1, negative: 1, mixed: 0, uncertain: 1, failed: 0, skipped: 0 })
   assert.ok(Math.abs(result.summary.mean_score! - (0.8 - 0.6) / 3) < 1e-10)
   assert.equal(result.summary.proportions.positive, 1 / 4)
   assert.equal(result.by_kind.reply!.counts.negative, 1)
@@ -44,6 +44,16 @@ test('筛选与指定对象送入评分提示，不虚构不存在的记录', as
   assert.equal(empty.calls, 0)
   assert.equal(empty.summary.mean_score, null)
   assert.equal(empty.summary.proportions.positive, null)
+})
+
+test('混合情绪单列，不因分数为零误归中性；反讽和对象保留', async () => {
+  const data = makeDataset([makeItem({ id: 'a', text: '功能好用但价格实在太贵' })])
+  const model = createFakeModel([{ tool_calls: [{ name: 'submit_sentiment', args: { scores: [{ id: 'a', score: 0, reason: '肯定功能同时抱怨价格', mixed: true, sarcasm: 'no', target: '产品' }] } }] }])
+  const result = await analyzeSentiment({ dataset: data, model })
+  assert.equal(result.summary.counts.mixed, 1)
+  assert.equal(result.summary.counts.neutral, 0)
+  assert.equal(result.records[0]!.target, '产品')
+  assert.equal(result.records[0]!.sarcasm, 'no')
 })
 
 test('遗漏不会归为中性；重复、批外 ID、非法数值和非法 JSON 使该批失败', async () => {

@@ -16,6 +16,7 @@ import type { ChatMessage } from '../llm/types.ts'
 import { analyzeDataset, type AnalyzeOptions, type AnalyzeResult } from '../pipeline/analyze.ts'
 import { denyAll } from '../tools/approval.ts'
 import { createDataTools } from '../tools/data/index.ts'
+import { createProfileTools } from '../memory/profile.ts'
 import { resolveDataset } from '../tools/data/shared.ts'
 import { defineTool } from '../tools/define.ts'
 import type { ToolContext } from '../tools/types.ts'
@@ -83,9 +84,10 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
     if (args.file && args.dataset_id) throw new Error('file 和 dataset_id 只能提供一个')
     return args.file ? importFile(args.file, signal) : resolveDataset(store, args.dataset_id)
   }
-  const dataTools = createDataTools(store, { sentimentModel: { complete: (request) => getModels().analysis.complete(request) } })
+  const dataTools = createDataTools(store, { memory: options.memory, sentimentModel: { complete: (request) => getModels().analysis.complete(request) } })
   const tools = [
     ...dataTools,
+    ...(options.memory ? createProfileTools(options.memory, () => '').filter((tool) => tool.name === 'read_profile') : []),
     ...(options.memory ? createMemoryTools(store, options.memory) : []),
     defineTool({
       name: 'load_dataset', description: '导入本地 结构化数据或文本文件，返回 dataset_id。后续查询可复用，不需要反复发送原始文件。',
@@ -130,19 +132,19 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
             ? resolveDataset(store, previous.dataset_id)
             : await select(args, ctx.signal)
           if (previous && previous.dataset_id !== dataset.id) throw new Error('追问会话绑定了其他数据集，请不传 conversation_id 开始新对话')
-          const result = await askDataset({ memory: options.memory, model: getModels().ask, datasets: [dataset], question, history: previous?.history, signal: ctx.signal })
+          const result = await askDataset({ memory: options.memory, model: getModels().ask, tools: { sentimentModel: getModels().analysis }, datasets: [dataset], question, history: previous?.history, signal: ctx.signal })
           ctx.signal.throwIfAborted()
           const id = conversation_id ?? randomUUID()
           conversations.set(id, { dataset_id: dataset.id, history: result.run.messages, busy: false })
           return JSON.stringify({
             conversation_id: id, dataset_id: dataset.id, answer: result.answer, citations: result.citations,
-            stop_reason: result.run.stop_reason, steps: result.run.steps.length, usage: result.run.usage, playbook: result.playbook, memory_warning: result.memory_warning,
+            stop_reason: result.run.stop_reason, steps: result.run.steps.length, usage: result.run.usage, playbook: result.playbook, memory_warning: result.memory_warning, profile_learning: result.profile_learning,
           })
         } finally { if (previous) previous.busy = false }
       },
     }),
   ]
-  const readOnly = new Set([...dataTools.filter((tool) => tool.name !== 'analyze_sentiment').map((tool) => tool.name), 'search_learnings'])
+  const readOnly = new Set([...dataTools.filter((tool) => !['analyze_sentiment', 'analyze_topics', 'analyze_business'].includes(tool.name)).map((tool) => tool.name), 'search_learnings', 'read_profile'])
   for (const tool of tools) {
     server.registerTool(tool.name, {
       description: tool.description,

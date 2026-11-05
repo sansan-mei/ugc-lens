@@ -5,6 +5,7 @@ import type { Dataset } from '../../src/dataset/types.ts'
 import { planChunks } from '../../src/pipeline/chunk.ts'
 import type { Theme } from '../../src/pipeline/merge.ts'
 import { renderReport, type ReportInput, type ReportRunInfo } from '../../src/pipeline/report.ts'
+import { analysisCoverage } from '../../src/analysis/coverage.ts'
 import { makeDataset, makeItem } from '../helpers/dataset.ts'
 
 const LONG = '这个价格真的劝退，同样的配置别家便宜三百块，售后还要自己寄回去等两周，体验很差，下次不会再买了，大家慎重考虑一下吧，不然后悔都来不及，真心建议多比较，'.repeat(2)
@@ -18,6 +19,19 @@ const dataset = makeDataset([
   makeItem({ id: 'r1', kind: 'reply', parent_id: 'c1', text: '回复 @甲 :说得对，确实贵', likes: 9 }),
   makeItem({ id: 'd1', kind: 'danmaku', text: '前方高能', video_time_sec: 75 }),
 ])
+
+test('报告以表格展示真实处理覆盖和字幕对齐，缺失字幕不猜内容', () => {
+  const data = makeDataset([makeItem({ id: 'd', kind: 'danmaku', text: '反应', video_time_sec: 10 })], {
+    contents: [{ id: 'BV1', platform: 'bilibili', transcript: [{ start_sec: 9, end_sec: 12, text: '实际字幕' }] }],
+  })
+  const result = renderReport(input([], { ledger: analysisCoverage(data) }, data))
+  assert.match(result, /\| 类型 \| 导入 \|/)
+  assert.match(result, /\| 内容 \| 视频秒数 \|/)
+  assert.match(result, /实际字幕/)
+  assert.match(result, /BV1:transcript:1/)
+  assert.match(result, /不是|不代表/)
+  assert.match(result, /\[d\]/)
+})
 
 const theme = (direction: string, title: string, ids: string[], extra: Partial<Theme> = {}): Theme => ({
   direction, title, support: ids.length * 3, refs: ids.map((id) => ({ id })), sources: [], children: [], ...extra,
@@ -59,7 +73,7 @@ describe('renderReport', () => {
   test('结构：标题、概况、关键词、各方向主题、运行信息；没有主题的方向不出现', () => {
     assert.match(markdown, /^# 《测试视频》分析报告\n/)
     const headings = markdown.split('\n').filter((l) => l.startsWith('## '))
-    assert.deepEqual(headings, ['## 概况', '## 关键词', '## 主要观点', '## 吐槽点', '## 运行信息'])
+    assert.deepEqual(headings, ['## 概况', '## 关键词', '## 字幕与观众反应时间轴', '## 主要观点', '## 吐槽点', '## 运行信息'])
     assert.match(markdown, /### 1\. 整体评价一般（约 12 条）/)
     assert.match(markdown, /- \*\*和别家比\*\*（约 3 条）/)
     assert.match(markdown, /价格（3）/)

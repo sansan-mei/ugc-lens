@@ -55,6 +55,8 @@ export async function runAsk(argv: readonly string[]): Promise<void> {
       },
     })
     history = result.run.messages
+    if (result.profile_learning?.warning) console.error(result.profile_learning.warning)
+    if (result.profile_learning?.usage) console.error(`（画像学习 token ${result.profile_learning.usage.input_tokens}+${result.profile_learning.usage.output_tokens}）`)
     process.stdout.write(`${result.answer.trim()}\n`)
     const { valid, invalid } = result.citations
     console.error(

@@ -9,6 +9,8 @@ import type { Usage } from '../llm/types.ts'
 import { clock, compactRepeats, oneLine, sliceText } from '../tools/data/format.ts'
 import type { ChunkPlan } from './chunk.ts'
 import type { Theme } from './merge.ts'
+import type { analysisCoverage } from '../analysis/coverage.ts'
+import { contentTimeline } from '../analysis/content_timeline.ts'
 
 export interface ReportRunInfo {
   playbook?: { version: number; hash: string }
@@ -23,6 +25,7 @@ export interface ReportRunInfo {
 }
 
 export interface ReportInput {
+  ledger?: ReturnType<typeof analysisCoverage>
   dataset: Dataset
   stats: DatasetStats
   coverage: ChunkPlan['coverage']
@@ -39,6 +42,7 @@ const QUOTES_PER_CHILD = 2
 
 const n = (value: number) => value.toLocaleString('zh-CN')
 const percent = (part: number, total: number) => `${total > 0 ? Math.round((part / total) * 100) : 0}%`
+const cell = (text: string) => text.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('|', '\\|').replace(/[\r\n]+/g, ' ')
 
 function reportTitle(dataset: Dataset): string {
   const titles = dataset.contents.map((c) => c.title).filter((t): t is string => Boolean(t))
@@ -185,6 +189,9 @@ export function renderReport(input: ReportInput): string {
   const content = dataset.contents.length === 1 ? dataset.contents[0] : undefined
   const meta = [dataset.platform, content?.author, content?.published_at?.slice(0, 10), content?.url].filter(Boolean)
   if (meta.length > 0) header.push(meta.join(' · '), '')
-  const sections = [overview(input), keywordSection(input.keywords, input.danmaku, (input.stats.items.record ?? 0) > 0), peakSection(input.danmaku), themeSections(input), runSection(input.run)]
+  const ledger = input.ledger ? ['## 处理覆盖记录', '', '| 类型 | 导入 | 重复正文信号 | 成功块内 | 失败块内 | 跳过块内 | 未选择 |', '|---|---:|---:|---:|---:|---:|---:|', ...input.ledger.kinds.map((r) => `| ${r.kind} | ${r.imported} | ${r.duplicate_texts} | ${r.processed} | ${r.failed} | ${r.skipped} | ${r.not_selected} |`), '', '成功块内表示原文进入已完成的总结块，不代表已逐条分类；重复计数不参与总数相加。导入路径跳过数：' + input.ledger.collections.reduce((s, r) => s + r.skipped, 0), ''] : []
+  const timeline = contentTimeline(input.dataset, { limit: 30 })
+  const timelineLines = timeline.rows.length ? ['## 字幕与观众反应时间轴', '', '| 内容 | 视频秒数 | 弹幕数 | 字幕原文及位置 | 观众反应及 ID |', '|---|---|---:|---|---|', ...timeline.rows.map((row) => `| ${cell(row.title ?? row.content_id)} | ${row.start_sec}–${row.end_sec}${row.peak ? '（高峰）' : ''} | ${row.count} | ${row.transcript.length ? row.transcript.map((t) => `${cell(t.text)} [${cell(t.ref)}]`).join('；') : '未提供对应字幕，不猜测内容'} | ${row.feedback.map((f) => `${cell(f.text)} [${cell(f.id)}]`).join('；')} |`), '', ...(timeline.next_offset === null ? [] : [`共 ${timeline.total} 个有弹幕窗口，此处显示前 ${timeline.rows.length} 个，可用 get_content_timeline 翻页。`, '']), '时间对齐不代表因果关系，也不代表已观看视频画面。', ''] : []
+  const sections = [overview(input), ledger, keywordSection(input.keywords, input.danmaku, (input.stats.items.record ?? 0) > 0), peakSection(input.danmaku), timelineLines, themeSections(input), runSection(input.run)]
   return [...header, ...sections.filter((s) => s.length > 0).flatMap((s) => [...s, ''])].join('\n').replace(/\n{3,}/g, '\n\n').trimEnd() + '\n'
 }

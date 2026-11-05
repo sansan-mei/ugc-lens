@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync, unlinkS
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
-export interface MemoryOptions { cwd: string; homeDir?: string; onWarning?: (message: string) => void }
+export interface MemoryOptions { cwd: string; homeDir?: string; profile?: string; onWarning?: (message: string) => void }
 export interface PlaybookInfo { version: number; hash: string }
 export interface PlaybookSnapshot extends PlaybookInfo {
   readonly source: string

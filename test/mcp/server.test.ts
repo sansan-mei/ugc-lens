@@ -8,8 +8,45 @@ import { createDataTools } from '../../src/tools/data/index.ts'
 import { createDatasetStore } from '../../src/dataset/store.ts'
 import { makeDataset, makeItem } from '../helpers/dataset.ts'
 import { isolateEnv } from '../helpers/env.ts'
+import { configureProfile } from '../../src/memory/profile.ts'
 
 const dataset = makeDataset([makeItem({ id: 'c1', text: '价格太贵', likes: 10 }), makeItem({ id: 'c2', text: '内容很好' })])
+
+test('MCP 自动发现主题再逐条归类，商业、覆盖与画像工具复用核心', async () => {
+  const env = isolateEnv()
+  const memory = { cwd: env.dir, homeDir: env.dir }
+  configureProfile(memory, 'enable')
+  configureProfile(memory, 'set', { key: 'skills', text: '会编程' })
+  const model = createFakeModel((request) => {
+    const name = request.tools[0]!.function.name
+    if (name === 'submit_findings') return { tool_calls: [{ name, args: { findings: [{ direction: 1, title: '价格评价', criteria: '提到价格贵', refs: [1, 2], support: 2 }] } }] }
+    const rows = JSON.parse(request.messages.at(-1)!.content!) as { id: string; text: string }[]
+    if (request.messages[0]!.content!.includes('商业机会')) return { tool_calls: [{ name, args: { rows: rows.map((r) => ({ id: r.id, opportunities: [] })) } }] }
+    return { tool_calls: [{ name, args: { rows: rows.map((r) => ({ id: r.id, topic_ids: r.text.includes('价格') ? ['T1'] : [], uncertain: false, reason: '按标准' })) } }] }
+  })
+  const connection = await connect({ cwd: env.dir, memory, model, load: async () => dataset })
+  try {
+    await connection.client.callTool({ name: 'load_dataset', arguments: { file: 'data.json' } })
+    const classified = await connection.client.callTool({ name: 'analyze_topics', arguments: {} })
+    assert.ok(!classified.isError, text(classified))
+    const result = JSON.parse(text(classified))
+    assert.equal(result.topics[0].count, 1)
+    assert.equal(result.topics[0].share, 1 / dataset.items.length)
+    assert.ok(result.discovery.calls > 0)
+    assert.ok(result.path.startsWith(env.dir))
+    const coverage = await connection.client.callTool({ name: 'get_analysis_coverage', arguments: {} })
+    assert.equal(JSON.parse(text(coverage)).stage, 'import')
+    const profile = await connection.client.callTool({ name: 'read_profile', arguments: {} })
+    assert.match(text(profile), /会编程/)
+    const business = await connection.client.callTool({ name: 'analyze_business', arguments: {} })
+    assert.ok(!business.isError, text(business))
+    assert.equal(JSON.parse(text(business)).opportunities_total, 0)
+    const manifest = await connection.client.listTools()
+    assert.equal(manifest.tools.find((t) => t.name === 'analyze_topics')?.annotations?.readOnlyHint, false)
+    assert.equal(manifest.tools.find((t) => t.name === 'read_profile')?.annotations?.readOnlyHint, true)
+    assert.ok(!manifest.tools.some((t) => t.name === 'record_profile'))
+  } finally { await connection.close(); env.restore() }
+})
 const text = (result: CallToolResult) => result.content.filter((block) => block.type === 'text').map((block) => block.text).join('\n')
 async function connect(options: Parameters<typeof createMcpServer>[0] = {}) {
   const server = createMcpServer(options)

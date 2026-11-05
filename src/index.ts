@@ -21,6 +21,11 @@ export { DEFAULT_DIRECTIONS, RECORD_DIRECTIONS, type Finding, type FindingRef } 
 export type { Theme } from './pipeline/merge.ts'
 export { askDataset, type AskOptions, type AskResult } from './ask/index.ts'
 export { analyzeSentiment, sentimentStats, type SentimentOptions, type SentimentRecord, type SentimentResult } from './sentiment/index.ts'
+export { classifyTopics, type TopicDefinition } from './analysis/topics.ts'
+export { analyzeBusiness } from './analysis/business.ts'
+export { analysisCoverage } from './analysis/coverage.ts'
+export { contentTimeline } from './analysis/content_timeline.ts'
+export { configureProfile, loadProfile, visibleProfile, recordProfile, learnProfile, profilePath, type ProfileEntry } from './memory/profile.ts'
 
 export { openTaskStore, defaultTasksPath, type Task, type TaskStatus, type TaskStore } from './store/tasks.ts'
 export { watchDirectory, type AnalyzeOutcome, type WatchEvent, type WatchOptions } from './watch/index.ts'

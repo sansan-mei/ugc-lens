@@ -6,6 +6,7 @@ import { createListDatasetsTool } from './list_datasets.ts'
 import { createSearchFeedbackTool } from './search_feedback.ts'
 import type { DataToolOptions } from './shared.ts'
 import { createAnalyzeSentimentTool } from './analyze_sentiment.ts'
+import { createDeepAnalysisTools } from './deep_analysis.ts'
 
 export { createGetDatasetStatsTool, createGetFeedbackTool, createListDatasetsTool, createSearchFeedbackTool }
 export type { DataToolOptions }
@@ -18,5 +19,6 @@ export function createDataTools(store: DatasetStore, options: DataToolOptions = 
     createSearchFeedbackTool(store, options),
     createGetFeedbackTool(store, options),
     ...(options.sentimentModel ? [createAnalyzeSentimentTool(store, options.sentimentModel)] : []),
+    ...createDeepAnalysisTools(store, options.sentimentModel, options.memory),
   ]
 }

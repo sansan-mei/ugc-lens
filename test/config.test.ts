@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict'
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, test } from 'node:test'
-import { ConfigError, loadLlmConfig } from '../src/config.ts'
+import { ConfigError, globalConfigPath, loadLlmConfig, writeGlobalConfig } from '../src/config.ts'
 import { isolateEnv } from './helpers/env.ts'
 
 let env: ReturnType<typeof isolateEnv>
@@ -94,5 +95,61 @@ describe('loadLlmConfig', () => {
     mkdirSync(join(env.dir, '.ugc-lens'), { recursive: true })
     writeFileSync(join(env.dir, '.ugc-lens', 'config.json'), '{ broken')
     assert.throws(() => loadLlmConfig({ provider: 'ollama' }, env.dir), /无法解析/)
+  })
+})
+describe('全局配置 ~/.ugc-lens/config.json', () => {
+  let home: string
+  beforeEach(() => {
+    home = mkdtempSync(join(tmpdir(), 'ugc-home-'))
+  })
+  afterEach(() => {
+    rmSync(home, { recursive: true, force: true })
+  })
+  const writeGlobal = (llm: Record<string, unknown>) => {
+    mkdirSync(join(home, '.ugc-lens'), { recursive: true })
+    writeFileSync(join(home, '.ugc-lens', 'config.json'), JSON.stringify({ llm }))
+  }
+
+  test('项目目录没有配置时用全局配置；项目配置和环境变量优先于它', () => {
+    writeGlobal({ provider: 'deepseek', model: 'from-global', api_key: 'global-key' })
+    let config = loadLlmConfig({}, env.dir, home)
+    assert.equal(config.provider, 'deepseek')
+    assert.equal(config.model, 'from-global')
+    assert.equal(config.apiKey, 'global-key')
+
+    writeConfig({ model: 'from-local' })
+    config = loadLlmConfig({}, env.dir, home)
+    assert.equal(config.model, 'from-local')
+    assert.equal(config.provider, 'deepseek')
+
+    process.env.UGC_LENS_MODEL = 'from-env'
+    process.env.DEEPSEEK_API_KEY = 'env-key'
+    config = loadLlmConfig({}, env.dir, home)
+    assert.equal(config.model, 'from-env')
+    assert.equal(config.apiKey, 'env-key')
+  })
+
+  test('全局配置里的 key 让只写了提供商的项目配置也能用', () => {
+    writeGlobal({ provider: 'deepseek', model: 'm', api_key: 'global-key' })
+    writeConfig({ provider: 'deepseek' })
+    assert.equal(loadLlmConfig({}, env.dir, home).apiKey, 'global-key')
+  })
+
+  test('全局配置不是合法 JSON 时报错并指出路径', () => {
+    mkdirSync(join(home, '.ugc-lens'), { recursive: true })
+    writeFileSync(join(home, '.ugc-lens', 'config.json'), '{ broken')
+    assert.throws(() => loadLlmConfig({ provider: 'ollama' }, env.dir, home), /无法解析.*ugc-home/)
+  })
+})
+
+describe('writeGlobalConfig', () => {
+  test('替换 llm 字段、保留其他顶层字段，权限 600', () => {
+    const home = mkdtempSync(join(tmpdir(), 'ugc-home-'))
+    writeGlobalConfig({ provider: 'deepseek', model: 'a' }, home)
+    writeFileSync(globalConfigPath(home), JSON.stringify({ llm: { provider: 'old' }, other: 1 }))
+    const path = writeGlobalConfig({ provider: 'kimi', model: 'b', api_key: 'k' }, home)
+    assert.deepEqual(JSON.parse(readFileSync(path, 'utf8')), { other: 1, llm: { provider: 'kimi', model: 'b', api_key: 'k' } })
+    assert.equal(statSync(path).mode & 0o777, 0o600)
+    rmSync(home, { recursive: true, force: true })
   })
 })

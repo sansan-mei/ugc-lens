@@ -291,35 +291,78 @@ const tool = defineTool({
 
 ## 5. 统一数据格式
 
-所有数据源都先转换成统一格式，后续步骤只认这一种格式。
+所有数据源都先转换成统一格式，后续步骤只认这一种格式。字段根据 media_crawl 的真实输出确定（B 站 `bilibili_all.json`、小红书 `all_xhs.json`、知乎 `all_zhihu.json`）。
 
 ```ts
+type Platform = 'bilibili' | 'douyin' | 'xhs' | 'youtube' | 'zhihu'
+
+/** 一条用户互动内容 */
 interface FeedbackItem {
-  id: string                       // 全局唯一：`${platform}:${原始ID}`
-  platform: 'bilibili' | 'douyin' | 'xhs' | 'youtube' | 'zhihu' | 'weibo' | string
-  kind: 'comment' | 'reply' | 'danmaku'
-  content_id: string               // 所属视频或帖子
-  parent_id?: string               // 回复的上级评论
-  text: string
-  author?: { id?: string; name?: string; location?: string }
+  id: string                 // 全局唯一：`${platform}:${原始ID}`；弹幕没有原始 ID，用 `${content_id}:dm:${序号}`
+  platform: Platform
+  kind: 'comment' | 'reply' | 'danmaku' | 'answer'   // answer：知乎回答
+  content_id: string         // 所属视频、笔记或问题，对应 ContentInfo.id
+  parent_id?: string         // 上一级：回复 → 评论；知乎评论 → 回答
+  text: string               // 原文，不做清洗
+  author?: { id?: string; name?: string; gender?: string; location?: string }   // location：IP 属地
   likes?: number
-  reply_count?: number
-  created_at?: string              // ISO 8601
-  video_time_sec?: number          // 弹幕在视频中的时间点
+  reply_count?: number       // 平台显示的回复总数，可能大于实际搜集到的数量
+  created_at?: string        // ISO 8601
+  video_time_sec?: number    // 弹幕在视频中的时间点
+  danmaku_mode?: string      // 滚动、顶部、底部
+}
+
+/** 被评论的对象：视频、笔记、问题 */
+interface ContentInfo {
+  id: string                 // `${platform}:${原始ID}`
+  platform: Platform
+  title: string
+  url?: string
+  author?: string
+  description?: string
+  published_at?: string      // ISO 8601
+  stats?: Record<string, number>   // 平台显示的播放、点赞、评论数等
+  summary?: string           // 平台提供的内容摘要（如 B 站 AI 总结）
+  transcript?: { start_sec: number; end_sec: number; text: string }[]   // 字幕
 }
 
 interface Dataset {
-  id: string
-  source: string                   // 数据源适配器名称，如 media_crawl
+  id: string                 // 由文件绝对路径计算，同一文件每次导入得到相同 ID
+  source: string             // 数据源适配器名称，如 media_crawl/bilibili
+  platform: Platform
   file_path: string
-  content: { id: string; title?: string; url?: string; author?: string }[]
+  contents: ContentInfo[]
   items: FeedbackItem[]
   imported_at: string
 }
 ```
 
-具体字段在接入第一个数据源时，根据 media_crawl 和 MediaCrawler 的实际输出再确认。
+转换规则：
 
+- **原文不改**。“回复 @某人 :”这类前缀保留在 `text` 里，清洗留给分析步骤决定。
+- **数字和时间统一**。各平台的毫秒、秒、`"00:01:23"`、字符串形式的数字，都在适配器里转换。
+- **区分平台显示的数量和实际搜集到的数量**。例如 B 站评论的 `replyCount` 是平台显示的回复数，实际只搜集到其中一部分。统计时两个数都给出，分析时不能把搜集到的数量当成全部。
+- **原始数据先校验再转换**。适配器用 Zod 描述原始格式，文件不符合时报错，并指出哪个字段有问题，而不是转换出一份残缺的数据。
+
+### 5.1 文件识别
+
+按文件名白名单决定用哪个适配器（与 media_crawl `mcp/shared.mjs` 的 `FILES_BY_DATA_TYPE.all` 一致）：
+
+| 文件名 | 平台 | 状态 |
+|---|---|---|
+| `bilibili_all.json` | B 站 | 第 7 步支持 |
+| `all_douyin.json`、`all_xhs.json`、`youtube_all.json`、`all_zhihu.json` | 抖音、小红书、YouTube、知乎 | 识别，暂不支持 |
+| `all_search.json`、`all_recommend.json`、`all_popular.json`、`all_history.json`、`all_collects.json`、`all_uploader_summary.json` | - | 汇总文件，不是互动内容数据，跳过 |
+
+其他文件名一律视为未知文件。监听目录（第 10 步）也使用这套规则。
+
+### 5.2 内容 ID
+
+B 站 `bilibili_all.json` 里没有视频 ID，只能从路径中取：
+
+- 路径中有 BV 号（如 `super_collect/BV13Cq3BVEZe/…`）时用 BV 号。
+- 否则用所在目录名末尾的数字（av 号），例如 `中国为什么不能实现牛肉自由？-116887702935523`。
+- 都没有时报错。没有稳定的 ID，评论的 ID 也无法全局唯一。
 ## 6. 分析流水线（固定步骤）
 
 ```
@@ -409,6 +452,6 @@ ugc-lens/
 ## 11. 待定问题
 
 - [x] 模型提供商：用户自选，列表见 [providers.md](providers.md)
-- [ ] 统一数据格式的字段，需对照 media_crawl 与 MediaCrawler 实际输出确认
+- [x] 统一数据格式的字段：已对照 media_crawl 实际输出确认（第 5 节）；MediaCrawler 接入时再核对
 - [ ] 报告格式：先 Markdown，HTML 何时加入
 - [ ] 同一文件被覆盖后，是重新分析还是跳过

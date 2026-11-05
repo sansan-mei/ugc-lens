@@ -59,6 +59,14 @@ ugc-lens 是一个**分析用户互动内容（评论、弹幕、回复等）的
   1. **运行事件流**（第 3.5 节）：界面靠它显示进度，命令行也用它打印进度。
   2. **只读的状态与报告接口**：任务列表、报告、数据集统计都能通过代码 API 查询，不需要界面去读内部文件。
 
+### 2.2 命令行与发布
+
+- 命令行：`ugc-lens analyze <文件>`（生成报告）、`ugc-lens ask <文件> <问题> [追问...]`（追问，回答带 ID）、`ugc-lens watch <目录>`（监听目录，第 6.7 节）。结果打印到标准输出，进度打印到标准错误，可以直接重定向到文件。
+- 配置从当前目录的 `.env`、`.ugc-lens/config.json` 和环境变量读取（见 [providers.md](providers.md)），状态和报告也写在当前目录的 `.ugc-lens/` 下。
+- 代码 API：`src/index.ts` 导出 `loadDataset`、`analyzeDataset`、`askDataset`、`watchDirectory`、`openTaskStore`、模型客户端和配置读取等，命令行和以后的 MCP 都只用这些。
+- 发布：开发时直接运行 `.ts`；发布前用 `tsc -p tsconfig.build.json` 把 `src/` 编译到 `dist/`（含类型声明），因为 Node 不对 `node_modules` 里的 `.ts` 做类型剥离。包里只放 `dist/`、README、LICENSE。
+- CI（GitHub Actions）：`ci.yml` 在每次推送和 PR 时跑类型检查、测试、编译，并把 `npm pack` 的包装到临时目录里运行 `--help`。`release.yml` 在 master 上 `package.json` 的版本号和 npm 上的不同时发布，用 npm Trusted Publishing（OIDC，不存 token），然后打 `v版本号` 标签。
+
 ## 3. Agent 循环
 
 ### 3.1 基本原理
@@ -636,6 +644,8 @@ ugc-lens/
     cli/          命令行入口
     mcp/          MCP 服务
   playbook/       默认 playbook
+  dist/           编译结果，只用于发布（git 忽略）
+  .github/        CI：ci.yml 检查，release.yml 发布
   examples/       练习脚本、样本数据
   test/           测试用例（node:test），目录结构与 src/ 对应
   docs/
@@ -653,6 +663,7 @@ ugc-lens/
 | 本地状态 | JSON 文件 | 避免原生模块安装问题；数据量增长后再考虑 `node:sqlite` |
 | 文件监听 | Node 自带 `fs.watch`（递归）+ 定时扫描 | 不多一个依赖；写完判定用文件大小连续不变（第 6.7 节） |
 | MCP | 官方 TypeScript SDK | |
+| 发布 | `tsc` 编译到 `dist/`，GitHub Actions + npm Trusted Publishing | 不额外引入打包工具；不存 npm token（第 2.2 节） |
 | 依赖版本 | 全部固定精确版本，不使用 `^`、`~` | 避免不同时间安装得到不同版本；由 `bunfig.toml`（`exact = true`）和 `.npmrc`（`save-exact=true`）强制 |
 
 ## 11. 待定问题

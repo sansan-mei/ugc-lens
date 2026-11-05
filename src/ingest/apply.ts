@@ -1,5 +1,5 @@
 import type { CollectionReport, ContentInfo, FeedbackItem, FeedbackKind, ImportReport } from '../dataset/types.ts'
-import { toCount, toId, toIso, toNumber, toText, toVideoSeconds } from './convert.ts'
+import { toCount, toId, toIso, toLocation, toNumber, toText, toVideoSeconds } from './convert.ts'
 import type { ChildRule, ItemFields, Mapping } from './mapping.ts'
 import { FLATTEN, getField, isRecord, joinTokens, resolveTokens, startsWithTokens, tokenize } from './paths.ts'
 import type { ArrayInfo } from './shape.ts'
@@ -241,7 +241,7 @@ export function applyMapping(data: unknown, mapping: Mapping, ctx: ApplyContext)
           })
         : undefined
     const contentId = owner ? undefined : take('content_id', fields.content_id, toId)
-    const location = take('author_location', fields.author_location, toText)
+    const location = take('author_location', fields.author_location, toLocation)
     const author = {
       id: take('author_id', fields.author_id, toId),
       name: take('author_name', fields.author_name, toText),

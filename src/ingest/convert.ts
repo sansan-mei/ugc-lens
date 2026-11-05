@@ -58,6 +58,11 @@ export function toText(value: unknown): string | undefined {
   return undefined
 }
 
+/** 有的平台导出“IP属地：广东”，统一成“广东”，按属地统计和筛选时才能对上 */
+export function toLocation(value: unknown): string | undefined {
+  return toText(value)?.replace(/^\s*IP\s*属地\s*[:：]/i, '').trim() || undefined
+}
+
 export function toId(value: unknown): string | undefined {
   const text = toText(value)
   return text === undefined ? undefined : text.trim()

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { parseClock, toCount, toId, toIso, toText, toVideoSeconds } from '../../src/ingest/convert.ts'
+import { parseClock, toCount, toId, toIso, toLocation, toText, toVideoSeconds } from '../../src/ingest/convert.ts'
 
 test('toCount：数字、数字字符串、千分位、万、w、k、加号', () => {
   const cases: Array<[unknown, number | undefined]> = [
@@ -46,4 +46,12 @@ test('toText / toId：原文不去空白，空字符串视为没有，数字转�
   assert.equal(toText({}), undefined)
   assert.equal(toId(' 7 '), '7')
   assert.equal(toId(278829812416), '278829812416')
+})
+
+test('toLocation：去掉平台加的“IP属地：”前缀', () => {
+  assert.equal(toLocation('IP属地：广东'), '广东')
+  assert.equal(toLocation('IP 属地: 中国台湾 '), '中国台湾')
+  assert.equal(toLocation('浙江'), '浙江')
+  assert.equal(toLocation('IP属地：'), undefined)
+  assert.equal(toLocation(null), undefined)
 })

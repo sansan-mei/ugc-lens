@@ -93,3 +93,5 @@
 - **Anthropic 和 Gemini 的兼容层不完整**。它们的 OpenAI 兼容接口能满足基本对话和工具调用，但部分参数会被忽略（例如严格的 JSON Schema 约束）。等原生接口确有必要时，再单独写适配器（Hermes 对 Anthropic 用的就是原生接口）。
 - **推理模型的参数不同**。部分模型（如 DeepSeek 推理模型、OpenAI 推理系列）对 `temperature` 等参数有限制，模型客户端要允许按提供商去掉不支持的参数。
 - **token 用量字段**。大多数提供商在返回的 `usage` 里给出 token 数，个别字段名不同，统计时要兼容。
+- **思考模式**。DeepSeek（`deepseek-flash` 等）默认开着思考模式：思考内容按输出 token 计费，而且开着思考时不接受指定工具的 `tool_choice`（返回 400）。分析流水线调用模型时传 `disableThinking`，按预设里的 `thinkingOff` 加上关闭字段：DeepSeek 和智谱是 `thinking: {type: "disabled"}`，通义千问是 `enable_thinking: false`；其他提供商不发送任何字段。
+- **提示词缓存**。DeepSeek 自动缓存请求开头相同的部分，命中数在 `usage.prompt_cache_hit_tokens`；OpenAI 和多数兼容接口在 `usage.prompt_tokens_details.cached_tokens`。客户端统一成 `cached_input_tokens`。

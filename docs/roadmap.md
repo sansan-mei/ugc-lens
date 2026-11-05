@@ -224,6 +224,19 @@
   - 真实验证：监听临时目录，复制进荒野独居的 `bilibili_comment.json` 和 `bilibili_all.json`，只有 all 被分析：7 块 + 合并，8 次调用，输入 6.0 万、输出 5.1 千 token，约 20 秒出报告；目录里原有的文件没有分析。重启后覆盖 all 文件，没有重复分析。
   - 测试：`test/store/tasks.test.ts`、`test/watch/pattern.test.ts`、`test/watch/index.test.ts`（真实临时目录 + 注入的分析函数）、`test/cli/watch.test.ts`。
 
+### 第 10.5 步：npm 入口与发布（插入）
+
+- 目标：配好命令行入口和代码入口，配好 CI，先发布 0.0.1 看看实际效果。MCP（第 11 步）延后。
+- 要做的：命令行补 `analyze`、`ask`；`src/index.ts` 导出代码 API；编译成 JS 发布（Node 不运行 `node_modules` 里的 `.ts`）；CI 检查每次提交，`package.json` 版本号变化时自动发布。
+- 用户决定：版本 0.0.1；第一版命令行带 `watch`、`analyze`、`ask`；第一次由用户在本机 `npm publish`，之后 CI 用 npm Trusted Publishing（不用 token）；版本号更新时发布。
+- 完成标准：`npm pack` 得到的包在一个空目录里安装后，`ugc-lens analyze <文件>` 能生成报告；CI 通过。
+- 笔记（推送后 CI 通过、首次发布成功再打勾）：
+  - 命令行：`src/cli/index.ts` 分发 `analyze`、`ask`、`watch`，`--help`、`--version`；参数不对退出码 2，配置或导入错误退出码 1 且不打印调用栈。结果打印到标准输出，进度打印到标准错误。
+  - 坑：Node 不对 `node_modules` 里的 `.ts` 做类型剥离，装好的包直接跑源码会报错，所以发布前必须编译。`tsc` 的 `rewriteRelativeImportExtensions` 只改 `.js` 里的导入，`.d.ts` 里仍然是 `./x.ts`，使用者的 TypeScript 会找不到，`scripts/build.ts` 编译后再改一遍声明文件。
+  - 包里只有 `dist/`、README、LICENSE，约 97 KB；运行时依赖只有 zod。
+  - Trusted Publishing 要求包已经存在才能配置，所以第一次由用户在本机发布。配置后 2 天内必须有一次成功的 CI 发布，否则配置过期。
+  - 验证：在空目录安装 `npm pack` 的包，`--version`、`--help` 正常；写一个 TypeScript 文件导入 `ugc-lens` 能通过类型检查；`analyze`、`ask` 用 DeepSeek 跑通测试样本。
+
 ---
 
 ## 阶段三：对外接入与迭代
@@ -238,10 +251,10 @@
 - 目标：分析规则从代码中移到 `playbook.md`；每次运行后追加 `learnings.md`。
 - 完成标准：修改 playbook 中一条规则，重跑回归样本后能看到报告的对应变化。
 
-### 第 13 步：更多文件格式与发布
+### 第 13 步：更多文件格式
 
-- 目标：支持 JSONL 等文件格式（CSV 随第 9.5 步在发布后再做），发布第一个 npm 版本。
-- 完成标准：`npx ugc-lens analyze` 在一台新电脑上能直接运行。
+- 目标：支持 JSONL 等文件格式（CSV 随第 9.5 步再做）。第一个 npm 版本已在第 10.5 步发布。
+- 完成标准：`npx ugc-lens analyze` 能直接分析 JSONL 文件。
 
 ---
 
@@ -267,7 +280,8 @@
 - [x] 第 9 步　分析流水线
 - [ ] 第 9.5 步　通用文本记录（推迟到发布后）
 - [x] 第 10 步　监听目录
+- [ ] 第 10.5 步　npm 入口与发布
 - [ ] 第 11 步　MCP 服务
 - [ ] 第 12 步　playbook 与 learnings
-- [ ] 第 13 步　更多文件格式与发布
+- [ ] 第 13 步　更多文件格式
 - [ ] 第 14 步　图形界面（可选）

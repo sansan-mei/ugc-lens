@@ -102,7 +102,7 @@ loop:
 ### 3.3 错误处理
 
 - 工具执行出错**不抛异常中断循环**，而是把错误信息作为工具结果返回给模型，让它换参数重试或换方法。
-- 模型返回的参数不是合法 JSON，或者不符合 schema：同样作为工具结果返回错误说明。
+- 模型返回的参数不是合法 JSON，或者不符合 schema：同样作为工具结果返回错误说明。不符合 schema 时提示“参数不正确”，和“执行失败”区分开（见 4.1）。
 - 模型接口本身出错（网络、限流）：在模型客户端里按指数退避重试，重试用完再让循环失败。
 
 ### 3.4 循环的输出
@@ -224,25 +224,38 @@ type RunEvent =
 
 ### 4.1 工具定义
 
+两层定义：循环只认底层的 `AgentTool`；写工具时用 `defineTool`，参数用 Zod 描述。
+
 ```ts
-interface Tool<P> {
-  name: string              // snake_case，如 search_feedback
-  description: string       // 写给模型看：做什么、什么时候用、返回什么
-  parameters: ZodSchema<P>  // 参数校验，同时转成 JSON Schema 发给模型
-  handler: (params: P, ctx: ToolContext) => Promise<ToolResult>
+// 循环使用的底层接口（src/tools/types.ts）
+interface AgentTool {
+  name: string                 // snake_case，如 search_feedback
+  description: string          // 写给模型看：做什么、什么时候用、返回什么
+  parameters: JsonSchema       // 发给模型的参数格式
+  execute(args: Record<string, unknown>, ctx: ToolContext): Promise<string>
 }
+
+// 推荐写法（src/tools/define.ts）
+const tool = defineTool({
+  name: 'read_file',
+  description: '…',
+  parameters: z.object({ path: z.string(), offset: z.number().int().min(1).default(1) }),
+  execute: async (args, ctx) => { /* args 的类型由 Zod 推导，已校验、已填默认值 */ },
+})
 ```
 
-- 参数用 Zod 定义，一份定义同时用于“告诉模型参数格式”和“校验模型传回的参数”。
+- 参数用 Zod 定义，一份定义同时用于“告诉模型参数格式”（转成 JSON Schema）和“校验模型传回的参数”。
+- 转换时去掉 `$schema` 和 `z.number().int()` 自动带上的安全整数边界；带默认值的字段不放进 `required`。JSON Schema 表达不了的类型（如 `z.date()`）在定义时就报错。
+- `refine` 写的规则不会出现在 JSON Schema 里，模型只能从错误提示中得知。重要的约束要写进 `description` 或用 JSON Schema 能表达的写法（`enum`、`min`、`regex`）。
+- 参数不合格时抛出 `ToolArgumentError`，循环返回“参数不正确”的提示：逐条列出参数名、原因、收到的值，并附上完整参数格式，方便模型修正。
 - `description` 的质量直接决定模型会不会正确使用工具，要当作提示词来写。
 - 工具结果统一转成字符串返回给模型，超过长度上限时截断，并注明“已截断，可用分页参数继续读取”。
-
 ### 4.2 工具清单（按实现顺序）
 
 | 阶段 | 工具 | 作用 |
 |---|---|---|
 | 基础 | `read_file` / `write_file` / `run_command` | 读写本地文件、执行命令，验证调用链路和确认机制（见 4.3） |
-| 练习 | `calculate` | 有参数的工具，验证参数校验 |
+| 基础 | `calculate` | 两个数的四则运算、乘方、取余，练习 `enum` 和数字参数 |
 | 数据 | `list_datasets` | 列出已导入的数据集 |
 | 数据 | `get_dataset_stats` | 数量、时间分布、地域分布、高赞内容 |
 | 数据 | `search_feedback` | 按关键词、时间、点赞数筛选互动内容，分页返回 |
@@ -258,6 +271,7 @@ interface Tool<P> {
 |---|---|---|---|
 | `read_file` | `path`、`offset`、`limit` | 带行号返回文本，默认每次 500 行、最多 1 万字符，结果末尾提示下一段的 `offset`；拒绝目录、二进制和超过 10 MB 的文件 | 不需要 |
 | `write_file` | `path`、`content` | 写入完整内容，自动创建上级目录 | 覆盖已有文件时需要 |
+| `calculate` | `operation`、`a`、`b` | 精确计算，除以 0 和溢出时报错 | 不需要 |
 | `run_command` | `command` | 用 shell 在工作目录执行，合并 stdout 和 stderr，返回退出码；30 秒超时，输出超过 1 万字符时保留开头和结尾 | 只读白名单以外的命令需要 |
 
 规则：

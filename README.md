@@ -20,4 +20,5 @@ npm run typecheck    # 类型检查
 npm test             # 测试
 npm run loop         # 用假模型演示 Agent 循环
 npm run tools        # 真实模型 + 基础工具（需要 .env）
+npm run params       # 参数纠错实验（需要 .env）
 ```：按步骤实现，每一步的目标、要掌握的概念和完成标准

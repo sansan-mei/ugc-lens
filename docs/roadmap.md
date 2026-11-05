@@ -95,7 +95,17 @@
   - 工具的 `description` 怎么写，会直接影响模型是否调用、怎么传参
   - 参数错误、工具报错时，把错误作为工具结果返回，让模型自己修正
 - 完成标准：故意让模型传错参数（例如描述写得含糊），观察它收到错误后能自己修正；连续出错 3 次时循环停止。
-
+- 笔记：
+  - 代码：`src/tools/define.ts`（`defineTool`、`toParametersSchema`、`ToolArgumentError`）、`src/tools/builtin/calculate.ts`。三个基础工具改用 Zod，删除了手写的 `args.ts`，路径处理移到 `src/tools/paths.ts`。
+  - 依赖：`zod@4.6.7`。Zod 4 自带 `z.toJSONSchema`，不需要额外的转换库。
+  - 转换结果要清理：默认输出带 `$schema`（部分提供商会拒绝），`z.number().int()` 会带上 `maximum: 9007199254740991` 这类边界，都去掉。
+  - 用 `io: 'input'` 生成 JSON Schema：带默认值的字段对模型来说是可选的。
+  - 循环保留底层 `AgentTool` 接口，假模型测试里手写的工具不受影响。
+  - 运行：`npm run params`。实验工具 `days_between` 要求日期写成 `YYYY/MM/DD`，规则用 `refine` 写，不出现在 JSON Schema 里，描述也只写了“计算两个日期的间隔”。
+  - DeepSeek 实测：第 1 步并行发出 2 个调用，都按习惯写成 `2026-11-05`，收到“日期格式必须是 YYYY/MM/DD（收到："2026-11-05"）”后，第 2 步全部改对，最终答案正确（50 天、93 天）。错误提示写清楚“哪个参数、错在哪、收到什么”，模型一次就能改对。
+  - 教训：`refine` 的规则模型事先看不到，每次都要先错一次，浪费一轮调用。真实工具里能用 `regex`、`enum` 表达的约束，就不要用 `refine`。
+  - 连续出错 3 次停止已在第 3 步实现（`tool_errors`），本步没有改动。
+  - 测试：`test/tools/define.test.ts`、`test/tools/builtin/calculate.test.ts`、`test/tools/paths.test.ts`，`test/agent/loop.test.ts` 新增“参数错误与执行失败区分”。
 ### 第 6 步：预算与稳定性
 
 - 目标：补齐终止条件和模型调用的重试。
@@ -163,7 +173,7 @@
 - [x] 第 2 步　多轮对话
 - [x] 第 3 步　Agent 循环骨架（假模型）
 - [x] 第 4 步　真实模型的 function call
-- [ ] 第 5 步　工具注册与参数校验
+- [x] 第 5 步　工具注册与参数校验
 - [ ] 第 6 步　预算与稳定性
 - [ ] 第 7 步　统一数据格式与第一个数据源
 - [ ] 第 8 步　数据工具

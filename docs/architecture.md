@@ -263,10 +263,10 @@ const tool = defineTool({
 |---|---|---|
 | 基础 | `read_file` / `write_file` / `run_command` | 读写本地文件、执行命令，验证调用链路和确认机制（见 4.3） |
 | 基础 | `calculate` | 两个数的四则运算、乘方、取余，练习 `enum` 和数字参数 |
-| 数据 | `list_datasets` | 列出已导入的数据集 |
-| 数据 | `get_dataset_stats` | 数量、时间分布、地域分布、高赞内容 |
-| 数据 | `search_feedback` | 按关键词、时间、点赞数筛选互动内容，分页返回 |
-| 数据 | `get_feedback` | 按 ID 读取单条内容及上下文（回复链） |
+| 数据 | `list_datasets` | 列出已导入的数据集（见 4.4） |
+| 数据 | `get_dataset_stats` | 内容信息、数量、回复搜集比例、时间和地域分布、高赞内容 |
+| 数据 | `search_feedback` | 按关键词、类型、时间、点赞数、属地筛选互动内容，分页返回 |
+| 数据 | `get_feedback` | 按 ID 读取全文及上下文（上一级、回复） |
 | 报告 | `list_reports` / `get_report` | 读取已生成的报告 |
 | 第二版 | `collect` | 通过数据源接口补充搜集 |
 
@@ -288,6 +288,28 @@ const tool = defineTool({
 - **只读白名单偏保守**（`command_policy.ts`）：命令名在白名单内（`ls`、`cat`、`rg`、`git status` 等），不含重定向、`;`、`&&`、`$`、反引号等字符，也不带 `find -exec`、`sort -o` 这类会写文件或执行程序的参数，才直接执行。管道只允许连接白名单命令。判断不了的写法一律需要确认。
 - **子进程拿不到模型 key**：执行命令时去掉所有以 `_API_KEY` 结尾的环境变量。
 - 超时或取消时结束整个进程组，避免命令留下后台子进程。
+
+### 4.4 数据工具与追问
+
+`src/tools/data/` 的四个工具让模型按需查询数据集，数据本身留在本机内存里，不整个塞进上下文。全部只读，不需要确认。
+
+| 工具 | 参数 | 返回 |
+|---|---|---|
+| `list_datasets` | 无 | 每个数据集的 ID、平台、文件名、标题、条数 |
+| `get_dataset_stats` | `dataset_id` | 内容信息（标题、平台数据、平台摘要）、各类条数、回复搜集比例、时间范围、IP 属地、点赞前 5 的评论 |
+| `search_feedback` | `dataset_id`、`query`、`kinds`、`content_id`、`parent_id`、`min_likes`、`location`、`since`、`until`、`sort`、`offset`、`limit` | 每行一条，正文截到 150 字；末尾写明总数和下一页的 `offset` |
+| `get_feedback` | `dataset_id`、`ids`（最多 10 个）、`reply_offset`、`reply_limit` | 全文（最多 2000 字）、上一级、按时间排列的回复（可分页） |
+
+规则：
+
+- **每条结果以 `[ID]` 开头**，格式固定：`[1003] 评论 赞94 回复3 2024-10-22 浙江 用户3：正文…（全文 165 字）`。模型回答时用同样的 `[ID]` 引用，程序据此核对。原文里自带的方括号（B 站表情 `[干杯]` 等）不是 ID，被模型连同原文引用时不算编造；Markdown 链接也不算。
+- **长度控制**：每次结果最多 8000 字符（`maxOutputChars` 可改），按整行截断，并按实际显示的条数给出下一页的 `offset`；截断的正文注明全文长度，提示用 `get_feedback` 查看。
+- **`dataset_id` 可省略**：只有一个数据集时自动使用它；有多个时报错并列出可用 ID。
+- **关键词规则**：空格分隔的词都要出现，`|` 表示任意一个，不区分大小写。不做分词和同义词，靠模型多换几个词查。
+- **说明样本不完整**：概况里写明“平台显示 N 条回复，实际搜集到 M 条”；`get_feedback` 对没搜集到回复的条目单独说明。
+- 查询逻辑在 `src/dataset/query.ts`（`searchFeedback`、`getFeedback`、`getReplies`、`findCitations`），不依赖工具层，第 9 步流水线直接调用。
+
+`src/ask/` 的 `askDataset` 是追问入口：固定 system prompt（要求先看概况、用 `[ID]` 引用、说明多少条支持、不足时直说）+ 数据工具 + Agent 循环，最多 12 步。返回回答、运行记录和引用核对结果（`citations.valid` / `citations.invalid`）。连续追问时把上一轮的 `run.messages` 作为 `history` 传入。
 
 ## 5. 统一数据格式与导入
 
@@ -503,8 +525,9 @@ ugc-lens/
   src/
     agent/        Agent 循环、终止条件、运行记录
     llm/          模型客户端（OpenAI 兼容）
-    tools/        工具定义与注册
-    dataset/      统一数据格式与统计
+    tools/        工具定义与注册；builtin/ 基础工具，data/ 数据工具
+    dataset/      统一数据格式、统计与查询
+    ask/          追问：数据工具 + Agent 循环
     ingest/       数据导入：结构摘要、映射规则、推断与缓存
     pipeline/     分析流水线
     store/        本地状态与报告读写

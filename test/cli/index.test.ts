@@ -71,11 +71,17 @@ describe('命令行入口', () => {
   })
 
   test('命令 --help 打印该命令的用法，不读取配置', async () => {
-    for (const command of ['analyze', 'ask', 'watch']) {
+    for (const command of ['init', 'analyze', 'ask', 'watch']) {
       const r = await run(command, '--help')
       assert.equal(r.code, 0)
       assert.match(r.stdout, new RegExp(`ugc-lens ${command}`))
     }
+  })
+
+  test('init 在非交互终端里拒绝运行', async () => {
+    const r = await run('init')
+    assert.equal(r.code, 2)
+    assert.match(r.stderr, /交互/)
   })
 
   test('未知命令、参数不对退出码 2；缺 API key 退出码 1 并提示', async () => {

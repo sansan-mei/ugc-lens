@@ -8,7 +8,7 @@
 - **用户自己选**，不内置默认厂商。`init` 时交互式选择，或直接写配置文件。
 - **统一走 OpenAI 兼容的 Chat Completions 接口**。下面所有提供商都支持这种协议，第一版只需要写一个模型客户端。
 - **不内置默认模型名**。模型更新太快，写死很快就过时。`init` 时调用提供商的 `GET /models` 列出可选模型，由用户选择；接口不支持时让用户手动输入。
-- **API key 只放环境变量或 `.env`**，配置文件里只写“从哪个环境变量读 key”，避免 key 被误提交到 git。（与 Hermes 的做法一致：配置文件管模型和地址，`.env` 管密钥。）
+- **API key 放环境变量、`.env` 或全局配置**。项目目录的 `.ugc-lens/config.json` 里只写“从哪个环境变量读 key”，避免 key 被误提交到 git；全局配置 `~/.ugc-lens/config.json` 不在任何 git 仓库里，`ugc-lens init` 会把 key 直接写进去（权限 600），任何目录下都能用。
 
 ## 2. 支持列表
 
@@ -62,7 +62,7 @@
 
 ## 4. 配置格式
 
-`.ugc-lens/config.json`：
+两个位置：项目目录的 `.ugc-lens/config.json`（只对当前目录生效，可提交，不放 key）和全局的 `~/.ugc-lens/config.json`（`ugc-lens init` 写入，含 key，权限 600）。格式相同：
 
 ```json
 {
@@ -72,6 +72,7 @@
     "region": "cn",
     "base_url": null,
     "api_key_env": null,
+    "api_key": null,
     "timeout_ms": 120000,
     "max_retries": 3
   }
@@ -81,10 +82,11 @@
 - `region`：只对有国内 / 国际两个地址的提供商生效，默认 `cn`。
 - `base_url`：填写后覆盖预设地址（中转站、代理时使用）。
 - `api_key_env`：填写后改从这个环境变量读 key；不填就用预设的环境变量名。
+- `api_key`：直接写 key。只建议放在全局配置里，项目配置放 key 有被误提交的风险。
 - `timeout_ms`：单次请求的超时时间，默认 120000。
 - `max_retries`：网络错误、超时、限流（429）、服务端错误（5xx）时最多重试几次，默认 3；设为 0 关闭重试。
 
-读取优先级：命令行参数 > 环境变量（`UGC_LENS_PROVIDER`、`UGC_LENS_MODEL`、`UGC_LENS_BASE_URL`）> 配置文件 > 预设。
+读取优先级：代码参数 > 环境变量（`UGC_LENS_PROVIDER`、`UGC_LENS_MODEL`、`UGC_LENS_BASE_URL`、各家 key）> 项目配置 > 全局配置 > 预设。每一项单独取最高优先级的值，比如全局配置选好了提供商和 key，某个项目仍可用自己的 `.env` 换模型。
 
 ## 5. 要注意的差异
 

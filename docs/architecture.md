@@ -61,8 +61,8 @@ ugc-lens 是一个**分析用户互动内容（评论、弹幕、回复等）的
 
 ### 2.2 命令行与发布
 
-- 命令行：`ugc-lens analyze <文件>`（生成报告）、`ugc-lens ask <文件> <问题> [追问...]`（追问，回答带 ID）、`ugc-lens watch <目录>`（监听目录，第 6.7 节）。结果打印到标准输出，进度打印到标准错误，可以直接重定向到文件。
-- 配置从当前目录的 `.env`、`.ugc-lens/config.json` 和环境变量读取（见 [providers.md](providers.md)），状态和报告也写在当前目录的 `.ugc-lens/` 下。
+- 命令行：`ugc-lens init`（交互式初始化：选提供商、列出 /models 选模型、填 key、发一次测试调用，写入全局配置）、`ugc-lens analyze <文件>`（生成报告）、`ugc-lens ask <文件> <问题> [追问...]`（追问，回答带 ID）、`ugc-lens watch <目录>`（监听目录，第 6.7 节）。结果打印到标准输出，进度打印到标准错误，可以直接重定向到文件。
+- 配置从环境变量、当前目录的 `.env` 和 `.ugc-lens/config.json`、全局 `~/.ugc-lens/config.json` 读取（优先级从高到低，见 [providers.md](providers.md) 第 4 节）。任务状态和报告仍写在当前目录的 `.ugc-lens/` 下，只有模型配置进全局目录。
 - 代码 API：`src/index.ts` 导出 `loadDataset`、`analyzeDataset`、`askDataset`、`watchDirectory`、`openTaskStore`、模型客户端和配置读取等，命令行和以后的 MCP 都只用这些。
 - 发布：开发时直接运行 `.ts`；发布前用 `tsc -p tsconfig.build.json` 把 `src/` 编译到 `dist/`（含类型声明），因为 Node 不对 `node_modules` 里的 `.ts` 做类型剥离。包里只放 `dist/`、README、LICENSE。
 - CI（GitHub Actions）：`ci.yml` 在每次推送和 PR 时跑类型检查、测试、编译，并把 `npm pack` 的包装到临时目录里运行 `--help`。`release.yml` 在 master 上 `package.json` 的版本号和 npm 上的不同时发布，用 npm Trusted Publishing（OIDC，不存 token），然后打 `v版本号` 标签。

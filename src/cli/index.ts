@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * 命令行入口：ugc-lens <analyze|ask|watch> ...
+ * 命令行入口：ugc-lens 默认进入持续对话，子命令用于单次操作
  * 开发时：node src/cli/index.ts <命令> ...
  */
 import { readFileSync } from 'node:fs'
@@ -9,6 +9,7 @@ import { ImportError } from '../ingest/index.ts'
 import { ANALYZE_USAGE, runAnalyze } from './analyze.ts'
 import { ASK_USAGE, runAsk } from './ask.ts'
 import { UsageError } from './common.ts'
+import { runChat } from './chat.ts'
 import { INIT_USAGE, runInit } from './init.ts'
 import { runWatch, WATCH_USAGE } from './watch.ts'
 
@@ -22,6 +23,7 @@ const COMMANDS = {
 const MAIN_USAGE = `ugc-lens：分析评论、弹幕等用户互动内容
 
 用法：
+  ugc-lens                             持续对话，自动选择导入、查询、分析和监听工具
   ugc-lens init                         初始化：选择提供商和模型，写入全局配置
   ugc-lens analyze <文件>               生成 Markdown 分析报告
   ugc-lens ask <文件> <问题> [追问...]   追问，回答带 [ID] 引用
@@ -29,7 +31,7 @@ const MAIN_USAGE = `ugc-lens：分析评论、弹幕等用户互动内容
   ugc-lens <命令> --help                查看命令的选项
   ugc-lens --version
 
-模型和 API key 从当前目录的 .env、.ugc-lens/config.json 或环境变量读取，例如：
+模型和 API key 从环境变量、当前目录的 .env / .ugc-lens/config.json 或全局 ~/.ugc-lens/config.json 读取，例如：
   UGC_LENS_PROVIDER=deepseek
   DEEPSEEK_API_KEY=你的 key`
 
@@ -43,15 +45,15 @@ function isParseArgsError(error: unknown): boolean {
 }
 
 const [command, ...rest] = process.argv.slice(2)
-if (command === undefined || command === '--help' || command === '-h' || command === 'help') {
+if ((command === undefined && !process.stdin.isTTY) || command === '--help' || command === '-h' || command === 'help') {
   console.log(MAIN_USAGE)
 } else if (command === '--version' || command === '-v') {
   console.log(version())
-} else if (!Object.hasOwn(COMMANDS, command)) {
+} else if (command !== undefined && !Object.hasOwn(COMMANDS, command)) {
   console.error(`未知命令：${command}\n\n${MAIN_USAGE}`)
   process.exitCode = 2
 } else {
-  const { run, usage } = COMMANDS[command as keyof typeof COMMANDS]
+  const { run, usage } = command === undefined ? { run: runChat, usage: MAIN_USAGE } : COMMANDS[command as keyof typeof COMMANDS]
   if (rest.includes('--help') || rest.includes('-h')) {
     console.log(usage)
   } else {

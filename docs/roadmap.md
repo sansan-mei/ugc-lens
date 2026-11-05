@@ -192,7 +192,7 @@
     - 测肺活量 9.8 万条：抽样后 8 块 8.2 万字，低信息内容 1114 条没有发送，输入 6.2 万、输出 4 千 token，7 秒；重跑时缓存命中 85%。
   - token 估算一开始按汉字 0.6、其他 0.3 算，比实际少约 30%。用两份数据的实际用量校准为 0.9、0.4，每次请求再加 100，误差在 10% 以内。
   - 各块的观点重复很多（如“测的是肺活量不是肾”在 6 块里都出现），这正是 9.3 合并要做的事。
-  - 9.3 合并与报告：`src/pipeline/merge.ts`（`mergeFindings`、`parseThemes`）、`src/pipeline/report.ts`（`renderReport`）、`src/pipeline/analyze.ts`（`analyzeDataset`）。设计见 `docs/architecture.md` 第 6.4～6.6 节。运行：`npm run analyze`，或 `node examples/09_analyze.ts <文件> [--chars 80000] [--focus 价格,售后] > report.md`；报告同时保存到 `.ugc-lens/reports/`。命令行的 `analyze` 命令在第 13 步发布时再做。
+  - 9.3 合并与报告：`src/pipeline/merge.ts`（`mergeFindings`、`parseThemes`）、`src/pipeline/report.ts`（`renderReport`）、`src/pipeline/analyze.ts`（`analyzeDataset`）。设计见 `docs/architecture.md` 第 6.4～6.6 节。运行：`npm run analyze`，或 `node examples/09_analyze.ts <文件> [--chars 80000] [--focus 价格,售后] > report.md`；报告同时保存到 `.ugc-lens/reports/`。命令行的 `analyze` 命令已在第 10.5 步发布时实现。
   - 用户决定：报告只放正常结果，优先 Markdown。校验丢掉的数量、失败块的原因只放在返回值里；报告末尾一小节运行信息，有块没完成时只用一句话说明。
   - 合并只调用一次模型：输入是各块观点的一行摘要（结论｜纳入标准｜条数），不发原文；模型只回观点编号和标题。编号由代码校验（存在、方向一致、只用一次），漏掉的观点单独成为主题；调用失败时每个观点单独成为主题，报告照样生成。观点都来自同一块时不调用。
   - 引用、作者、属地、点赞、“类似内容 N 条”都由代码从原数据取，模型不输出这些。每个主题按点赞取 3 条引用。
@@ -226,11 +226,11 @@
 
 ### 第 10.5 步：npm 入口与发布（插入）
 
-- 目标：配好命令行入口和代码入口，配好 CI，先发布 0.0.1 看看实际效果。MCP（第 11 步）延后。
+- 目标：配好命令行入口和代码入口，配好 CI，先发布 0.0.1 看看实际效果。MCP（第 12 步）延后。
 - 要做的：命令行补 `analyze`、`ask`；`src/index.ts` 导出代码 API；编译成 JS 发布（Node 不运行 `node_modules` 里的 `.ts`）；CI 检查每次提交，`package.json` 版本号变化时自动发布。
 - 用户决定：版本 0.0.1；第一版命令行带 `watch`、`analyze`、`ask`；第一次由用户在本机 `npm publish`，之后 CI 用 npm Trusted Publishing（不用 token）；版本号更新时发布。
 - 完成标准：`npm pack` 得到的包在一个空目录里安装后，`ugc-lens analyze <文件>` 能生成报告；CI 通过。
-- 笔记（推送后 CI 通过、首次发布成功再打勾）：
+- 笔记（0.0.1 手动发布与 0.0.2 CI 发布均已成功）：
   - 命令行：`src/cli/index.ts` 分发 `analyze`、`ask`、`watch`，`--help`、`--version`；参数不对退出码 2，配置或导入错误退出码 1 且不打印调用栈。结果打印到标准输出，进度打印到标准错误。
   - 坑：Node 不对 `node_modules` 里的 `.ts` 做类型剥离，装好的包直接跑源码会报错，所以发布前必须编译。`tsc` 的 `rewriteRelativeImportExtensions` 只改 `.js` 里的导入，`.d.ts` 里仍然是 `./x.ts`，使用者的 TypeScript 会找不到，`scripts/build.ts` 编译后再改一遍声明文件。
   - 包里只有 `dist/`、README、LICENSE，约 97 KB；运行时依赖只有 zod。
@@ -246,24 +246,35 @@
 
 ## 阶段三：对外接入与迭代
 
-### 第 11 步：MCP 服务
+### 第 11 步：默认交互对话与工具调度
+
+- 目标：直接运行 `ugc-lens` 进入持续对话，用户描述目标，由模型选择导入、查询、分析和监听工具，保留原有子命令。
+- 完成标准：对话中导入文件并连续追问、生成报告、启动监听后继续对话、查询任务和停止监听；退出时清理后台任务。
+- 笔记：
+  - 会话复用 Agent 循环和数据查询工具，生成报告复用固定流水线；不要求用户判断该用哪个子命令。
+  - 监听的生命周期属于会话，不属于启动它的某一轮模型请求；目录任务状态隔离持久化。
+  - 代码：`src/chat/session.ts`（会话历史、工具和监听生命周期）、`src/cli/chat.ts`（交互输入与退出）；代码 API 导出 `createSession`。原第 11～14 步依次后移到第 12～15 步。
+  - 输入按行排队，空行与 `/help` 不调用模型，`/exit`、`/quit`、EOF、Ctrl+C 退出；单轮请求失败后仍可继续。
+  - 测试：`test/chat/session.test.ts` 覆盖工具调度、历史不变式、报告、监听与取消；`test/cli/chat.test.ts` 覆盖连续输入、错误恢复和退出。
+
+### 第 12 步：MCP 服务
 
 - 目标：把数据工具和 `analyze`、`ask` 作为 MCP 工具暴露出去，附 `SKILL.md`。
 - 完成标准：在 Claude Code 里配置后，能直接让它分析某个文件。
 
-### 第 12 步：playbook 与 learnings
+### 第 13 步：playbook 与 learnings
 
 - 目标：分析规则从代码中移到 `playbook.md`；每次运行后追加 `learnings.md`。
 - 完成标准：修改 playbook 中一条规则，重跑回归样本后能看到报告的对应变化。
 
-### 第 13 步：更多文件格式
+### 第 14 步：更多文件格式
 
 - 目标：支持 JSONL 等文件格式（CSV 随第 9.5 步再做）。第一个 npm 版本已在第 10.5 步发布。
 - 完成标准：`npx ugc-lens analyze` 能直接分析 JSONL 文件。
 
 ---
 
-### 第 14 步（可选）：图形界面
+### 第 15 步（可选）：图形界面
 
 - 目标：`ugc-lens ui` 启动本地 Web 页面，展示任务列表、运行进度和报告。
 - 前提：运行事件（架构文档第 3.5 节）和只读查询接口已经稳定。
@@ -285,8 +296,9 @@
 - [x] 第 9 步　分析流水线
 - [ ] 第 9.5 步　通用文本记录（推迟到发布后）
 - [x] 第 10 步　监听目录
-- [ ] 第 10.5 步　npm 入口与发布
-- [ ] 第 11 步　MCP 服务
-- [ ] 第 12 步　playbook 与 learnings
-- [ ] 第 13 步　更多文件格式
-- [ ] 第 14 步　图形界面（可选）
+- [x] 第 10.5 步　npm 入口与发布
+- [x] 第 11 步　默认交互对话与工具调度
+- [ ] 第 12 步　MCP 服务
+- [ ] 第 13 步　playbook 与 learnings
+- [ ] 第 14 步　更多文件格式
+- [ ] 第 15 步　图形界面（可选）

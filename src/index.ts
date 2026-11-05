@@ -28,3 +28,5 @@ export { DEFAULT_PATTERNS } from './watch/pattern.ts'
 export { defineTool, type ToolSpec } from './tools/define.ts'
 export type { AgentTool } from './tools/types.ts'
 export { createDataTools } from './tools/data/index.ts'
+
+export { createSession, SESSION_SYSTEM_PROMPT, type ChatSession, type SessionOptions } from './chat/session.ts'

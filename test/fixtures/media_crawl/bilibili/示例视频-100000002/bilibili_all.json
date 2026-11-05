@@ -1,0 +1,69 @@
+{
+  "video_info": {
+    "title": "超详细的广东开放大学个人学习流程分享！！",
+    "description": "-",
+    "duration": 170,
+    "owner": "示例UP主",
+    "view": 2032,
+    "reply": 8,
+    "favorite": 23,
+    "coin": 1,
+    "share": 9,
+    "like": 17,
+    "danmaku": 0,
+    "pubdate": 1672574063,
+    "pic": "https://example.com/cover.jpg"
+  },
+  "video_danmus": [],
+  "video_zimu": [
+    {
+      "from": 1.42,
+      "to": 6.43,
+      "sid": 1,
+      "location": 2,
+      "content": "今天来聊一聊广开是如何完成学习任务的",
+      "music": 0
+    },
+    {
+      "from": 6.43,
+      "to": 7.84,
+      "sid": 2,
+      "location": 2,
+      "content": "在讲解之前",
+      "music": 0
+    }
+  ],
+  "video_ai_summary": {
+    "summary": "",
+    "outline": [],
+    "subtitle": [],
+    "like_num": 0,
+    "dislike_num": 0
+  },
+  "video_comments": [
+    {
+      "author": "用户1",
+      "mid": 200001,
+      "content": "请问up主有广开的学位英语相关资料吗，急求",
+      "time": 1722147101000,
+      "like": 0,
+      "replyCount": 0,
+      "replyList": [],
+      "sex": "保密",
+      "location": "北京",
+      "rpid": 2001
+    },
+    {
+      "author": "用户2",
+      "mid": 200002,
+      "content": "请问需要报机构吗，还是自己就可以完成",
+      "time": 1714455596000,
+      "like": 0,
+      "replyCount": 0,
+      "replyList": [],
+      "sex": "保密",
+      "location": "广东",
+      "rpid": 2002
+    }
+  ]
+}

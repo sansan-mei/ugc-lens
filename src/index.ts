@@ -30,3 +30,8 @@ export type { AgentTool } from './tools/types.ts'
 export { createDataTools } from './tools/data/index.ts'
 
 export { createSession, SESSION_SYSTEM_PROMPT, type ChatSession, type SessionOptions } from './chat/session.ts'
+
+export { DEFAULT_PLAYBOOK, loadPlaybook, parsePlaybook, initPlaybook, proposePlaybook, readProposal, reviewPlaybook } from './memory/playbook.ts'
+export type { MemoryOptions, PlaybookSnapshot, PlaybookInfo, PlaybookChange, PlaybookProposal } from './memory/playbook.ts'
+export { recordLearning, searchLearnings } from './memory/learnings.ts'
+export type { Learning } from './memory/learnings.ts'

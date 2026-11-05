@@ -81,12 +81,32 @@ ugc-lens <命令> --help    # 查看全部选项
 - 统计、去重、关键词、引用校验都由代码完成，模型只负责分块总结和合并，一个 10 万条评论的文件大约用 6～7 万 token。
 - `watch` 的任务状态存在 `.ugc-lens/tasks.json`，按 Ctrl+C 停止后再启动会继续没做完的任务。
 
+## 分析手册与经验
+
+分析规则放在 Markdown 手册里，按“项目 `.ugc-lens/playbook.md` → 全局 `~/.ugc-lens/playbook.md` → 包内默认”选择。`init` 首次创建全局副本，已有内容会保留。
+
+```bash
+ugc-lens playbook                     # 查看当前规则、来源、版本和待审修改
+ugc-lens playbook --init              # 将当前规则复制为项目副本，再用编辑器修改
+ugc-lens playbook --apply <ID>        # 应用模型提出的待审修改
+ugc-lens playbook --reject <ID>       # 丢弃待审修改
+# 源码内使用：node src/cli/index.ts playbook
+```
+
+手册保留“共同规则、追问、分块总结、合并”四个章节与正整数版本，最多 4000 字符。每次分析开始时读取一次，同一次分析的总结和合并使用相同快照；持续对话开始后也保持不变。编辑或应用规则后，下次分析或新对话生效。报告会标明版本和内容指纹，即使忘记修改版本号也能识别差异。
+
+分析和数据问答完成后，CLI 与 MCP 自动向项目 `.ugc-lens/learnings.md` 追加运行观察，例如失败分块、无效引用、规则版本。不会额外调用模型，也不保存完整问题或回答。`--no-save` 只关闭报告保存，经验仍会记录；记录失败时保留结果并给出警告。
+
+对话和 MCP 提供 `search_learnings`（按关键词、数据集分页检索）、`record_learning`（附真实原文 ID 的候选经验）和 `playbook_update`（提出待审规则修改）。历史经验只在需要时检索，仍须核对当前样本；候选经验不会自动变成规则。模型提出的规则修改必须由用户用上面的命令应用。
+
+代码 API 默认使用包内规则，不写经验文件。传入 `memory: { cwd: process.cwd() }` 启用项目规则和记录；也可将 `loadPlaybook(...)` 返回的快照通过 `playbook` 传给 `askDataset` / `analyzeDataset`。
+
 ## MCP 接入
 
 先用 `ugc-lens init` 配置模型。MCP 由宿主启动，不需要自己开一个服务终端。Claude Code 中可以添加：
 
 ```bash
-claude mcp add --transport stdio ugc-lens -- npx -y ugc-lens@0.0.4 mcp --cwd /绝对路径/数据项目
+claude mcp add --transport stdio ugc-lens -- npx -y ugc-lens@0.0.5 mcp --cwd /绝对路径/数据项目
 ```
 
 测试本地源码时：
@@ -104,7 +124,7 @@ claude mcp add --transport stdio ugc-lens -- node /绝对路径/ugc-lens/src/cli
   "mcpServers": {
     "ugc-lens": {
       "command": "npx",
-      "args": ["-y", "ugc-lens@0.0.4", "mcp", "--cwd", "/绝对路径/数据项目"]
+      "args": ["-y", "ugc-lens@0.0.5", "mcp", "--cwd", "/绝对路径/数据项目"]
     }
   }
 }

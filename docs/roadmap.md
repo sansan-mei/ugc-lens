@@ -273,6 +273,11 @@
 
 - 目标：分析规则从代码中移到 `playbook.md`；每次运行后追加 `learnings.md`。
 - 完成标准：修改 playbook 中一条规则，重跑回归样本后能看到报告的对应变化。
+- 笔记：
+  - 默认手册 `playbook/default.md` 随包发布，项目 > 全局 > 默认；`init` 不覆盖全局手册，`playbook --init` 可创建项目副本。规则按阶段注入，一次分析及整段对话冻结，报告记录版本与内容指纹。
+  - CLI、监听和 MCP 自动追加代码可核实的运行观察到 `.ugc-lens/learnings.md`，不额外调用模型，不保存完整问答；核心 API 通过 `memory` 显式启用。
+  - `search_learnings` 检索原记录；`record_learning` 校验数据集和原文 ID、仅记录候选经验；`playbook_update` 提出待审修改，用户用 `playbook --apply ID` 或 `--reject ID` 处理，检测冲突防止覆盖人工编辑。
+  - 回归使用固定数据和假模型，验证手册变化进入实际提示词并改变报告、运行中冻结、追问历史不变、MCP/CLI 接入、分页检索与经验写入失败保留结果；未调用真实模型验收规则遵循效果。
 
 ### 第 14 步：更多文件格式
 
@@ -306,6 +311,6 @@
 - [x] 第 10.5 步　npm 入口与发布
 - [x] 第 11 步　默认交互对话与工具调度
 - [x] 第 12 步　MCP 服务
-- [ ] 第 13 步　playbook 与 learnings
+- [x] 第 13 步　playbook 与 learnings
 - [ ] 第 14 步　更多文件格式
 - [ ] 第 15 步　图形界面（可选）

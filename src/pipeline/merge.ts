@@ -1,3 +1,4 @@
+import { DEFAULT_PLAYBOOK, playbookRules, type PlaybookSnapshot } from '../memory/playbook.ts'
 import * as z from 'zod'
 import type { AgentModel } from '../agent/model.ts'
 import type { ChatMessage, ToolDefinition, Usage } from '../llm/types.ts'
@@ -18,6 +19,7 @@ export interface Theme {
 }
 
 export interface MergeOptions {
+  playbook?: PlaybookSnapshot
   model: AgentModel
   findings: readonly Finding[]
   /** 和分块总结用的方向相同，顺序决定报告里的顺序 */
@@ -45,11 +47,9 @@ const SYSTEM_PROMPT = `下面是从一批用户内容里分块找出的观点。
 
 任务：把说同一件事的观点合并成主题，调用 ${TOOL_NAME} 一次性提交。
 要求：
-- 只合并同一方向的观点，纳入标准基本相同才算同一件事。
 - 每个主题：direction 填方向编号；title 概括合并后的结论，不超过 30 字；findings 列出合并进来的观点编号。
 - 主题里有明显不同的几个方面时，可以用 children 分成子主题（只分一层），子主题的观点不要再写进上一级的 findings。
-- 每个观点只能用一次。没有可合并对象的观点单独成为一个主题。
-- 不要新增观点，不要改变意思。`
+- 每个观点只能用一次。`
 
 const looseNumber = z.union([z.number(), z.string()]).transform((value) => {
   const n = typeof value === 'number' ? value : Number(value.match(/\d+/)?.[0])
@@ -167,7 +167,7 @@ export async function mergeFindings(options: MergeOptions): Promise<MergeResult>
 
   const tool = toolDefinition(directions.length)
   const messages: ChatMessage[] = [
-    { role: 'system', content: `${SYSTEM_PROMPT}\n\n方向：\n${directions.map((d, i) => `${i + 1}. ${d}`).join('\n')}` },
+    { role: 'system', content: `${SYSTEM_PROMPT}\n\n${playbookRules(options.playbook ?? DEFAULT_PLAYBOOK, 'merge')}\n\n方向：\n${directions.map((d, i) => `${i + 1}. ${d}`).join('\n')}` },
     { role: 'user', content: findingLines(findings, directions) },
   ]
   const signal = options.signal ?? new AbortController().signal

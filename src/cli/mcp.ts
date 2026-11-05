@@ -28,7 +28,7 @@ export async function runMcp(argv: readonly string[]): Promise<void> {
   let finished!: () => void
   const done = new Promise<void>((resolve) => { finished = resolve })
   const handle = serveStdio(() => {
-    const server = createMcpServer({ cwd })
+    const server = createMcpServer({ cwd, memory: { cwd } })
     const onclose = server.server.onclose
     server.server.onclose = () => { onclose?.(); finished() }
     return server

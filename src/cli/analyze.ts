@@ -58,6 +58,7 @@ export async function runAnalyze(argv: readonly string[]): Promise<void> {
   const dataset = await loadDataset(args.file, { model, signal })
   console.error(`已导入 ${dataset.items.length} 条（文件结构${dataset.mapping.from_cache ? '规则来自缓存' : '由模型识别'}）`)
   const result = await analyzeDataset({
+    memory: { cwd: process.cwd(), onWarning: (message) => console.error(message) },
     model,
     dataset,
     signal,

@@ -26,3 +26,9 @@ description: 使用 ugc-lens MCP 工具分析本地 JSON 中的评论、回复�
 握手和工具发现不需要 API key；导入时识别结构、`analyze` 和 `ask` 使用 ugc-lens 的模型配置。配置缺失时说明错误并指导用户运行 `ugc-lens init`，不要要求用户把 key 发进聊天或写进可提交的宿主配置。
 
 `analyze` 会写报告，模型调用也会产生用量。按用户任务选择工具，不为了一个具体问题重复生成整份报告。工具报错时根据错误修正路径或参数，实际成功后再说明完成。
+
+## 规则和经验
+
+MCP 命令行默认启用项目经验文件。`search_learnings` 按关键词和 `dataset_id` 分页返回历史原记录，核对当前样本后才能参考。`record_learning` 只记录带有效 `evidence_ids` 的候选经验，不代表跨数据集规律；不要写入密钥或完整私人问答。
+
+用户需要调整分析规则时，可用 `playbook_update` 提出 `add` / `patch` / `remove` 建议，章节为 `common`、`ask`、`summarize` 或 `merge`。这只写待审文件，不能说规则已生效。向用户展示修改，并说明由用户运行 `ugc-lens playbook --apply <ID>` 或 `--reject <ID>`；已有待审修改时先处理它。应用后仅影响下次分析或新对话，现有 `conversation_id` 的提示词不变。

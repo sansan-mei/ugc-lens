@@ -44,6 +44,7 @@ export async function runAsk(argv: readonly string[]): Promise<void> {
   for (const [i, question] of args.questions.entries()) {
     if (args.questions.length > 1) process.stdout.write(`${i > 0 ? '\n' : ''}## ${question}\n\n`)
     const result = await askDataset({
+      memory: { cwd: process.cwd(), onWarning: (message) => console.error(message) },
       model,
       datasets: [dataset],
       question,

@@ -14,7 +14,10 @@ import { INIT_USAGE, runInit } from './init.ts'
 import { runWatch, WATCH_USAGE } from './watch.ts'
 import { MCP_USAGE, runMcp } from './mcp.ts'
 
+import { PLAYBOOK_USAGE, runPlaybook } from './playbook.ts'
+
 const COMMANDS = {
+  playbook: { run: runPlaybook, usage: PLAYBOOK_USAGE },
   init: { run: runInit, usage: INIT_USAGE },
   mcp: { run: runMcp, usage: MCP_USAGE },
   analyze: { run: runAnalyze, usage: ANALYZE_USAGE },
@@ -26,6 +29,7 @@ const MAIN_USAGE = `ugc-lens：分析评论、弹幕等用户互动内容
 
 用法：
   ugc-lens                             持续对话，自动选择导入、查询、分析和监听工具
+  ugc-lens playbook                     查看分析手册和待审修改
   ugc-lens init                         初始化：选择提供商和模型，写入全局配置
   ugc-lens analyze <文件>               生成 Markdown 分析报告
   ugc-lens ask <文件> <问题> [追问...]   追问，回答带 [ID] 引用

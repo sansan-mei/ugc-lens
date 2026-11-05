@@ -11,6 +11,7 @@ import type { ChunkPlan } from './chunk.ts'
 import type { Theme } from './merge.ts'
 
 export interface ReportRunInfo {
+  playbook?: { version: number; hash: string }
   generated_at: Date
   duration_ms: number
   calls: number
@@ -164,6 +165,7 @@ function runSection(run: ReportRunInfo): string[] {
   const lines = [
     '## 运行信息',
     '',
+    ...(run.playbook ? [`- 分析手册：版本 ${run.playbook.version}，指纹 ${run.playbook.hash}`] : []),
     `- 生成时间：${run.generated_at.toLocaleString('zh-CN', { hour12: false })}${run.model ? `，模型 ${run.model}` : ''}`,
     `- 耗时 ${(run.duration_ms / 1000).toFixed(1)} 秒，调用模型 ${run.calls} 次`,
     `- token：输入 ${n(u.input_tokens)}（缓存命中 ${n(u.cached_input_tokens)}），输出 ${n(u.output_tokens)}`,

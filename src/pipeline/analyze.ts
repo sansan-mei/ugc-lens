@@ -6,6 +6,8 @@ import { countTerms, createTokenizerFor, topTerms } from '../analysis/keywords.t
 import { computeStats, type DatasetStats } from '../dataset/stats.ts'
 import type { Dataset } from '../dataset/types.ts'
 import type { Usage } from '../llm/types.ts'
+import { loadPlaybook, playbookInfo, type MemoryOptions, type PlaybookInfo, type PlaybookSnapshot } from '../memory/playbook.ts'
+import { recordOutcome } from '../memory/learnings.ts'
 import { planChunks, type ChunkPlan } from './chunk.ts'
 import { mergeFindings, type MergeResult, type Theme } from './merge.ts'
 import { renderReport } from './report.ts'
@@ -24,6 +26,8 @@ export type AnalyzeProgress =
   | { type: 'merged'; themes: number; called: boolean }
 
 export interface AnalyzeOptions {
+  memory?: MemoryOptions
+  playbook?: PlaybookSnapshot
   model: AgentModel
   dataset: Dataset
   /** 分析方向，默认四个；传入关注点时只分析这些方向 */
@@ -45,6 +49,8 @@ export interface AnalyzeOptions {
 }
 
 export interface AnalyzeResult {
+  playbook: PlaybookInfo
+  memory_warning?: string
   markdown: string
   /** 保存的报告路径，outDir 为 false 时没有 */
   path?: string
@@ -66,6 +72,7 @@ function stamp(date: Date): string {
 
 /** 固定流水线：代码统计 → 分块 → 分块总结 → 合并 → 写报告。模型只参与总结和合并 */
 export async function analyzeDataset(options: AnalyzeOptions): Promise<AnalyzeResult> {
+  const playbook = options.playbook ?? loadPlaybook(options.memory)
   const started = performance.now()
   const now = options.now ?? (() => new Date())
   const { dataset } = options
@@ -77,10 +84,11 @@ export async function analyzeDataset(options: AnalyzeOptions): Promise<AnalyzeRe
   const keywords = topTerms(countTerms(comments, tokenizer), 20)
   const danmaku = stats.items.danmaku > 0 ? summarizeDanmaku(dataset.items, tokenizer) : undefined
   const plan = planChunks(dataset, { danmaku, maxTotalChars: options.maxTotalChars })
-  options.onProgress?.({ type: 'planned', chunks: plan.chunks.length, estimate: estimateSummarize({ dataset, plan, directions }) })
+  options.onProgress?.({ type: 'planned', chunks: plan.chunks.length, estimate: estimateSummarize({ dataset, plan, directions, playbook }) })
 
   const summary = await summarizeChunks({
     model: options.model,
+    playbook,
     dataset,
     plan,
     directions,
@@ -91,6 +99,7 @@ export async function analyzeDataset(options: AnalyzeOptions): Promise<AnalyzeRe
   })
   const merge = await mergeFindings({
     model: options.model,
+    playbook,
     findings: summary.findings,
     directions,
     minSupport: options.minSupport,
@@ -115,6 +124,7 @@ export async function analyzeDataset(options: AnalyzeOptions): Promise<AnalyzeRe
     themes: merge.themes,
     directions,
     run: {
+      playbook: playbookInfo(playbook),
       generated_at: generatedAt,
       duration_ms,
       calls,
@@ -133,5 +143,16 @@ export async function analyzeDataset(options: AnalyzeOptions): Promise<AnalyzeRe
     await writeFile(path, markdown)
   }
 
-  return { markdown, path, themes: merge.themes, stats, plan, danmaku, summary, merge, calls, usage, duration_ms }
+  const memory_warning = options.signal?.aborted ? undefined : await recordOutcome(options.memory, [dataset], {
+    kind: 'analysis', playbook: playbookInfo(playbook),
+    observations: {
+      chunks: plan.chunks.length,
+      failed_chunks: summary.chunks.filter((c) => c.status === 'failed').length,
+      skipped_chunks: summary.chunks.filter((c) => c.status === 'skipped').length,
+      unknown_refs: summary.chunks.reduce((n, c) => n + c.dropped.unknown_ref, 0),
+      bad_quotes: summary.chunks.reduce((n, c) => n + c.dropped.bad_quote, 0),
+      merge_invalid_refs: merge.invalid_refs, merge_fallback: Boolean(merge.error), themes: merge.themes.length, calls,
+    },
+  })
+  return { playbook: playbookInfo(playbook), memory_warning, markdown, path, themes: merge.themes, stats, plan, danmaku, summary, merge, calls, usage, duration_ms }
 }

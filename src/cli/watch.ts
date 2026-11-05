@@ -107,6 +107,7 @@ export async function runWatch(argv: readonly string[]): Promise<void> {
     analyze: async (file, taskSignal) => {
       const dataset = await loadDataset(file, { model, signal: taskSignal })
       const result = await analyzeDataset({
+        memory: { cwd: process.cwd(), onWarning: (message) => console.error(message) },
         model,
         dataset,
         signal: taskSignal,

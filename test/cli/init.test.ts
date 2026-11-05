@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, test } from 'node:test'
 import { runInitFlow, type InitIo } from '../../src/cli/init.ts'
+import { DEFAULT_PLAYBOOK, playbookPath } from '../../src/memory/playbook.ts'
 import { globalConfigPath } from '../../src/config.ts'
 import { isolateEnv } from '../helpers/env.ts'
 
@@ -52,6 +53,7 @@ describe('runInitFlow', () => {
     assert.deepEqual(result, { provider: 'deepseek', api_key: 'sk-test', model: 'model-b' })
     assert.deepEqual(saved(), result)
     assert.equal(statSync(globalConfigPath(home)).mode & 0o777, 0o600)
+    assert.equal(readFileSync(playbookPath({ cwd: home, homeDir: home }, true), 'utf8'), DEFAULT_PLAYBOOK.text)
     assert.ok(io.printed.some((line) => line.includes('DeepSeek')))
     assert.ok(io.printed.some((line) => line.includes('测试调用通过')))
   })

@@ -1,3 +1,5 @@
+import { createMemoryTools } from '../memory/tools.ts'
+import type { MemoryOptions } from '../memory/playbook.ts'
 import { randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
@@ -19,12 +21,13 @@ import { defineTool } from '../tools/define.ts'
 import type { ToolContext } from '../tools/types.ts'
 
 export interface McpServerOptions {
+  memory?: MemoryOptions
   cwd?: string
   model?: AgentModel
   analysisModel?: AgentModel
   modelName?: string
   load?: typeof loadDataset
-  analyze?: (options: AnalyzeOptions) => Promise<Pick<AnalyzeResult, 'markdown' | 'path' | 'calls' | 'usage'>>
+  analyze?: (options: AnalyzeOptions) => Promise<Pick<AnalyzeResult, 'markdown' | 'path' | 'calls' | 'usage' | 'memory_warning'>>
 }
 
 interface AskConversation {
@@ -83,6 +86,7 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
   const dataTools = createDataTools(store)
   const tools = [
     ...dataTools,
+    ...(options.memory ? createMemoryTools(store, options.memory) : []),
     defineTool({
       name: 'load_dataset', description: '导入本地 JSON 评论、回复或弹幕文件，返回 dataset_id。后续查询可复用，不需要反复发送原始文件。',
       parameters: z.object({ file: z.string().min(1) }),
@@ -102,11 +106,11 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
         const dataset = await select(args, ctx.signal)
         const models = getModels()
         const result = await (options.analyze ?? analyzeDataset)({
-          dataset, model: models.analysis, modelName: models.name, cwd, directions,
+          memory: options.memory, dataset, model: models.analysis, modelName: models.name, cwd, directions,
           maxTotalChars: max_total_chars, signal: ctx.signal,
         })
         ctx.signal.throwIfAborted()
-        return JSON.stringify({ dataset_id: dataset.id, path: result.path, markdown: result.markdown, calls: result.calls, usage: result.usage })
+        return JSON.stringify({ dataset_id: dataset.id, path: result.path, markdown: result.markdown, calls: result.calls, usage: result.usage, memory_warning: result.memory_warning })
       },
     }),
     defineTool({
@@ -126,19 +130,19 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
             ? resolveDataset(store, previous.dataset_id)
             : await select(args, ctx.signal)
           if (previous && previous.dataset_id !== dataset.id) throw new Error('追问会话绑定了其他数据集，请不传 conversation_id 开始新对话')
-          const result = await askDataset({ model: getModels().ask, datasets: [dataset], question, history: previous?.history, signal: ctx.signal })
+          const result = await askDataset({ memory: options.memory, model: getModels().ask, datasets: [dataset], question, history: previous?.history, signal: ctx.signal })
           ctx.signal.throwIfAborted()
           const id = conversation_id ?? randomUUID()
           conversations.set(id, { dataset_id: dataset.id, history: result.run.messages, busy: false })
           return JSON.stringify({
             conversation_id: id, dataset_id: dataset.id, answer: result.answer, citations: result.citations,
-            stop_reason: result.run.stop_reason, steps: result.run.steps.length, usage: result.run.usage,
+            stop_reason: result.run.stop_reason, steps: result.run.steps.length, usage: result.run.usage, playbook: result.playbook, memory_warning: result.memory_warning,
           })
         } finally { if (previous) previous.busy = false }
       },
     }),
   ]
-  const readOnly = new Set(dataTools.map((tool) => tool.name))
+  const readOnly = new Set([...dataTools.map((tool) => tool.name), 'search_learnings'])
   for (const tool of tools) {
     server.registerTool(tool.name, {
       description: tool.description,

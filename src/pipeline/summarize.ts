@@ -1,3 +1,4 @@
+import { DEFAULT_PLAYBOOK, playbookRules, type PlaybookSnapshot } from '../memory/playbook.ts'
 import * as z from 'zod'
 import type { AgentModel } from '../agent/model.ts'
 import { getFeedback } from '../dataset/query.ts'
@@ -60,6 +61,7 @@ export interface TokenEstimate {
 }
 
 export interface SummarizeOptions {
+  playbook?: PlaybookSnapshot
   model: AgentModel
   dataset: Dataset
   plan: ChunkPlan
@@ -132,7 +134,7 @@ function describeDataset(dataset: Dataset): string {
 }
 
 /** 各块的 system prompt 完全相同，请求开头一致，能命中提供商的提示词缓存 */
-export function buildSystemPrompt(dataset: Dataset, plan: ChunkPlan, directions: readonly string[], maxFindings: number): string {
+export function buildSystemPrompt(dataset: Dataset, plan: ChunkPlan, directions: readonly string[], maxFindings: number, playbook: PlaybookSnapshot = DEFAULT_PLAYBOOK): string {
   const hasDanmaku = plan.chunks.some((chunk) => chunk.kind === 'danmaku')
   const formats = [
     '- [编号] 赞数 回复数 日期 IP 属地 用户名：正文。以 ↳ 开头的是上一条的回复。“（同样 +N）”表示另有 N 条内容相同。',
@@ -147,12 +149,12 @@ ${formats.join('\n')}
 ${directions.map((d, i) => `${i + 1}. ${d}`).join('\n')}
 
 要求：
-- 只根据这一块的内容，不要编造，不要补充常识。
+${playbookRules(playbook, 'summarize')}
 - 每条观点写一句结论（title）和纳入标准（criteria），都不超过 30 字。
-- refs 填 2～5 个最能支持它的编号；只有一两条内容支持、又没有代表性的观点不要写。
+- refs 填 2～5 个最能支持它的编号。
 - 被引用的内容超过 ${LONG_TEXT_CHARS} 字时，在 quotes 里照抄其中最能支持结论的一句；短内容不要写 quotes。
 - support 是这一块里大约有多少条支持，“同样 +N”和“×N”要算进去。
-- 最多 ${maxFindings} 条，按重要程度排序。地区、时间上有明显差异时可以写进结论。
+- 最多 ${maxFindings} 条。
 
 ${describeDataset(dataset)}`
 }
@@ -237,7 +239,7 @@ interface Prepared {
   forceTool: boolean
 }
 
-function prepare(options: Pick<SummarizeOptions, 'dataset' | 'plan' | 'directions' | 'maxFindings'>): Prepared {
+function prepare(options: Pick<SummarizeOptions, 'dataset' | 'plan' | 'directions' | 'maxFindings' | 'playbook'>): Prepared {
   const directions = options.directions?.length ? options.directions : DEFAULT_DIRECTIONS
   const maxFindings = options.maxFindings ?? 8
   const tool: ToolDefinition = {
@@ -248,11 +250,11 @@ function prepare(options: Pick<SummarizeOptions, 'dataset' | 'plan' | 'direction
       parameters: toParametersSchema(toolSchema(directions.length)),
     },
   }
-  return { system: buildSystemPrompt(options.dataset, options.plan, directions, maxFindings), tool, directions, maxFindings, forceTool: true }
+  return { system: buildSystemPrompt(options.dataset, options.plan, directions, maxFindings, options.playbook), tool, directions, maxFindings, forceTool: true }
 }
 
 /** 开始前估算：每块都要重发 system prompt 和工具定义，输出按每条观点的大致长度算 */
-export function estimateSummarize(options: Pick<SummarizeOptions, 'dataset' | 'plan' | 'directions' | 'maxFindings'>): TokenEstimate {
+export function estimateSummarize(options: Pick<SummarizeOptions, 'dataset' | 'plan' | 'directions' | 'maxFindings' | 'playbook'>): TokenEstimate {
   const { system, tool, maxFindings } = prepare(options)
   const fixed = approxTokens(system) + approxTokens(JSON.stringify(tool)) + TOKENS_PER_CALL
   const total = options.plan.chunks.length

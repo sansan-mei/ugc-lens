@@ -1,3 +1,4 @@
+import { initPlaybook } from '../memory/playbook.ts'
 import { createInterface } from 'node:readline/promises'
 import { loadDotEnv, loadLlmConfig, readGlobalConfig, writeGlobalConfig, type LlmConfigFile } from '../config.ts'
 import { isProviderId, PROVIDERS, resolveBaseUrl, type ProviderId, type ProviderPreset, type Region } from '../llm/providers.ts'
@@ -173,6 +174,7 @@ export async function runInitFlow(deps: InitDeps): Promise<LlmConfigFile | undef
   }
 
   const path = writeGlobalConfig(file, deps.homeDir)
+  initPlaybook({ cwd: deps.cwd ?? process.cwd(), homeDir: deps.homeDir }, true)
   io.print(`已写入 ${path}（权限 600）。某个项目要用别的配置时，在该目录放 .env 或 .ugc-lens/config.json 即可覆盖。`)
   return file
 }

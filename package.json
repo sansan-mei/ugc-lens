@@ -1,6 +1,6 @@
 {
   "name": "ugc-lens",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "description": "面向评论、弹幕等用户互动内容的轻量分析 Agent",
   "keywords": [
     "ugc",
@@ -42,7 +42,8 @@
   "types": "./dist/index.d.ts",
   "files": [
     "dist",
-    "skills"
+    "skills",
+    "playbook"
   ],
   "engines": {
     "node": ">=22.18"

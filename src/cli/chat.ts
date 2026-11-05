@@ -56,6 +56,7 @@ export async function runChat(): Promise<void> {
   process.on('SIGINT', interrupt)
   rl.on('SIGINT', interrupt)
   const session = createSession({
+    memory: { cwd: process.cwd(), onWarning: (message) => console.error(message) },
     model: askModel(config), analysisModel: analysisModel(config), modelName: config.model,
     onEvent: (event) => {
       if (event.type === 'tool_start' || event.type === 'model_retry') console.error(formatEvent(event))

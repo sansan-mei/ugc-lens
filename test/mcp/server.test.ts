@@ -165,3 +165,35 @@ test('宿主断开时取消尚未完成的分析', async () => {
     await aborted
   } finally { await connection.close() }
 })
+
+test('启用 memory 后 MCP 提供经验与待审工具；追问冻结规则，新对话重新读取', async () => {
+  const { mkdtempSync, rmSync, writeFileSync } = await import('node:fs')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const { initPlaybook, loadPlaybook, readProposal } = await import('../../src/memory/playbook.ts')
+  const cwd = mkdtempSync(join(tmpdir(), 'ugc-mcp-memory-'))
+  const memory = { cwd, homeDir: cwd }
+  const path = initPlaybook(memory)
+  const model = createFakeModel([{ content: '第一轮 [c1]' }, { content: '第二轮 [c1]' }, { content: '新对话 [c1]' }])
+  const connection = await connect({ cwd, memory, model, load: async () => dataset })
+  try {
+    const { tools } = await connection.client.listTools()
+    for (const name of ['search_learnings', 'record_learning', 'playbook_update']) assert.ok(tools.some((t) => t.name === name))
+    assert.equal(tools.find((t) => t.name === 'search_learnings')?.annotations?.readOnlyHint, true)
+    const first = JSON.parse(text(await connection.client.callTool({ name: 'ask', arguments: { file: 'a.json', question: 'q' } })))
+    const changed = loadPlaybook(memory).text.replace('使用中文', '使用简体中文')
+    writeFileSync(path, changed)
+    await connection.client.callTool({ name: 'ask', arguments: { conversation_id: first.conversation_id, question: '继续' } })
+    await connection.client.callTool({ name: 'ask', arguments: { dataset_id: dataset.id, question: '新对话' } })
+    assert.deepEqual(model.requests[0]?.messages[0], model.requests[1]?.messages[0])
+    assert.match(model.requests[2]?.messages[0]?.content ?? '', /使用简体中文/)
+    const candidate = await connection.client.callTool({ name: 'record_learning', arguments: { note: '价格观察', evidence_ids: ['c1'] } })
+    assert.equal(Boolean(candidate.isError), false)
+    const found = await connection.client.callTool({ name: 'search_learnings', arguments: { query: '价格观察', dataset_id: dataset.id } })
+    assert.match(text(found), /价格观察/)
+    const pending = await connection.client.callTool({ name: 'playbook_update', arguments: { operation: 'add', section: 'ask', text: '- 先列出证据。' } })
+    assert.equal(Boolean(pending.isError), false)
+    assert.ok(readProposal(memory))
+    assert.doesNotMatch(loadPlaybook(memory).text, /先列出证据/)
+  } finally { await connection.close(); rmSync(cwd, { recursive: true, force: true }) }
+})

@@ -48,6 +48,6 @@ describe('write_file', () => {
     cleanup = sandbox.cleanup
     mkdirSync(join(sandbox.dir, 'd'))
     await assert.rejects(createWriteFileTool().execute({ path: 'd', content: 'x' }, sandbox.ctx), /是目录/)
-    await assert.rejects(createWriteFileTool().execute({ path: 'y.txt' }, sandbox.ctx), /content 必须是字符串/)
+    await assert.rejects(createWriteFileTool().execute({ path: 'y.txt' }, sandbox.ctx), /content：缺少必填参数/)
   })
 })

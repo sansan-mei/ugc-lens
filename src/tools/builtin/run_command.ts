@@ -1,7 +1,8 @@
 import { spawn } from 'node:child_process'
+import * as z from 'zod'
 import { ApprovalDeniedError } from '../approval.ts'
+import { defineTool } from '../define.ts'
 import type { AgentTool } from '../types.ts'
-import { requireString } from '../args.ts'
 import { isReadOnlyCommand } from './command_policy.ts'
 
 export interface RunCommandOptions {
@@ -54,24 +55,18 @@ export function createRunCommandTool(options: RunCommandOptions = {}): AgentTool
   const timeoutMs = options.timeoutMs ?? 30_000
   const maxOutputChars = options.maxOutputChars ?? 10_000
 
-  return {
+  return defineTool({
     name: 'run_command',
     description:
       `在工作目录下用 shell 执行一条命令，返回退出码和输出（stdout 与 stderr 合并）。超过 ${timeoutMs / 1000} 秒会被终止，` +
       `输出超过 ${maxOutputChars} 个字符时只保留开头和结尾。` +
       'ls、cat、rg、git status 等只读命令直接执行，其他命令需要用户确认；用户拒绝时会返回错误。' +
       '命令不能交互输入。',
-    parameters: {
-      type: 'object',
-      properties: {
-        command: { type: 'string', description: '要执行的 shell 命令' },
-      },
-      required: ['command'],
-    },
+    parameters: z.object({
+      command: z.string().regex(/\S/, '命令不能为空').describe('要执行的 shell 命令'),
+    }),
 
-    async execute(args, ctx) {
-      const command = requireString(args, 'command')
-      if (command.trim() === '') throw new Error('参数 command 不能为空')
+    async execute({ command }, ctx) {
 
       if (!isReadOnlyCommand(command)) {
         const approved = await ctx.approve({ kind: 'run_command', command, cwd: ctx.cwd })
@@ -121,5 +116,5 @@ export function createRunCommandTool(options: RunCommandOptions = {}): AgentTool
         ctx.signal.removeEventListener('abort', onAbort)
       }
     },
-  }
+  })
 }

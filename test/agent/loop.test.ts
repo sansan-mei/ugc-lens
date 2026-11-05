@@ -4,6 +4,8 @@ import type { RunEvent } from '../../src/agent/events.ts'
 import { createFakeModel } from '../../src/agent/fake_model.ts'
 import { finalizeNotice, runAgent } from '../../src/agent/loop.ts'
 import type { ChatMessage } from '../../src/llm/types.ts'
+import * as z from 'zod'
+import { defineTool } from '../../src/tools/define.ts'
 import type { AgentTool } from '../../src/tools/types.ts'
 
 const initial: ChatMessage[] = [
@@ -218,6 +220,27 @@ describe('runAgent', () => {
       { cwd: process.cwd(), approved: false },
       { cwd: '/work', approved: true },
     ])
+  })
+
+  test('参数错误和执行失败返回不同的提示，模型能据此修正参数', async () => {
+    const strict = defineTool({
+      name: 'strict',
+      description: '需要整数参数',
+      parameters: z.object({ n: z.number().int() }),
+      execute: async ({ n }) => `n=${n}`,
+    })
+    const model = createFakeModel([
+      { tool_calls: [{ name: 'strict', args: { n: '3' } }] },
+      { tool_calls: [{ name: 'strict', args: { n: 3 } }] },
+      { content: 'ok' },
+    ])
+    const result = await runAgent({ model, messages: initial, tools: [strict, broken] })
+    const [first, second] = result.steps.flatMap((s) => s.tool_calls)
+
+    assert.equal(first?.ok, false)
+    assert.match(first?.result ?? '', /^错误：工具 strict 的参数不正确。\n- n：.*（收到："3"）/)
+    assert.equal(second?.ok, true)
+    assert.equal(second?.result, 'n=3')
   })
 
   test('事件顺序：run_start 开头、run_end 结尾，工具事件成对出现', async () => {

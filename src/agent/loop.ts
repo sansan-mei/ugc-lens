@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type { ChatMessage, ChatResult, ToolCall, ToolChoice, Usage } from '../llm/types.ts'
 import { denyAll, type Approver } from '../tools/approval.ts'
+import { ToolArgumentError } from '../tools/define.ts'
 import { toToolDefinition, type AgentTool, type ToolContext } from '../tools/types.ts'
 import type { RunEvent, RunEventListener } from './events.ts'
 import type { AgentModel } from './model.ts'
@@ -233,7 +234,10 @@ async function executeToolCall(
       result = await tool.execute(parsed.value, ctx)
       ok = true
     } catch (error) {
-      result = `错误：工具 ${name} 执行失败：${(error as Error).message}`
+      result =
+        error instanceof ToolArgumentError
+          ? `错误：工具 ${name} 的参数不正确。\n${error.message}`
+          : `错误：工具 ${name} 执行失败：${(error as Error).message}`
     }
   }
 

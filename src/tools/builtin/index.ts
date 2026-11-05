@@ -1,10 +1,11 @@
 import type { AgentTool } from '../types.ts'
+import { createCalculateTool } from './calculate.ts'
 import { createReadFileTool, type ReadFileOptions } from './read_file.ts'
 import { createRunCommandTool, type RunCommandOptions } from './run_command.ts'
 import { createWriteFileTool } from './write_file.ts'
 
 export { isReadOnlyCommand } from './command_policy.ts'
-export { createReadFileTool, createRunCommandTool, createWriteFileTool }
+export { createCalculateTool, createReadFileTool, createRunCommandTool, createWriteFileTool }
 
 export interface BuiltinToolOptions {
   readFile?: ReadFileOptions
@@ -12,5 +13,10 @@ export interface BuiltinToolOptions {
 }
 
 export function createBuiltinTools(options: BuiltinToolOptions = {}): AgentTool[] {
-  return [createReadFileTool(options.readFile), createWriteFileTool(), createRunCommandTool(options.runCommand)]
+  return [
+    createReadFileTool(options.readFile),
+    createWriteFileTool(),
+    createRunCommandTool(options.runCommand),
+    createCalculateTool(),
+  ]
 }

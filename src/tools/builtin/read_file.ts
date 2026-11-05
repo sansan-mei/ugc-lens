@@ -1,6 +1,8 @@
 import { readFile, stat } from 'node:fs/promises'
+import * as z from 'zod'
+import { defineTool } from '../define.ts'
+import { resolvePath } from '../paths.ts'
 import type { AgentTool } from '../types.ts'
-import { optionalInteger, requireString, resolvePath } from '../args.ts'
 
 export interface ReadFileOptions {
   /** 返回给模型的最大字符数 */
@@ -16,25 +18,20 @@ export function createReadFileTool(options: ReadFileOptions = {}): AgentTool {
   const maxFileBytes = options.maxFileBytes ?? 10 * 1024 * 1024
   const defaultLimit = options.defaultLimit ?? 500
 
-  return {
+  return defineTool({
     name: 'read_file',
     description:
       '读取文本文件内容，每行前面带行号。文件较长时分段读取：返回结果末尾会提示下一段的 offset。' +
       '只能读取文本文件；查看目录内容请用 run_command 执行 ls。',
-    parameters: {
-      type: 'object',
-      properties: {
-        path: { type: 'string', description: '文件路径，相对路径以工作目录为基准' },
-        offset: { type: 'integer', minimum: 1, description: '从第几行开始读，默认 1' },
-        limit: { type: 'integer', minimum: 1, description: `最多读多少行，默认 ${defaultLimit}` },
-      },
-      required: ['path'],
-    },
+    parameters: z.object({
+      path: z.string().min(1).describe('文件路径，相对路径以工作目录为基准'),
+      offset: z.number().int().min(1).default(1).describe('从第几行开始读，默认 1'),
+      limit: z.number().int().min(1).default(defaultLimit).describe(`最多读多少行，默认 ${defaultLimit}`),
+    }),
 
     async execute(args, ctx) {
-      const path = resolvePath(requireString(args, 'path'), ctx.cwd)
-      const offset = optionalInteger(args, 'offset', 1) ?? 1
-      const limit = optionalInteger(args, 'limit', 1) ?? defaultLimit
+      const path = resolvePath(args.path, ctx.cwd)
+      const { offset, limit } = args
 
       const info = await stat(path).catch(() => undefined)
       if (!info) throw new Error(`文件不存在：${path}`)
@@ -71,5 +68,5 @@ export function createReadFileTool(options: ReadFileOptions = {}): AgentTool {
       const footer = last < total ? `\n（还有 ${total - last} 行未显示，用 offset=${last + 1} 继续读取）` : ''
       return `${header}\n${body.join('\n')}${footer}`
     },
-  }
+  })
 }

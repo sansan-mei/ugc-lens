@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { formatItem, takeLines } from '../../../src/tools/data/format.ts'
+import { compactRepeats, formatItem, takeLines } from '../../../src/tools/data/format.ts'
 import { makeItem } from '../../helpers/dataset.ts'
 
 test('formatItem：ID 在最前，带上类型、点赞、日期、属地、上一级和作者', () => {
@@ -24,6 +24,12 @@ test('formatItem：弹幕显示视频时间；超长正文截断并注明全文�
   assert.equal(formatItem(item, { maxChars: 10 }), `[d1] 弹幕 视频1:02:05 ${'哈'.repeat(10)}…（全文 30 字）`)
   assert.match(formatItem(makeItem({ id: 'x', video_time_sec: 81 })), /视频01:21/)
   assert.match(formatItem(makeItem({ id: 'x' }), { showContent: true }), /内容BV1/)
+})
+
+test('compactRepeats：8 个以上相同字符压成 3 个并注明个数，短的不变', () => {
+  assert.equal(compactRepeats('牛'.repeat(3) + '6'.repeat(20) + '!'), '牛牛牛666…（6×20）!')
+  assert.equal(compactRepeats('哈哈哈哈哈哈哈'), '哈哈哈哈哈哈哈')
+  assert.match(formatItem(makeItem({ id: 'x', text: '6'.repeat(30) }), { compact: true }), /666…（6×30）$/)
 })
 
 test('takeLines：超过上限时停下，但至少保留一行', () => {

@@ -7,7 +7,7 @@ const KIND_LABELS: Record<FeedbackItem['kind'], string> = {
   answer: '回答',
 }
 
-function clock(seconds: number): string {
+export function clock(seconds: number): string {
   const total = Math.floor(seconds)
   const h = Math.floor(total / 3600)
   const m = Math.floor((total % 3600) / 60)
@@ -17,11 +17,18 @@ function clock(seconds: number): string {
 }
 
 /** 正文里的换行压成空格，一条占一行，模型更容易对应 ID */
-function oneLine(text: string): string {
+export function oneLine(text: string): string {
   return text.replace(/\s*\n\s*/g, ' ')
 }
 
+/** 把“66666……”这种刷屏的长串压短，省下上下文；原文不变 */
+export function compactRepeats(text: string): string {
+  return text.replace(/(.)\1{7,}/gu, (run, char: string) => `${char.repeat(3)}…（${char}×${[...run].length}）`)
+}
+
 export interface FormatItemOptions {
+  /** 压短连续重复的字符 */
+  compact?: boolean
   /** 正文最多显示多少字，超出时注明全文长度 */
   maxChars?: number
   /** 数据集有多个内容时显示所属内容 */
@@ -40,7 +47,7 @@ export function formatItem(item: FeedbackItem, options: FormatItemOptions = {}):
   if (options.showContent) parts.push(`内容${item.content_id}`)
   const name = item.author?.name ? `${item.author.name}：` : ''
 
-  const text = oneLine(item.text)
+  const text = options.compact ? compactRepeats(oneLine(item.text)) : oneLine(item.text)
   const max = options.maxChars ?? Infinity
   const body = text.length > max ? `${text.slice(0, max)}…（全文 ${text.length} 字）` : text
   return `${parts.join(' ')} ${name}${body}`

@@ -236,6 +236,11 @@
   - 包里只有 `dist/`、README、LICENSE，约 97 KB；运行时依赖只有 zod。
   - Trusted Publishing 要求包已经存在才能配置，所以第一次由用户在本机发布。配置后 2 天内必须有一次成功的 CI 发布，否则配置过期。
   - 验证：在空目录安装 `npm pack` 的包，`--version`、`--help` 正常；写一个 TypeScript 文件导入 `ugc-lens` 能通过类型检查；`analyze`、`ask` 用 DeepSeek 跑通测试样本。
+  - 0.0.1 已发布（用户手动 `npm publish`）。之后的 `ugc-lens init` 进 0.0.2：
+    - 用户决定：`init` 写入全局目录 `~/.ugc-lens/config.json`（含 key，权限 600），任何目录都能用；项目配置和环境变量仍然优先。
+    - `loadLlmConfig` 的优先级链加上全局配置（参数 > 环境变量 > 项目配置 > 全局配置 > 预设）；`LlmConfigFile` 新增 `api_key`。
+    - 流程按 providers.md 的设计：选提供商 → 有国内/国际之分的问区域 → 填 key（环境变量已有或已保存的可回车跳过）→ `GET /models` 列出模型选择，失败改手动输入 → 发一次强制工具调用的测试 → 写入。
+    - 坑：整个流程要共用一个 readline 接口，每个问题新建会把用户一次粘贴的多行回答丢掉；测试用注入的 `ask` 函数，真实终端用 expect 验证。
 
 ---
 

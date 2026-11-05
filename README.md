@@ -15,7 +15,15 @@ npm install -g ugc-lens
 
 ## 配置模型
 
-在运行命令的目录里放一个 `.env`（或设置同名环境变量），选一个提供商并填它的 API key：
+最简单的方式：
+
+```
+ugc-lens init
+```
+
+交互式地选提供商、从 `/models` 列表里选模型、填 API key 并发一次测试调用，写入全局配置 `~/.ugc-lens/config.json`（权限 600），所有目录下都能用。
+
+也可以手动配置：在运行命令的目录里放一个 `.env`（或设置同名环境变量），选一个提供商并填它的 API key：
 
 ```
 UGC_LENS_PROVIDER=deepseek
@@ -23,11 +31,13 @@ UGC_LENS_MODEL=deepseek-flash
 DEEPSEEK_API_KEY=你的 key
 ```
 
-支持 DeepSeek、通义千问、Kimi、智谱、MiniMax、OpenAI、Claude、Gemini、Grok、OpenRouter 和本地模型，变量名和差异见 [模型提供商](docs/providers.md)。
+支持 DeepSeek、通义千问、Kimi、智谱、MiniMax、OpenAI、Claude、Gemini、Grok、OpenRouter 和本地模型，变量名和差异见 [模型提供商](docs/providers.md)。优先级：环境变量 > 当前目录的 `.env` / `.ugc-lens/config.json` > 全局配置。
 
 ## 使用
 
 ```
+ugc-lens init                                     # 初始化模型配置
+
 # 分析一个文件：报告打印到标准输出，同时保存到 .ugc-lens/reports/
 ugc-lens analyze bilibili_all.json > report.md
 ugc-lens analyze bilibili_all.json --focus 价格,售后     # 只看这些方向

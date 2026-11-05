@@ -125,22 +125,30 @@
 
 ## 阶段二：接入业务数据
 
-### 第 7 步：统一数据格式与第一个数据源
+### 第 7 步：统一数据格式与数据导入
 
-- 目标：定义 `FeedbackItem` / `Dataset`，实现 media_crawl 的 B 站数据适配器。
-- 完成标准：读入一个 `bilibili_all.json`，转换成统一格式并打印统计数量。
+- 目标：定义 `FeedbackItem` / `Dataset`；不绑定任何软件，任意 JSON 文件由模型识别结构、代码按规则转换成统一格式。
+- 要掌握的概念：让模型输出“规则”而不是“数据”；用试转换结果给模型反馈；按结构指纹缓存模型的结论。
+- 完成标准：读入一个 JSON 文件，转换成统一格式并打印统计数量；结构相同的文件第二次读入不调用模型。
 - 笔记：
-  - 代码：`src/dataset/types.ts`（统一格式）、`src/dataset/stats.ts`（`computeStats`）、`src/sources/`（文件识别 `detectFile`、`loadDataset`、B 站适配器 `media_crawl/bilibili.ts`）。格式说明见 `docs/architecture.md` 第 5 节。
-  - 运行：`npm run stats` 读测试样本；`node examples/07_dataset_stats.ts <文件>` 读自己的文件。
-  - 先看真实数据再定格式：本机 26 个 `bilibili_all.json`（3330 条评论、7306 条回复、33637 条弹幕）全部转换成功，ID 没有重复，弹幕时间全部能解析。
-  - 文件里没有视频 ID，只能从路径取：优先找 BV 号目录，其次取目录名末尾的 av 号。两者都没有就报错，不猜。
-  - 时间单位不统一：评论 `time` 是毫秒，`pubdate` 是秒，弹幕 `time` 是视频内的 `时:分:秒`。统一转成 ISO 时间和 `video_time_sec`。
-  - 平台显示的回复数（`replyCount` 合计 14335）远大于实际搜集到的（7306），统计里分开给出 `reported` 和 `collected`，分析结论要考虑样本不完整。
-  - 原始数据用 Zod 校验：格式不对时报出具体位置（如 `video_comments.0.content`），而不是在后面某处读到 `undefined`。
-  - 文件识别用白名单：只认 `bilibili_all.json`；小红书、知乎等文件名明确提示“暂不支持”，`all_search.json` 等汇总文件忽略。
-  - 测试样本：从真实文件截取几条，用户名、mid、rpid、弹幕发送者、封面替换成假值，`@用户名` 替换为 `@某用户`。
-  - 测试：`test/sources/index.test.ts`、`test/sources/media_crawl/bilibili.test.ts`、`test/sources/validate.test.ts`、`test/dataset/stats.test.ts`。
-
+  - 代码：`src/dataset/`（统一格式、`computeStats`），`src/ingest/`（`shape.ts` 结构摘要与指纹、`mapping.ts` 映射规则、`apply.ts` 试转换、`infer.ts` 模型推断、`cache.ts` 规则缓存、`index.ts` 的 `loadDataset`）。设计见 `docs/architecture.md` 第 5 节。
+  - 运行：`npm run stats` 读测试样本；`node examples/07_dataset_stats.ts <文件> [--fresh]` 读自己的文件，`--fresh` 不用缓存。
+  - 一开始写的是 media_crawl 专用的 B 站适配器（按文件名白名单识别）。这会把 ugc-lens 和一个软件绑在一起，改成了通用导入，专用适配器已删除。
+  - 为什么让模型写规则，而不是让模型逐条转换：3 万条弹幕逐条转换又贵又慢，模型还可能改写原文，破坏后面的引用校验。现在一个文件只调用一两次模型（1.4～3 万 token），转换由代码完成，原文一个字都不经过模型。
+  - 为什么不让模型写转换代码：要执行模型写的任意代码，风险大，也难以验证。规则是数据，能用 Zod 校验、能试转换、能缓存、人也能看懂。
+  - 试转换报告就是给模型的反馈：哪个集合导入了多少条、每个字段的命中率、哪里错了。模型按报告改规则，和第 5 步“参数错误提示”是同一个思路。
+  - 真实数据上发现的问题，都是靠试转换报告暴露、再改规则检查解决的：
+    - 模型把 `title` 写在 `content` 下面而不是 `fields` 里，Zod 默认悄悄丢掉。改用 `strictObject`，多写的字段报错。
+    - 回复沿用评论的字段规则，回复没有 `reply_count`，模型怎么改都去不掉。改成：写了 `children.fields` 就完全按它来，沿用时缺少的字段只警告。
+    - MediaCrawler 的文件里同一条评论出现两次，被当成 ID 重复。改成：ID、正文、所属内容都相同的去重。
+    - 模型有时不写内容 ID，程序生成的 `content-1` 又被别的文件复用。改成：有 `content` 规则时必须有 ID 来源。
+    - 缓存复用太严格（没有 AI 总结的视频，`summary` 路径不存在就算错误）。改成：缓存规则用在新文件上时，可选字段缺失只警告。
+  - 真实数据验证（DeepSeek）：
+    - 26 个 B 站 `bilibili_all.json`：调用模型 2 次（第一个文件没有弹幕，规则里没有弹幕集合，遇到有弹幕的文件时提示“有数组没被使用”，于是重新识别），其余全部复用缓存；3330 条评论、7306 条回复、33637 条弹幕，与手写适配器的结果完全一致。
+    - 小红书 `all_xhs.json`、知乎 `all_zhihu.json`（回答 → 评论 → 回复三层）、YouTube `youtube_all.json`、MediaCrawler 的扁平评论文件（B 站、知乎、快手），都是第一次提交就通过。
+    - MediaCrawler 的 `*_contents_*.json`、`*_creators_*.json` 被模型用 `reject_file` 拒绝，说明是视频列表或用户列表，没有互动内容。
+  - 测试：`test/ingest/`（convert、paths、shape、mapping、apply、infer、cache、index），`test/dataset/stats.test.ts`。模型用假模型代替，剧本里直接给出 `submit_mapping` 的参数。
+  - 测试样本：从真实 B 站文件截取几条，用户名、mid、rpid、弹幕发送者、封面替换成假值，`@用户名` 替换为 `@某用户`。
 ### 第 8 步：数据工具
 
 - 目标：实现 `get_dataset_stats`、`search_feedback`、`get_feedback`。
@@ -171,9 +179,9 @@
 - 目标：分析规则从代码中移到 `playbook.md`；每次运行后追加 `learnings.md`。
 - 完成标准：修改 playbook 中一条规则，重跑回归样本后能看到报告的对应变化。
 
-### 第 13 步：第二个数据源与发布
+### 第 13 步：更多文件格式与发布
 
-- 目标：接入 MediaCrawler 的输出，发布第一个 npm 版本。
+- 目标：支持 JSONL、CSV 等文件格式，发布第一个 npm 版本。
 - 完成标准：`npx ugc-lens analyze` 在一台新电脑上能直接运行。
 
 ---
@@ -195,11 +203,11 @@
 - [x] 第 4 步　真实模型的 function call
 - [x] 第 5 步　工具注册与参数校验
 - [x] 第 6 步　预算与稳定性
-- [x] 第 7 步　统一数据格式与第一个数据源
+- [x] 第 7 步　统一数据格式与数据导入
 - [ ] 第 8 步　数据工具
 - [ ] 第 9 步　分析流水线
 - [ ] 第 10 步　监听目录
 - [ ] 第 11 步　MCP 服务
 - [ ] 第 12 步　playbook 与 learnings
-- [ ] 第 13 步　第二个数据源与发布
+- [ ] 第 13 步　更多文件格式与发布
 - [ ] 第 14 步　图形界面（可选）

@@ -22,5 +22,5 @@ npm run loop         # 用假模型演示 Agent 循环
 npm run tools        # 真实模型 + 基础工具（需要 .env）
 npm run params       # 参数纠错实验（需要 .env）
 npm run retry        # 重试演示与 token 预算（budget 部分需要 .env）
-npm run stats        # 读入 bilibili_all.json，打印统一格式的统计
+npm run stats        # 模型识别 JSON 文件结构，转换成统一格式并打印统计（需要 .env）
 ```：按步骤实现，每一步的目标、要掌握的概念和完成标准

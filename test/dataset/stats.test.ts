@@ -10,12 +10,13 @@ function item(partial: Partial<FeedbackItem> & Pick<FeedbackItem, 'id' | 'kind'>
 function dataset(items: FeedbackItem[]): Dataset {
   return {
     id: 'test',
-    source: 'test',
     platform: 'bilibili',
     file_path: '/x',
     contents: [{ id: 'bilibili:BV1', platform: 'bilibili', title: 't' }],
     items,
     imported_at: new Date(0).toISOString(),
+    mapping: { fingerprint: 'test', from_cache: false },
+    report: { contents: 1, items: items.length, collections: [], errors: [], warnings: [], unmapped: [] },
   }
 }
 

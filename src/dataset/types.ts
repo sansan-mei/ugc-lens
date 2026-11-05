@@ -1,8 +1,9 @@
-export type Platform = 'bilibili' | 'douyin' | 'xhs' | 'youtube' | 'zhihu'
+/** 平台名，由模型根据文件内容判断，如 bilibili、xhs；判断不了时为 unknown */
+export type Platform = string
 
 export type FeedbackKind = 'comment' | 'reply' | 'danmaku' | 'answer'
 
-export const FEEDBACK_KINDS: readonly FeedbackKind[] = ['comment', 'reply', 'danmaku', 'answer']
+export const FEEDBACK_KINDS = ['comment', 'reply', 'danmaku', 'answer'] as const satisfies readonly FeedbackKind[]
 
 export interface FeedbackAuthor {
   id?: string
@@ -14,6 +15,7 @@ export interface FeedbackAuthor {
 
 /** 一条用户互动内容。字段含义见 docs/architecture.md 第 5 节 */
 export interface FeedbackItem {
+  /** 数据集内唯一 */
   id: string
   platform: Platform
   kind: FeedbackKind
@@ -40,7 +42,8 @@ export interface TranscriptLine {
 export interface ContentInfo {
   id: string
   platform: Platform
-  title: string
+  /** 只有评论、没有内容详情的文件里没有标题 */
+  title?: string
   url?: string
   author?: string
   description?: string
@@ -51,13 +54,38 @@ export interface ContentInfo {
   transcript?: TranscriptLine[]
 }
 
+export interface CollectionReport {
+  /** 如 $.video_comments 或 $.video_comments[].replyList */
+  path: string
+  kind: FeedbackKind
+  /** 路径上找到的数组元素个数 */
+  elements: number
+  imported: number
+  /** 取不到 text 而跳过的元素 */
+  skipped: number
+  /** 字段名 → 命中率（0~1），只统计规则里写了的字段 */
+  field_hits: Record<string, number>
+}
+
+/** 按映射规则试转换的结果，规则是否可用由 errors 决定 */
+export interface ImportReport {
+  contents: number
+  items: number
+  content?: { path: string; elements: number; field_hits: Record<string, number> }
+  collections: CollectionReport[]
+  errors: string[]
+  warnings: string[]
+  /** 结构里较大、元素是对象、但没被任何规则使用的数组路径 */
+  unmapped: string[]
+}
+
 export interface Dataset {
   id: string
-  /** 数据源适配器名称，如 media_crawl/bilibili */
-  source: string
   platform: Platform
   file_path: string
   contents: ContentInfo[]
   items: FeedbackItem[]
   imported_at: string
+  mapping: { fingerprint: string; from_cache: boolean }
+  report: ImportReport
 }

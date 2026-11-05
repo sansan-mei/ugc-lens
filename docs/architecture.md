@@ -6,7 +6,7 @@
 
 ugc-lens 是一个**分析用户互动内容（评论、弹幕、回复等）的轻量 Agent**，以 npm 包发布。核心不依赖任何界面，图形界面作为可选入口后续提供（见第 2.1 节）。
 
-- 输入：各平台搜集得到的数据文件（如 media_crawl 的 `*_all.json`、MediaCrawler 的输出）。
+- 输入：各平台搜集得到的 JSON 数据文件，不限定由哪个软件导出。文件结构由模型识别（第 5 节）。
 - 输出：带证据引用的分析报告（Markdown / 单文件 HTML），以及可追问的结论。
 - 使用方式：命令行、代码调用、MCP 服务（供 Claude Code、Codex 等宿主 Agent 调用）。
 
@@ -32,10 +32,10 @@ ugc-lens 是一个**分析用户互动内容（评论、弹幕、回复等）的
                         └──────────┬──────────┘
           ┌────────────────────────┼───────────────────────┐
    ┌──────▼──────┐        ┌────────▼───────┐       ┌───────▼───────┐
-   │ 数据源适配器   │        │ 模型客户端         │       │ 本地存储          │
-   │ media_crawl  │        │ OpenAI 兼容接口    │       │ 任务状态 / 报告     │
-   │ MediaCrawler │        │ (见 providers.md)  │       │ playbook /     │
-   │ 通用 JSON/CSV │        │                  │       │ learnings      │
+   │ 数据导入       │        │ 模型客户端         │       │ 本地存储          │
+   │ 模型识别结构   │        │ OpenAI 兼容接口    │       │ 任务状态 / 报告     │
+   │ 代码按规则转换 │        │ (见 providers.md)  │       │ playbook /     │
+   │ 规则缓存       │        │                  │       │ learnings      │
    └─────────────┘        └────────────────┘       └───────────────┘
 ```
 
@@ -289,18 +289,19 @@ const tool = defineTool({
 - **子进程拿不到模型 key**：执行命令时去掉所有以 `_API_KEY` 结尾的环境变量。
 - 超时或取消时结束整个进程组，避免命令留下后台子进程。
 
-## 5. 统一数据格式
+## 5. 统一数据格式与导入
 
-所有数据源都先转换成统一格式，后续步骤只认这一种格式。字段根据 media_crawl 的真实输出确定（B 站 `bilibili_all.json`、小红书 `all_xhs.json`、知乎 `all_zhihu.json`）。
+所有数据文件都先转换成统一格式，后续步骤只认这一种格式。**核心不认识任何特定软件的文件格式**：文件结构由模型识别，转换由代码完成（5.2 节）。
 
 ```ts
-type Platform = 'bilibili' | 'douyin' | 'xhs' | 'youtube' | 'zhihu'
+/** 平台名，模型根据文件内容判断：bilibili、douyin、xhs、zhihu、youtube、weibo、kuaishou，判断不了时为 unknown */
+type Platform = string
 
 /** 一条用户互动内容 */
 interface FeedbackItem {
-  id: string                 // 全局唯一：`${platform}:${原始ID}`；弹幕没有原始 ID，用 `${content_id}:dm:${序号}`
+  id: string                 // 数据集内唯一：文件里有 ID 就用原始 ID，没有就生成 `${kind}-${序号}`
   platform: Platform
-  kind: 'comment' | 'reply' | 'danmaku' | 'answer'   // answer：知乎回答
+  kind: 'comment' | 'reply' | 'danmaku' | 'answer'   // answer：知乎回答这类“对内容的长回应”
   content_id: string         // 所属视频、笔记或问题，对应 ContentInfo.id
   parent_id?: string         // 上一级：回复 → 评论；知乎评论 → 回答
   text: string               // 原文，不做清洗
@@ -314,9 +315,9 @@ interface FeedbackItem {
 
 /** 被评论的对象：视频、笔记、问题 */
 interface ContentInfo {
-  id: string                 // `${platform}:${原始ID}`
+  id: string                 // 文件里有 ID 就用原始 ID，否则可从文件路径中取（id_from_path），都没有时生成 `content-${序号}`
   platform: Platform
-  title: string
+  title?: string             // 只有评论、没有内容详情的文件（如 MediaCrawler 的 *_comments_*.json）没有标题
   url?: string
   author?: string
   description?: string
@@ -328,45 +329,124 @@ interface ContentInfo {
 
 interface Dataset {
   id: string                 // 由文件绝对路径计算，同一文件每次导入得到相同 ID
-  source: string             // 数据源适配器名称，如 media_crawl/bilibili
   platform: Platform
   file_path: string
   contents: ContentInfo[]
   items: FeedbackItem[]
   imported_at: string
+  mapping: { fingerprint: string; from_cache: boolean }   // 用了哪份映射规则（5.3 节）
+  report: ImportReport       // 试转换报告：每个集合导入多少条、各字段命中率、警告
 }
 ```
 
 转换规则：
 
-- **原文不改**。“回复 @某人 :”这类前缀保留在 `text` 里，清洗留给分析步骤决定。
-- **数字和时间统一**。各平台的毫秒、秒、`"00:01:23"`、字符串形式的数字，都在适配器里转换。
+- **原文不改**。“回复 @某人 :”这类前缀保留在 `text` 里，清洗留给分析步骤决定。模型只决定“哪个字段是什么”，从不经手原文。
+- **数字和时间由代码统一**，模型不用关心单位：
+  - 数量：数字、数字字符串、`"1,234"`、`"1.2万"`、`"3w"`、`"10+"` 都能识别。
+  - 时间：数字小于 1e11 视为秒，否则视为毫秒；字符串先当数字处理，否则用 `Date.parse`。
+  - 视频内时间点：秒数，或 `"01:23"`、`"00:01:23"`。
 - **区分平台显示的数量和实际搜集到的数量**。例如 B 站评论的 `replyCount` 是平台显示的回复数，实际只搜集到其中一部分。统计时两个数都给出，分析时不能把搜集到的数量当成全部。
-- **原始数据先校验再转换**。适配器用 Zod 描述原始格式，文件不符合时报错，并指出哪个字段有问题，而不是转换出一份残缺的数据。
+- 第一版只支持 JSON 文件（最大 100 MB）。
 
-### 5.1 文件识别
+### 5.1 结构摘要与结构指纹
 
-按文件名白名单决定用哪个适配器（与 media_crawl `mcp/shared.mjs` 的 `FILES_BY_DATA_TYPE.all` 一致）：
+模型看不到整个文件，只看结构摘要（`src/ingest/shape.ts`）：
 
-| 文件名 | 平台 | 状态 |
-|---|---|---|
-| `bilibili_all.json` | B 站 | 第 7 步支持 |
-| `all_douyin.json`、`all_xhs.json`、`youtube_all.json`、`all_zhihu.json` | 抖音、小红书、YouTube、知乎 | 识别，暂不支持 |
-| `all_search.json`、`all_recommend.json`、`all_popular.json`、`all_history.json`、`all_collects.json`、`all_uploader_summary.json` | - | 汇总文件，不是互动内容数据，跳过 |
+```
+$.video_comments  array  长度 3
+$.video_comments[]  object
+$.video_comments[].content  string  例："直接3月或者9月去国开报名，报名都是要线下…"
+$.video_comments[].time  number  例：1729594533000
+$.video_comments[].replyList  array  长度 0~2
+```
 
-其他文件名一律视为未知文件。监听目录（第 10 步）也使用这套规则。
+- 每个数组最多抽样 50 个元素（均匀抽取），合并它们的字段，避免只看第一条漏掉可选字段。
+- 示例值截断到 40 个字符；摘要最多 300 行，超出时注明。
+- **结构指纹**：所有“路径 + 类型”排序后取 sha256 前 16 位。不含示例值和数组长度，所以同一软件导出的不同文件通常得到同一个指纹。空数组没有元素结构、字段有时为 null，都会让指纹不同，所以指纹对不上时还会用其他规则试转换（5.3 节）。
 
-### 5.2 内容 ID
+### 5.2 映射规则
 
-B 站 `bilibili_all.json` 里没有视频 ID，只能从路径中取：
+模型通过工具 `submit_mapping` 提交映射规则，参数格式用 Zod 定义（`src/ingest/mapping.ts`）。例：B 站 `bilibili_all.json`
 
-- 路径中有 BV 号（如 `super_collect/BV13Cq3BVEZe/…`）时用 BV 号。
-- 否则用所在目录名末尾的数字（av 号），例如 `中国为什么不能实现牛肉自由？-116887702935523`。
-- 都没有时报错。没有稳定的 ID，评论的 ID 也无法全局唯一。
+```json
+{
+  "platform": "bilibili",
+  "content": {
+    "path": "$.video_info",
+    "id_from_path": "(BV[0-9A-Za-z]{10})",
+    "url_template": "https://www.bilibili.com/video/{id}",
+    "fields": { "title": "title", "author": "owner", "published_at": "pubdate", "summary": "$.video_ai_summary.summary" },
+    "stats": { "views": "view", "likes": "like" },
+    "transcript": { "path": "$.video_zimu", "start": "from", "end": "to", "text": "content" }
+  },
+  "collections": [
+    {
+      "kind": "comment",
+      "path": "$.video_comments",
+      "fields": { "id": "rpid", "text": "content", "created_at": "time", "likes": "like", "author_name": "author" },
+      "children": [{ "kind": "reply", "path": "replyList", "recursive": true }]
+    },
+    { "kind": "danmaku", "path": "$.video_danmus", "fields": { "text": "content", "video_time": "time", "danmaku_mode": "type" } }
+  ]
+}
+```
+
+路径写法：
+
+- 绝对路径以 `$` 开头，`.` 分隔字段，`[]` 表示展开数组：`$.answers[].comments`。
+- 字段路径相对于当前元素，只用 `.`：`user_info.nickname`。也可以写 `$` 开头的绝对路径，用于内容信息分散在文件多处的情况（如上例的 `summary`）。字段名本身含 `.` 的情况第一版不支持。
+
+规则含义：
+
+- `content`：被评论的对象。`path` 指向一个对象，或一个数组（每个元素是一个内容）。可选。
+  - `id_from_path`：文件里没有内容 ID 时，用正则从文件路径中取第一个捕获组。
+  - `url_template`：文件里没有链接时，用内容 ID 拼出链接，`{id}` 会被替换。
+- `collections`：互动内容的集合，每个集合指定 `kind`、数组路径和字段。
+  - `children`：嵌套在元素里的下一级（最多两层）。写了 `fields` 就完全按它来；不写时沿用上一级的规则，上一级有而这一级没有的字段（如回复没有 `reply_count`）只警告并忽略。`recursive: true` 表示同名字段在更深层重复出现（回复的回复）。下一级的 `parent_id` 自动指向上一级。
+  - 扁平文件（所有评论在一个数组里）用 `fields.parent_id` 和 `fields.content_id` 表示关系。`parent_id` 为空、`0` 或 `"0"` 视为一级评论；有上一级的 `comment` 自动记为 `reply`。
+- 互动内容归属哪个内容：
+  1. 有 `fields.content_id` 就用它；文件里没有这个内容的详情时，自动生成只有 ID 的内容。
+  2. 集合路径写在内容数组下面（内容 `$.notes`，评论 `$.notes[].comments`）时，属于所在的内容。
+  3. 文件只有一个内容时属于它；没有 `content` 规则时生成一个内容。
+  4. 以上都不满足（多个内容但无法对应）时，规则不通过。
+
+### 5.3 推断、校验与缓存
+
+```
+读文件 → JSON.parse → 结构摘要 + 指纹
+  ├─ 同一指纹被拒绝过 → 报错（没有互动内容）
+  ├─ 同一指纹的规则逐条试转换，没有错误 → 直接使用
+  ├─ 其他指纹的规则逐条试转换，没有错误、也没有遗漏的数组 → 直接使用
+  └─ 都不行，调用模型（Agent 循环，工具 submit_mapping / reject_file）
+       submit_mapping → Zod 校验参数 → 试转换全部数据
+         ├─ 有错误：作为工具结果交给模型，模型改正后重新提交
+         └─ 通过：追加到这个指纹的缓存，返回 Dataset
+       reject_file → 文件里没有互动内容（如搜索结果列表），记入缓存，报错说明原因
+```
+
+- 模型提交的规则按严格标准试转换，以下情况算错误：
+  - 路径找不到数组；集合路径以 `[]` 结尾（指向了元素而不是数组）。
+  - 某个集合一条都没导入，或超过一半元素取不到 `text`。
+  - 某个字段的路径在所有元素上都不存在（多半是写错了）。
+  - 有 `content` 规则却没有 ID 来源（`fields.id` 或 `id_from_path`），或 `id_from_path` 不匹配文件路径。
+  - ID 相同但正文不同；多个内容无法对应。
+- 只警告不出错：
+  - 字段命中率低于 100%，或路径存在但值都为空（如 AI 总结为空字符串）。
+  - `parent_id` 指向不存在的条目。
+  - ID、正文、所属内容都相同的重复条目（同一条被搜集了两次），去掉重复的。
+  - 有元素是对象、至少 5 个元素的数组没有被任何规则使用，提醒模型是否漏掉了弹幕之类的集合。内容对象和内容字段所在对象（如 `$.video_ai_summary`）里的数组不算。
+- 缓存规则用在新文件上时放宽：除 `text`、`id` 外，字段路径不存在只警告。规则已经在别的文件上验证过，新文件缺少可选数据（如没有 AI 总结）很常见。
+- 一个指纹可以有多条规则：结构相同，但有的文件路径里有 BV 号、有的没有，需要不同的 `id_from_path`。
+- 复用第 3～6 步的机制：参数错误提示（4.1 节）、连续出错 3 次停止、重试。最多 6 步。
+- 映射规则的对象都是严格模式：模型把字段写错位置（如 `title` 没放进 `fields`）时报错，不会被悄悄丢掉。
+- 缓存放在 `.ugc-lens/mappings/<指纹>.json`，可以手动查看、修改或删除。内容为规则本身、来源文件名和生成时间。并行导入同一指纹的文件时，后写入的可能覆盖先写入的规则，最多多调用一次模型。
+- 发给模型的结构摘要里有示例值，可能包含用户名等原文片段。后续分析本来就要把原文发给模型，这里不额外处理。
+- 已知限制：超过 2^53 的数字 ID 在 `JSON.parse` 时会丢失精度，这类 ID 通常以字符串保存，暂不处理。
 ## 6. 分析流水线（固定步骤）
 
 ```
-1. 识别与解析   找到匹配的数据源适配器，转成 Dataset
+1. 导入        识别文件结构，按映射规则转成 Dataset（第 5 节）
 2. 统计        纯代码：数量、分布、高赞、关键词
 3. 分块总结     评论按数量分块，并行调用模型，每块输出结构化要点 + 引用 ID
 4. 合并        汇总各块要点，生成整体结论
@@ -424,7 +504,8 @@ ugc-lens/
     agent/        Agent 循环、终止条件、运行记录
     llm/          模型客户端（OpenAI 兼容）
     tools/        工具定义与注册
-    sources/      数据源适配器
+    dataset/      统一数据格式与统计
+    ingest/       数据导入：结构摘要、映射规则、推断与缓存
     pipeline/     分析流水线
     store/        本地状态与报告读写
     cli/          命令行入口
@@ -452,6 +533,7 @@ ugc-lens/
 ## 11. 待定问题
 
 - [x] 模型提供商：用户自选，列表见 [providers.md](providers.md)
-- [x] 统一数据格式的字段：已对照 media_crawl 实际输出确认（第 5 节）；MediaCrawler 接入时再核对
+- [x] 统一数据格式的字段：已对照 media_crawl 和 MediaCrawler 的实际输出确认（第 5 节）
+- [x] 数据来源：不绑定任何软件，由模型生成映射规则、代码执行（第 5.2、5.3 节）
 - [ ] 报告格式：先 Markdown，HTML 何时加入
 - [ ] 同一文件被覆盖后，是重新分析还是跳过

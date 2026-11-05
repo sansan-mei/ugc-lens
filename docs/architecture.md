@@ -99,12 +99,18 @@ loop:
 - 收尾说明附加在**最后一条、还没发给模型的工具结果**末尾，不额外插入 user 消息（见第 8.2 节）。停止检查发生在工具执行之后、下一次调用模型之前，所以这条工具结果一定还没发出去。
 - `timeout`、`aborted` 不做收尾调用：时间已经用完，或用户已经取消。
 
+token 预算是**软上限**：每一步开始前检查累计用量，达到预算就不再开始新的步骤。已经开始的那次调用和收尾调用仍会计入，所以实际用量可能超过预算。历史越长，每次调用越贵，超出越多：第 6 步实测预算 3000，实际用了约 8800（第 2 步开始前累计约 1000，第 2 步本身约 3000，收尾调用约 5600）。
 ### 3.3 错误处理
 
 - 工具执行出错**不抛异常中断循环**，而是把错误信息作为工具结果返回给模型，让它换参数重试或换方法。
 - 模型返回的参数不是合法 JSON，或者不符合 schema：同样作为工具结果返回错误说明。不符合 schema 时提示“参数不正确”，和“执行失败”区分开（见 4.1）。
-- 模型接口本身出错（网络、限流）：在模型客户端里按指数退避重试，重试用完再让循环失败。
-
+- 模型接口本身出错：在模型客户端里重试（`src/llm/retry.ts`），重试用完再让循环失败。
+  - 重试：网络错误、单次请求超时、HTTP 408、429、5xx。不重试：400、401、402、403、404 等其他错误，重试多少次结果都一样。
+  - 默认最多重试 3 次（配置项 `max_retries`）。等待时间按指数退避：1 秒、2 秒、4 秒……最多 10 秒，再随机减少最多 25%，避免多个请求同时重试。
+  - 响应带 `retry-after-ms` 或 `Retry-After` 时按它等待；超过 60 秒则不照办，改用退避时间。
+  - 调用方取消或运行总超时时立即停止，等待中的重试也会被打断，不再继续。
+  - 每次重试前发出 `model_retry` 事件（第 3.5 节）。重试用完后，错误信息里注明已重试的次数。
+  - 限流只做被动应对（收到 429 后等待重试），不主动控制请求速度。分析流水线需要并行调用模型时再做并发控制。
 ### 3.4 循环的输出
 
 ```ts
@@ -129,6 +135,7 @@ type RunEvent =
   | { type: 'model_start'; run_id: string; step: number; final: boolean }   // final：收尾调用
   | { type: 'model_delta'; run_id: string; step: number; text: string }     // 流式输出时的增量文本
   | { type: 'model_end'; run_id: string; step: number; usage: Usage; tool_calls: number }
+  | { type: 'model_retry'; run_id: string; step: number; attempt: number; delay_ms: number; reason: string }  // 模型接口重试前
   | { type: 'tool_start'; run_id: string; step: number; call_id: string; name: string; args: unknown }
   | { type: 'tool_end'; run_id: string; step: number; call_id: string; name: string; ok: boolean; duration_ms: number }
   | { type: 'pipeline_stage'; run_id: string; stage: string; progress?: number }

@@ -1,8 +1,12 @@
 import { relative } from 'node:path'
 import { parseArgs } from 'node:util'
-import type { AnalyzeProgress } from '../pipeline/analyze.ts'
+import { loadLlmConfig } from '../config.ts'
+import { loadDataset } from '../ingest/index.ts'
+import { analyzeDataset } from '../pipeline/analyze.ts'
+import { openTaskStore } from '../store/tasks.ts'
+import { watchDirectory, type WatchEvent } from '../watch/index.ts'
 import { parsePatterns } from '../watch/pattern.ts'
-import type { WatchEvent } from '../watch/index.ts'
+import { abortOnInterrupt, analysisModel, formatAnalyzeProgress, positiveNumber, splitList, UsageError } from './common.ts'
 
 export const WATCH_USAGE = `用法：ugc-lens watch <目录> [选项]
 
@@ -25,14 +29,6 @@ export interface WatchArgs {
   directions?: string[]
 }
 
-function positiveNumber(name: string, value: string | undefined): number | undefined {
-  if (value === undefined) return undefined
-  const n = Number(value)
-  if (!Number.isFinite(n) || n <= 0) throw new Error(`--${name} 需要正数，收到 ${value}`)
-  return n
-}
-
-/** 参数不对时抛出 Error，消息可以直接给用户看 */
 export function parseWatchArgs(argv: readonly string[]): WatchArgs {
   const { values, positionals } = parseArgs({
     args: [...argv],
@@ -47,8 +43,7 @@ export function parseWatchArgs(argv: readonly string[]): WatchArgs {
       focus: { type: 'string' },
     },
   })
-  if (positionals.length !== 1) throw new Error('需要一个要监听的目录')
-  const directions = values.focus?.split(/[,，]/).map((d) => d.trim()).filter(Boolean)
+  if (positionals.length !== 1) throw new UsageError('需要一个要监听的目录')
   return {
     dir: positionals[0]!,
     patterns: parsePatterns(values.pattern),
@@ -57,7 +52,7 @@ export function parseWatchArgs(argv: readonly string[]): WatchArgs {
     scanIntervalMs: (positiveNumber('interval', values.interval) ?? 30) * 1000,
     settleMs: (positiveNumber('settle', values.settle) ?? 2) * 1000,
     maxTotalChars: positiveNumber('chars', values.chars),
-    directions: directions?.length ? directions : undefined,
+    directions: splitList(values.focus),
   }
 }
 
@@ -92,8 +87,35 @@ export function formatWatchEvent(event: WatchEvent, dir: string): string {
   }
 }
 
-export function formatAnalyzeProgress(event: AnalyzeProgress): string {
-  if (event.type === 'planned') return `  分成 ${event.chunks} 块，预计输入约 ${event.estimate.input_tokens} token`
-  if (event.type === 'chunk') return `  块 ${event.summary.chunk + 1}：${event.summary.status === 'ok' ? `${event.summary.findings.length} 条观点` : event.summary.status}`
-  return `  合并成 ${event.themes} 个主题`
+export async function runWatch(argv: readonly string[]): Promise<void> {
+  const args = parseWatchArgs(argv)
+  const config = loadLlmConfig()
+  const model = analysisModel(config)
+  const store = await openTaskStore()
+  const { signal } = abortOnInterrupt('正在停止')
+
+  await watchDirectory({
+    dir: args.dir,
+    store,
+    signal,
+    patterns: args.patterns,
+    existing: args.existing,
+    retryFailed: args.retryFailed,
+    scanIntervalMs: args.scanIntervalMs,
+    settleMs: args.settleMs,
+    onEvent: (event) => console.log(formatWatchEvent(event, args.dir)),
+    analyze: async (file, taskSignal) => {
+      const dataset = await loadDataset(file, { model, signal: taskSignal })
+      const result = await analyzeDataset({
+        model,
+        dataset,
+        signal: taskSignal,
+        modelName: config.model,
+        directions: args.directions,
+        maxTotalChars: args.maxTotalChars,
+        onProgress: (event) => console.log(formatAnalyzeProgress(event)),
+      })
+      return { report: result.path, calls: result.calls, usage: result.usage }
+    },
+  })
 }

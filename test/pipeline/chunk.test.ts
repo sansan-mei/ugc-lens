@@ -84,15 +84,62 @@ describe('planChunks', () => {
     assert.equal(plan.coverage.danmaku_represented, plan.coverage.danmaku_total)
   })
 
-  test('每块不超过字数上限，块里的行以 [ID] 或回复标记开头', () => {
+  test('每块不超过字数上限；块内编号从 1 连续，和 ids 一一对应', () => {
     const plan = planChunks(makeDataset(threads(60, 3)), { maxChunkChars: 1_000 })
     assert.ok(plan.chunks.length > 3)
     for (const chunk of plan.chunks) {
       assert.ok(chunk.chars <= 1_000, `块 ${chunk.index}：${chunk.chars}`)
-      assert.ok(chunk.lines.every((line) => /^(\[|  ↳ )/.test(line)))
+      const labels = chunk.lines.map((line) => line.match(/^(?: {2}↳)?\[(\d+)\]/)?.[1]).filter((n) => n !== undefined)
+      assert.deepEqual(labels.map(Number), chunk.ids.map((_, i) => i + 1))
       assert.equal(chunk.represents, chunk.ids.length)
     }
     assert.deepEqual(plan.chunks.map((c) => c.index), plan.chunks.map((_, i) => i))
+  })
+
+  test('行格式：不带原 ID 和类型，带赞、日期、属地、用户名；去掉“回复 @某人 :”', () => {
+    const dataset = makeDataset([
+      makeItem({ id: '123456789012', text: '价格太贵了吧', likes: 94, reply_count: 1, created_at: '2024-10-22T10:00:00+08:00', author: { name: '用户3', location: '浙江' } }),
+      makeItem({ id: '223456789012', kind: 'reply', parent_id: '123456789012', text: '回复 @用户3 :确实不便宜', likes: 2 }),
+    ])
+    const [chunk] = planChunks(dataset).chunks
+    assert.deepEqual(chunk?.lines, ['[1] 赞94 回复1 2024-10-22 浙江 用户3：价格太贵了吧', '  ↳[2] 赞2 确实不便宜'])
+    assert.deepEqual(chunk?.ids, ['123456789012', '223456789012'])
+  })
+
+  test('多个内容时用 @1、@2 标出所属内容', () => {
+    const dataset = makeDataset([makeItem({ id: 'a', text: '第一个视频不错', content_id: 'BV1' }), makeItem({ id: 'b', text: '第二个视频一般', content_id: 'BV2' })], {
+      contents: [{ id: 'BV1', platform: 'bilibili' }, { id: 'BV2', platform: 'bilibili' }],
+    })
+    const lines = planChunks(dataset).chunks[0]!.lines
+    assert.ok(lines.some((l) => l.includes('@1 第一个')) && lines.some((l) => l.includes('@2 第二个')))
+  })
+
+  test('低信息内容只计数不放进块里；有赞、有回复、有复读的保留', () => {
+    const dataset = makeDataset([
+      makeItem({ id: 'a', text: '哈哈哈哈' }),
+      makeItem({ id: 'b', text: '[笑哭][笑哭]' }),
+      makeItem({ id: 'c', text: '好看', likes: 3 }),
+      makeItem({ id: 'd', text: '6' }),
+      makeItem({ id: 'd2', kind: 'reply', parent_id: 'd', text: '这个讲解很清楚' }),
+      makeItem({ id: 'e', text: '这期讲得很清楚' }),
+      makeItem({ id: 'e1', kind: 'reply', parent_id: 'e', text: '+1' }),
+      makeItem({ id: 'f', text: '牛' }),
+      makeItem({ id: 'f2', text: '牛！' }),
+    ])
+    const plan = planChunks(dataset)
+    const ids = plan.chunks.flatMap((c) => c.ids)
+    assert.deepEqual([...ids].sort(), ['c', 'd', 'd2', 'e', 'f'].sort())
+    assert.equal(plan.coverage.low_info, 3)
+    assert.equal(planChunks(dataset, { dropLowInfo: false }).chunks.flatMap((c) => c.ids).length, 8)
+  })
+
+  test('一级内容截断时不留下半个 emoji', () => {
+    const lone = /[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/
+    for (const pad of [0, 1]) {
+      const plan = planChunks(makeDataset([makeItem({ id: 'a', text: Array.from({ length: 499 - pad }, (_, i) => String.fromCharCode(0x4e00 + i)).join('') + '😰'.repeat(5) })]))
+      assert.match(plan.chunks[0]!.lines[0]!, /全文/)
+      assert.doesNotMatch(plan.chunks[0]!.lines[0]!, lone)
+    }
   })
 
   test('单条串超过上限时去掉回复，一级内容保留', () => {
@@ -121,8 +168,8 @@ describe('planChunks', () => {
 
   test('复读评论合并成一行，注明另有多少条，并计入代表条数', () => {
     const plan = planChunks(makeDataset(threads(30, 0, (i) => (i < 20 ? '666666666666' : `正常评论${i}`))))
-    const line = plan.chunks[0]!.lines.find((l) => l.includes('同样内容'))
-    assert.match(line ?? '', /666…（6×12）（同样内容另有 19 条）/)
+    const line = plan.chunks[0]!.lines.find((l) => l.includes('同样 +'))
+    assert.match(line ?? '', /666…（6×12）（同样 \+19）/)
     assert.equal(plan.coverage.threads_merged, 19)
     assert.equal(plan.chunks[0]!.represents, 30)
   })
@@ -145,7 +192,7 @@ describe('planChunks', () => {
     })
     const chunk = plan.chunks.find((c) => c.kind === 'danmaku')!
     assert.deepEqual(chunk.ids, ['a0', 'p0'])
-    assert.equal(chunk.lines[0], '[a0] 弹幕×5 视频00:10 前方高能')
+    assert.equal(chunk.lines[0], '[1] ×5 00:10 前方高能')
     assert.equal(chunk.represents, 6)
     assert.deepEqual([plan.coverage.danmaku_groups_included, plan.coverage.danmaku_represented], [2, 6])
   })

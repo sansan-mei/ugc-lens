@@ -48,7 +48,7 @@ try {
   const c = plan.coverage
   console.log(`\n分块（${ms(start)}）：${plan.chunks.length} 块，共 ${plan.chunks.reduce((s, x) => s + x.chars, 0)} 字`)
   console.log(`  一级内容 ${c.threads_total} 条，合并重复 ${c.threads_merged} 条，放进 ${c.threads_included} 条${c.sampled ? '（超出预算，已抽样）' : ''}`)
-  console.log(`  评论和回复 ${c.items_total} 条，放进 ${c.items_included} 条`)
+  console.log(`  评论和回复 ${c.items_total} 条，放进 ${c.items_included} 条，低信息内容 ${c.low_info} 条不发送`)
   console.log(`  弹幕 ${c.danmaku_total} 条，放进 ${c.danmaku_groups_included} 组，代表 ${c.danmaku_represented} 条`)
   console.log(`\n第 1 块前 5 行：\n${plan.chunks[0]?.lines.slice(0, 5).join('\n') ?? '无'}`)
 } catch (error) {

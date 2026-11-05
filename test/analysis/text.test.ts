@@ -1,7 +1,17 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { isJunkWord, STOP_WORDS } from '../../src/analysis/stopwords.ts'
-import { dedupeKey, median, normalizeText, seededRandom, stripEmoji } from '../../src/analysis/text.ts'
+import { dedupeKey, isLowInfo, median, normalizeText, seededRandom, stripEmoji, stripReplyPrefix } from '../../src/analysis/text.ts'
+
+test('stripReplyPrefix：只去掉开头的“回复 @某人 :”', () => {
+  assert.equal(stripReplyPrefix('回复 @某用户 :确实'), '确实')
+  assert.equal(stripReplyPrefix('我想回复 @某用户 :好'), '我想回复 @某用户 :好')
+})
+
+test('isLowInfo：去掉表情和标点后不超过 3 个字', () => {
+  for (const text of ['哈哈哈哈哈', '666666', '[笑哭][笑哭]', '牛！', '+1', '']) assert.equal(isLowInfo(text), true, text)
+  for (const text of ['价格太贵', '讲得很清楚', '[笑哭]太真实了']) assert.equal(isLowInfo(text), false, text)
+})
 
 test('normalizeText：去掉回复前缀和链接，全角转半角，英文转小写', () => {
   assert.equal(normalizeText('回复 @某用户 :ＵＰ主  讲得好 https://b23.tv/abc'), 'up主 讲得好')

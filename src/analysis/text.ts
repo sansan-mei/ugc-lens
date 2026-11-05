@@ -30,6 +30,15 @@ export function stripEmoji(text: string): string {
   return text.replace(/\[[^\[\]\s]{1,10}\]/g, ' ')
 }
 
+export function stripReplyPrefix(text: string): string {
+  return text.replace(REPLY_PREFIX, '')
+}
+
+/** 去掉表情、标点后不超过 3 个字，如“哈哈”“666”“[笑哭]”，单独一条看不出观点 */
+export function isLowInfo(text: string): boolean {
+  return [...dedupeKey(stripEmoji(text))].length <= 3
+}
+
 /** 可复现的伪随机数（mulberry32），抽样用；同一个种子每次得到相同的样本 */
 export function seededRandom(seed: number): () => number {
   let state = seed >>> 0

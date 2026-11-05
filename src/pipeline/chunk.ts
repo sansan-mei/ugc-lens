@@ -1,8 +1,8 @@
 import { groupDanmaku, type DanmakuGroup, type DanmakuSummary } from '../analysis/danmaku.ts'
-import { dedupeKey, seededRandom } from '../analysis/text.ts'
+import { dedupeKey, isLowInfo, seededRandom, stripReplyPrefix } from '../analysis/text.ts'
 import { getFeedback, getReplies } from '../dataset/query.ts'
 import type { Dataset, FeedbackItem } from '../dataset/types.ts'
-import { clock, compactRepeats, formatItem, oneLine } from '../tools/data/format.ts'
+import { clock, compactRepeats, oneLine, sliceText } from '../tools/data/format.ts'
 
 /** 一条一级内容（评论、回答）和它下面的回复，分块时不拆开 */
 export interface Thread {
@@ -20,8 +20,9 @@ export interface Thread {
 export interface Chunk {
   index: number
   kind: 'threads' | 'danmaku'
+  /** 发给模型的行，用块内编号 [1]、[2]… 代替原 ID */
   lines: string[]
-  /** 块里出现的全部 ID，引用校验用 */
+  /** 块内编号 n 对应 ids[n-1]，引用校验和换回原 ID 用 */
   ids: string[]
   chars: number
   /** 这一块代表了多少条原始内容（弹幕按重复次数算） */
@@ -38,6 +39,8 @@ export interface ChunkPlan {
     /** 评论、回复、回答的总数和放进块里的条数 */
     items_total: number
     items_included: number
+    /** 不交给模型的低信息内容（一级内容和回复），见 isLowInfo */
+    low_info: number
     /** 超出字数预算时为 true：按热度保留一部分，其余随机抽样 */
     sampled: boolean
     danmaku_total: number
@@ -51,7 +54,7 @@ export interface ChunkPlan {
 export interface ChunkOptions {
   /** 每块最多多少字符，默认 12000 */
   maxChunkChars?: number
-  /** 评论部分的总字符预算，超出时抽样，默认 240000 */
+  /** 评论部分的总字符预算，超出时抽样，默认 80000 */
   maxTotalChars?: number
   /** 超出预算时，预算中按热度直接保留的比例，其余随机抽样，默认 0.3 */
   topShare?: number
@@ -62,10 +65,16 @@ export interface ChunkOptions {
   seed?: number
   /** 已经算好的弹幕统计，提供时高峰时段的弹幕也会放进去 */
   danmaku?: DanmakuSummary
+  /** 低信息内容只计数、不放进块里，默认 true */
+  dropLowInfo?: boolean
 }
+
+export const DEFAULT_MAX_TOTAL_CHARS = 80_000
 
 const ROOT_CHARS = 500
 const REPLY_CHARS = 200
+/** 估算长度时假设的编号，比实际编号宽，保证估算不偏小 */
+const WIDE_LABEL = 9999
 
 function engagement(item: FeedbackItem, collectedReplies: number): number {
   return Math.log1p(item.likes ?? 0) + 0.5 * Math.log1p(Math.max(item.reply_count ?? 0, collectedReplies))
@@ -130,10 +139,52 @@ export function mergeDuplicateThreads(threads: readonly Thread[]): Thread[] {
   return unique
 }
 
-function threadLines(thread: Thread, showContent: boolean): string[] {
-  const root = formatItem(thread.root, { maxChars: ROOT_CHARS, showContent, compact: true })
-  const lines = [thread.duplicates > 0 ? `${root}（同样内容另有 ${thread.duplicates} 条）` : root]
-  for (const reply of thread.replies) lines.push(`  ↳ ${formatItem(reply, { maxChars: REPLY_CHARS, compact: true })}`)
+function liked(item: FeedbackItem): boolean {
+  return (item.likes ?? 0) > 0
+}
+
+/**
+ * 去掉没人点赞的低信息回复；一级内容本身是低信息、没人点赞、没有剩下的回复、也没有复读时，整串去掉。
+ * 返回 undefined 表示整串去掉。
+ */
+export function dropLowInfo(thread: Thread): { thread?: Thread; dropped: number } {
+  const replies = thread.replies.filter((reply) => liked(reply) || !isLowInfo(reply.text))
+  const dropped = thread.replies.length - replies.length
+  const empty = replies.length === 0 && thread.omitted_replies === 0 && thread.duplicates === 0
+  if (empty && !liked(thread.root) && !(thread.root.reply_count ?? 0) && isLowInfo(thread.root.text)) {
+    return { dropped: dropped + 1 }
+  }
+  return { thread: dropped === 0 ? thread : { ...thread, replies }, dropped }
+}
+
+/** 数据集有多个内容时，每行用 @1、@2… 标出所属内容，比原 ID 短 */
+export function contentLabels(dataset: Dataset): Map<string, string> | undefined {
+  if (dataset.contents.length <= 1) return undefined
+  return new Map(dataset.contents.map((content, i) => [content.id, `@${i + 1}`]))
+}
+
+function body(text: string, max: number): string {
+  const value = compactRepeats(oneLine(stripReplyPrefix(text)))
+  return value.length > max ? `${sliceText(value, max)}…（全文 ${value.length} 字）` : value
+}
+
+/** 例：[3] 赞94 回复3 2024-10-22 浙江 用户3：正文 */
+function itemLine(item: FeedbackItem, label: string, max: number, labels: Map<string, string> | undefined): string {
+  const parts = [label]
+  if (item.likes !== undefined) parts.push(`赞${item.likes}`)
+  if (item.reply_count) parts.push(`回复${item.reply_count}`)
+  if (item.created_at) parts.push(item.created_at.slice(0, 10))
+  if (item.author?.location) parts.push(item.author.location)
+  if (labels) parts.push(labels.get(item.content_id) ?? `@${item.content_id}`)
+  const name = item.author?.name ? `${item.author.name}：` : ''
+  return `${parts.join(' ')} ${name}${body(item.text, max)}`
+}
+
+/** 编号从 start 开始：一级内容是 start，回复依次加一 */
+function threadLines(thread: Thread, start: number, labels: Map<string, string> | undefined): string[] {
+  const root = itemLine(thread.root, `[${start}]`, ROOT_CHARS, labels)
+  const lines = [thread.duplicates > 0 ? `${root}（同样 +${thread.duplicates}）` : root]
+  thread.replies.forEach((reply, i) => lines.push(`  ↳${itemLine(reply, `[${start + i + 1}]`, REPLY_CHARS, undefined)}`))
   if (thread.omitted_replies > 0) lines.push(`  ↳ （另有 ${thread.omitted_replies} 条回复未列出）`)
   return lines
 }
@@ -176,50 +227,61 @@ export function selectThreads(
   return { selected, sampled: true }
 }
 
-function danmakuLine(group: DanmakuGroup): string {
-  const time = group.first_sec === undefined ? '' : ` 视频${clock(group.first_sec)}`
-  return `[${group.id}] 弹幕×${group.count}${time} ${compactRepeats(oneLine(group.text)).slice(0, REPLY_CHARS)}`
+function danmakuLine(group: DanmakuGroup, label: number): string {
+  const time = group.first_sec === undefined ? '' : ` ${clock(group.first_sec)}`
+  return `[${label}] ×${group.count}${time} ${body(group.text, REPLY_CHARS)}`
 }
 
-/** 依次装块，当前块放不下或类型不同时开新块 */
+/** 依次装块，当前块放不下或类型不同时开新块；行要等确定放进哪一块、知道起始编号后才生成 */
 function chunkBuilder(maxChars: number) {
   const chunks: Chunk[] = []
   let current: Chunk | undefined
-  const add = (kind: Chunk['kind'], lines: string[], ids: string[], represents: number): void => {
-    const chars = cost(lines)
-    if (!current || current.kind !== kind || current.chars + chars > maxChars) {
+  const add = (kind: Chunk['kind'], render: (start: number) => string[], ids: string[], represents: number): void => {
+    let lines = current?.kind === kind ? render(current.ids.length + 1) : []
+    if (!current || current.kind !== kind || current.chars + cost(lines) > maxChars) {
       current = { index: chunks.length, kind, lines: [], ids: [], chars: 0, represents: 0 }
       chunks.push(current)
+      lines = render(1)
     }
     current.lines.push(...lines)
     current.ids.push(...ids)
-    current.chars += chars
+    current.chars += cost(lines)
     current.represents += represents
   }
   return { chunks, add }
 }
 
 /** 一条串本身超过一块的上限时，从后往前去掉回复，一级内容总是保留 */
-function fitThread(thread: Thread, showContent: boolean, maxChars: number): { lines: string[]; replies: FeedbackItem[] } {
-  let replies = thread.replies
-  let lines = threadLines(thread, showContent)
-  while (cost(lines) > maxChars && replies.length > 0) {
-    replies = replies.slice(0, -1)
-    lines = threadLines({ ...thread, replies, omitted_replies: thread.omitted_replies + thread.replies.length - replies.length }, showContent)
+function fitThread(thread: Thread, labels: Map<string, string> | undefined, maxChars: number): Thread {
+  let fitted = thread
+  while (cost(threadLines(fitted, WIDE_LABEL, labels)) > maxChars && fitted.replies.length > 0) {
+    fitted = { ...fitted, replies: fitted.replies.slice(0, -1), omitted_replies: fitted.omitted_replies + 1 }
   }
-  return { lines, replies }
+  return fitted
 }
 
 export function planChunks(dataset: Dataset, options: ChunkOptions = {}): ChunkPlan {
   const maxChunkChars = options.maxChunkChars ?? 12_000
-  const showContent = dataset.contents.length > 1
+  const labels = contentLabels(dataset)
   const allThreads = buildThreads(dataset, options)
-  const threads = mergeDuplicateThreads(allThreads)
-  const costs = new Map(threads.map((t) => [t, cost(threadLines(t, showContent))]))
+  const merged = mergeDuplicateThreads(allThreads)
+  let lowInfo = 0
+  const threads: Thread[] = []
+  for (const thread of merged) {
+    if (options.dropLowInfo === false) {
+      threads.push(thread)
+      continue
+    }
+    const result = dropLowInfo(thread)
+    lowInfo += result.dropped
+    if (result.thread) threads.push(result.thread)
+  }
+
+  const costs = new Map(threads.map((t) => [t, cost(threadLines(t, WIDE_LABEL, labels))]))
   const { selected, sampled } = selectThreads(
     threads,
     costs,
-    options.maxTotalChars ?? 240_000,
+    options.maxTotalChars ?? DEFAULT_MAX_TOTAL_CHARS,
     options.topShare ?? 0.3,
     options.seed ?? 42,
   )
@@ -227,9 +289,9 @@ export function planChunks(dataset: Dataset, options: ChunkOptions = {}): ChunkP
   const builder = chunkBuilder(maxChunkChars)
   let itemsIncluded = 0
   for (const thread of selected) {
-    const { lines, replies } = fitThread(thread, showContent, maxChunkChars)
-    const ids = [thread.root.id, ...replies.map((r) => r.id)]
-    builder.add('threads', lines, ids, ids.length + thread.duplicates)
+    const fitted = fitThread(thread, labels, maxChunkChars)
+    const ids = [fitted.root.id, ...fitted.replies.map((r) => r.id)]
+    builder.add('threads', (start) => threadLines(fitted, start, labels), ids, ids.length + fitted.duplicates)
     itemsIncluded += ids.length
   }
 
@@ -240,7 +302,7 @@ export function planChunks(dataset: Dataset, options: ChunkOptions = {}): ChunkP
   for (const peak of options.danmaku?.peaks ?? []) for (const group of peak.groups) if (!chosen.has(group.id)) chosen.set(group.id, group)
   let represented = 0
   for (const group of chosen.values()) {
-    builder.add('danmaku', [danmakuLine(group)], [group.id], group.count)
+    builder.add('danmaku', (start) => [danmakuLine(group, start)], [group.id], group.count)
     represented += group.count
   }
 
@@ -248,10 +310,11 @@ export function planChunks(dataset: Dataset, options: ChunkOptions = {}): ChunkP
     chunks: builder.chunks,
     coverage: {
       threads_total: allThreads.length,
-      threads_merged: allThreads.length - threads.length,
+      threads_merged: allThreads.length - merged.length,
       threads_included: selected.length,
       items_total: dataset.items.length - danmaku.length,
       items_included: itemsIncluded,
+      low_info: lowInfo,
       sampled,
       danmaku_total: danmaku.length,
       danmaku_unique: groups.length,

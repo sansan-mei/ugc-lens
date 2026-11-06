@@ -10,6 +10,7 @@ import { createMemoryTools } from '../memory/tools.ts'
 import { recordOutcome } from '../memory/learnings.ts'
 import { createDataTools, type DataToolOptions } from '../tools/data/index.ts'
 import { createProfileTools, learnProfile } from '../memory/profile.ts'
+import { findWebCitations, guardAfterWeb, WEB_PROMPT, type WebCitations, type WebSession } from '../web/tools.ts'
 
 export function buildAskPrompt(playbook: PlaybookSnapshot): string {
   return `你是文本记录与用户互动内容（问卷、工单、访谈、评论、回复等）的分析助手。用户已经导入了数据集，你通过工具查询数据来回答问题。
@@ -33,6 +34,8 @@ export interface AskOptions {
   history?: AgentRunResult['messages']
   limits?: Partial<AgentLimits>
   tools?: DataToolOptions
+  /** 开启联网时传入；同一段对话的多轮追问应复用同一个会话，来源编号才能延续 */
+  web?: WebSession
   signal?: AbortSignal
   onEvent?: RunEventListener
 }
@@ -45,6 +48,8 @@ export interface AskResult {
   answer: string
   /** 回答里引用的 ID：存在于数据集的，以及不存在的（模型编造或写错） */
   citations: { valid: string[]; invalid: string[] }
+  /** 开启联网时，回答中 [web:N]、摘句与网址的核对结果 */
+  web_citations?: WebCitations
   run: AgentRunResult
 }
 
@@ -54,12 +59,19 @@ export const ASK_LIMITS: Partial<AgentLimits> = { maxSteps: 12 }
 export async function askDataset(options: AskOptions): Promise<AskResult> {
   if (!currentTask()) return withTask(() => askDataset(options), options.limits?.tokenBudget)
   const store = createDatasetStore(options.datasets)
-  const history = options.history?.length ? options.history : [{ role: 'system' as const, content: buildAskPrompt(options.playbook ?? loadPlaybook(options.memory)) }]
+  const base = buildAskPrompt(options.playbook ?? loadPlaybook(options.memory))
+  const history = options.history?.length ? options.history : [{ role: 'system' as const, content: options.web ? `${base}\n\n${WEB_PROMPT}` : base }]
   const playbook = promptPlaybookInfo(history.find((m) => m.role === 'system')?.content ?? '')
+  options.web?.observeHistory(history)
+  const writers = options.memory ? [...createMemoryTools(store, options.memory, playbook), ...createProfileTools(options.memory, () => options.question)] : []
   const run = await runAgent({
     model: options.model,
     messages: [...history, { role: 'user', content: options.question }],
-    tools: [...createDataTools(store, { ...options.tools, memory: options.memory, sentimentModel: options.tools?.sentimentModel ?? options.model }), ...(options.memory ? [...createMemoryTools(store, options.memory, playbook), ...createProfileTools(options.memory, () => options.question)] : [])],
+    tools: [
+      ...createDataTools(store, { ...options.tools, memory: options.memory, sentimentModel: options.tools?.sentimentModel ?? options.model }),
+      ...(options.web?.tools() ?? []),
+      ...guardAfterWeb(writers, options.web),
+    ],
     cwd: options.memory?.cwd,
     limits: { ...ASK_LIMITS, ...options.limits },
     signal: options.signal,
@@ -72,5 +84,6 @@ export async function askDataset(options: AskOptions): Promise<AskResult> {
   })
   const profile_learning = run.stop_reason === 'aborted' || options.signal?.aborted ? undefined : await learnProfile(options.memory, options.tools?.sentimentModel ?? options.model, options.question, options.signal)
   run.task_usage = currentTask()!.snapshot()
-  return { task_usage: currentTask()!.snapshot(), answer: run.answer, citations, run, playbook, memory_warning, profile_learning }
+  const web_citations = options.web ? findWebCitations(run.answer, options.web.sources) : undefined
+  return { task_usage: currentTask()!.snapshot(), answer: run.answer, citations, web_citations, run, playbook, memory_warning, profile_learning }
 }

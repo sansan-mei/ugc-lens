@@ -135,6 +135,8 @@ export function findCitations(text: string, datasets: readonly Dataset[]): { val
   const invalid: string[] = []
   for (const id of ids) {
     if (datasets.some((dataset) => getEvidence(dataset, id))) valid.push(id)
+    // 外部资料引用由 findWebCitations 单独核对，不属于数据 ID
+    else if (/^web:\d+$/.test(id)) continue
     else if (!datasets.some((dataset) => indexOf(dataset).bracketed.has(id))) invalid.push(id)
   }
   return { valid, invalid }

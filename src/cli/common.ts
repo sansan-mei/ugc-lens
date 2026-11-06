@@ -3,6 +3,8 @@ import type { AgentModel } from '../agent/model.ts'
 import type { LlmConfig } from '../config.ts'
 import { createChatClient } from '../llm/client.ts'
 import type { AnalyzeProgress } from '../pipeline/analyze.ts'
+import { loadWebConfig, webEnabled } from '../web/config.ts'
+import { createWebSession, defaultWebCacheDir, type WebCitations, type WebSession } from '../web/tools.ts'
 
 /** 参数不对：入口打印这条消息和用法，退出码 2 */
 export class UsageError extends Error {
@@ -50,4 +52,21 @@ export function abortOnInterrupt(message: string): AbortController {
 
 export function mappingSource(mapping: { from_cache: boolean; builtin?: boolean }): string {
   return mapping.builtin ? '由内置规则读取' : mapping.from_cache ? '规则来自缓存' : '由模型识别'
+}
+
+/** --web 或可信配置开启时创建联网会话；未开启时返回 undefined */
+export function webSessionFor(flag: boolean, cwd: string = process.cwd()): WebSession | undefined {
+  if (!webEnabled(flag ? { enabled: true } : {}, cwd)) return undefined
+  return createWebSession({ config: loadWebConfig({}, cwd), cacheDir: defaultWebCacheDir(cwd) })
+}
+
+/** 外部引用有问题时返回提示，没有问题返回 undefined */
+export function formatWebCitations(result: WebCitations | undefined): string | undefined {
+  if (!result) return undefined
+  const problems = [
+    result.invalid.length ? `不存在的来源 ${result.invalid.join(', ')}` : '',
+    result.invalid_quotes.length ? `${result.invalid_quotes.length} 处摘句不在对应网页中（${result.invalid_quotes.map((q) => q.source).join(', ')}）` : '',
+    result.unverified_urls.length ? `未实际获取的网址 ${result.unverified_urls.join(', ')}` : '',
+  ].filter(Boolean)
+  return problems.length ? `（外部引用核对：${problems.join('；')}）` : undefined
 }

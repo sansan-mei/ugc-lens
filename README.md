@@ -177,6 +177,45 @@ ugc-lens profile --learn ./my_history.txt # 仅导入自己选择的用户发言
 
 画像的删除与关闭不会改写已经发送给模型的历史消息；操作后开启新对话，避免继续沿用旧上下文中的背景。
 
+## 联网搜索
+
+默认关闭。开启后，对话和 `ask` 可以用 `web_search` 搜索网页、用 `web_fetch` 读取网页正文，用于核实评论里的事实说法、解释梗和补充背景；固定的 `analyze` 报告不联网。
+
+先在全局配置 `~/.ugc-lens/config.json` 中添加 `web` 字段（与 `llm` 并列），二选一：
+
+```json
+{ "web": { "provider": "searxng", "base_url": "http://127.0.0.1:8888" } }
+```
+
+```json
+{ "web": { "provider": "tavily" } }
+```
+
+SearXNG 需要自建并在 `settings.yml` 的 `search.formats` 中启用 `json`；Tavily 从环境变量 `TAVILY_API_KEY` 读取 key（也可写 `web.api_key`）。然后：
+
+```bash
+ugc-lens --web                                   # 持续对话
+ugc-lens ask data.json '这个梗是什么意思' --web   # 单次追问
+ugc-lens mcp --cwd /数据项目 --web                 # 仅供服务内部的 ask 使用
+```
+
+也可以在全局配置写 `"enabled": true` 或设置 `UGC_LENS_WEB=1` 默认开启。项目目录里的配置和 `.env` 不能替你开启联网，也不能把全局或环境中的 key 带到其他搜索端点。
+
+| 选项（`web` 字段） | 默认 | 说明 |
+|---|---|---|
+| `max_calls` | 8 | 每轮对话或每次 ask 最多发出的联网请求数，缓存命中不计入 |
+| `timeout_ms` | 15000 | 单次请求超时 |
+| `max_bytes` | 2000000 | 单个网页最大字节数（解压后同样受限） |
+| `max_chars` | 8000 | 返回给模型的正文最大字符数 |
+| `cache_ttl_hours` | 24 | 本地缓存有效期，缓存在项目 `.ugc-lens/web-cache/` |
+
+注意事项：
+
+- 网页只读取公网 http/https 地址，拒绝内网、回环和云 metadata 地址，重定向逐跳检查；不执行脚本、不带 cookie。
+- 网页内容当作不可信资料处理。对话读取过网页后，写入画像、经验或手册需要你确认，命令行对话中会直接拒绝。
+- 回答中外部资料标为 `[web:N]`，与数据引用 `[ID]` 分开；程序会核对编号、「摘句」是否出现在对应网页、回答里的网址是否实际读取过，有问题时在终端提示。外部资料不计入任何数据统计。
+- 开启联网后，模型生成的搜索词和网址会发往外部服务，其中可能带有被分析数据的内容。请只对可以公开处理的数据开启。
+
 ## MCP 接入
 
 先用 `ugc-lens init` 配置模型。MCP 由宿主启动，不需要自己开一个服务终端。Claude Code 中可以添加：

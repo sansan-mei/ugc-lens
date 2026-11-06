@@ -21,6 +21,7 @@ import { createProfileTools } from '../memory/profile.ts'
 import { resolveDataset } from '../tools/data/shared.ts'
 import { defineTool } from '../tools/define.ts'
 import type { ToolContext } from '../tools/types.ts'
+import type { WebSession } from '../web/tools.ts'
 
 export interface McpServerOptions {
   tokenBudget?: number
@@ -31,11 +32,14 @@ export interface McpServerOptions {
   modelName?: string
   load?: typeof loadDataset
   analyze?: (options: AnalyzeOptions) => Promise<Pick<AnalyzeResult, 'markdown' | 'path' | 'calls' | 'usage' | 'memory_warning'>>
+  /** 开启联网时为每段 ask 对话创建会话；只在服务内部的 ask 使用，不向宿主暴露联网工具 */
+  web?: () => WebSession
 }
 
 interface AskConversation {
   dataset_id: string
   history?: ChatMessage[]
+  web?: WebSession
   busy: boolean
 }
 
@@ -134,12 +138,13 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
             ? resolveDataset(store, previous.dataset_id)
             : await select(args, ctx.signal)
           if (previous && previous.dataset_id !== dataset.id) throw new Error('追问会话绑定了其他数据集，请不传 conversation_id 开始新对话')
-          const result = await askDataset({ memory: options.memory, model: getModels().ask, tools: { sentimentModel: getModels().analysis }, datasets: [dataset], question, history: previous?.history, signal: ctx.signal })
+          const web = previous?.web ?? options.web?.()
+          const result = await askDataset({ memory: options.memory, model: getModels().ask, tools: { sentimentModel: getModels().analysis }, datasets: [dataset], question, history: previous?.history, web, signal: ctx.signal })
           ctx.signal.throwIfAborted()
           const id = conversation_id ?? randomUUID()
-          conversations.set(id, { dataset_id: dataset.id, history: result.run.messages, busy: false })
+          conversations.set(id, { dataset_id: dataset.id, history: result.run.messages, web, busy: false })
           return JSON.stringify({
-            conversation_id: id, dataset_id: dataset.id, answer: result.answer, citations: result.citations,
+            conversation_id: id, dataset_id: dataset.id, answer: result.answer, citations: result.citations, web_citations: result.web_citations,
             stop_reason: result.run.stop_reason, steps: result.run.steps.length, usage: result.run.usage, playbook: result.playbook, memory_warning: result.memory_warning, profile_learning: result.profile_learning,
           })
         } finally { if (previous) previous.busy = false }

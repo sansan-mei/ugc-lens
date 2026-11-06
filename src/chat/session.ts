@@ -20,6 +20,7 @@ import { createDataTools } from '../tools/data/index.ts'
 import { resolveDataset } from '../tools/data/shared.ts'
 import { defineTool } from '../tools/define.ts'
 import { watchDirectory, type WatchEvent } from '../watch/index.ts'
+import { findWebCitations, guardAfterWeb, WEB_PROMPT, type WebCitations, type WebSession } from '../web/tools.ts'
 
 const SESSION_ACTIONS = `你也负责完成用户的操作目标。用户不需要选择子命令：
 - 可以先用 list_files 查找 支持格式的数据；位置或目标不明确才询问，不擅自批量分析所有文件。
@@ -47,10 +48,12 @@ export interface SessionOptions {
   load?: typeof loadDataset
   analyze?: (options: AnalyzeOptions) => Promise<Pick<AnalyzeResult, 'markdown' | 'path' | 'calls' | 'usage' | 'memory_warning'>>
   watch?: typeof watchDirectory
+  /** 开启联网时传入；整个会话共用，来源编号跨轮延续 */
+  web?: WebSession
 }
 
 export interface ChatSession {
-  ask(question: string, signal?: AbortSignal): Promise<AgentRunResult & { memory_warning?: string; profile_learning?: Awaited<ReturnType<typeof learnProfile>> }>
+  ask(question: string, signal?: AbortSignal): Promise<AgentRunResult & { memory_warning?: string; profile_learning?: Awaited<ReturnType<typeof learnProfile>>; web_citations?: WebCitations }>
   close(): Promise<void>
 }
 
@@ -58,7 +61,7 @@ export interface ChatSession {
 export function createSession(options: SessionOptions): ChatSession {
   const cwd = resolve(options.cwd ?? process.cwd())
   const playbook = loadPlaybook(options.memory)
-  const system = buildSessionPrompt(playbook)
+  const system = options.web ? `${buildSessionPrompt(playbook)}\n\n${WEB_PROMPT}` : buildSessionPrompt(playbook)
   const lifetime = new AbortController()
   const datasets = new Map<string, Dataset>()
   const store = { list: () => [...datasets.values()], get: (id: string) => datasets.get(id) }
@@ -88,8 +91,11 @@ export function createSession(options: SessionOptions): ChatSession {
   }
   const tools = [
     ...createDataTools(store, { sentimentModel: model, memory: options.memory }),
-    ...(options.memory ? createProfileTools(options.memory, () => currentQuestion) : []),
-    ...(options.memory ? createMemoryTools(store, options.memory, playbook) : []),
+    ...guardAfterWeb([
+      ...(options.memory ? createProfileTools(options.memory, () => currentQuestion) : []),
+      ...(options.memory ? createMemoryTools(store, options.memory, playbook) : []),
+    ], options.web),
+    ...(options.web?.tools() ?? []),
     defineTool({
       name: 'list_files',
       description: '列出目录中的文件和子目录（分页），用于寻找用户的数据文件；不读取文件正文。',
@@ -191,7 +197,8 @@ export function createSession(options: SessionOptions): ChatSession {
           })
         }
         const profile_learning = result.stop_reason === 'aborted' || roundSignal.aborted ? undefined : await learnProfile(options.memory, model, question, roundSignal)
-        return { ...result, task_usage: currentTask()!.snapshot(), memory_warning, profile_learning }
+        const web_citations = options.web ? findWebCitations(result.answer, options.web.sources) : undefined
+        return { ...result, task_usage: currentTask()!.snapshot(), memory_warning, profile_learning, web_citations }
       } finally { busy = undefined; currentQuestion = '' }
       }, options.tokenBudget)
     },

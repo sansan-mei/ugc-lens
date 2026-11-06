@@ -2,6 +2,8 @@
 export type ApprovalRequest =
   | { kind: 'run_command'; command: string; cwd: string }
   | { kind: 'overwrite_file'; path: string; old_bytes: number; new_bytes: number }
+  /** 对话已读取联网内容后，写入画像、经验或手册等本地记录 */
+  | { kind: 'after_web'; tool: string }
 
 /** 返回 true 表示允许。由入口层（命令行、图形界面、代码调用方）提供 */
 export type Approver = (request: ApprovalRequest) => Promise<boolean>

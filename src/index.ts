@@ -44,3 +44,8 @@ export type { Learning } from './memory/learnings.ts'
 
 export { withTask, currentTask, TaskLedger, TaskBudgetError, type TaskUsage } from './agent/usage.ts'
 export { getEvidence, transcriptId, transcriptEvidence, type Evidence } from './dataset/evidence.ts'
+
+export { loadWebConfig, webEnabled, type WebConfig, type WebConfigFile } from './web/config.ts'
+export { createWebSession, findWebCitations, guardAfterWeb, WEB_PROMPT, type WebSession, type WebSource, type WebCitations } from './web/tools.ts'
+export { fetchPage, isBlockedAddress, type FetchedPage, type FetchPolicy } from './web/fetch.ts'
+export { createSearchBackend, WebError, type SearchBackend, type SearchHit } from './web/search.ts'

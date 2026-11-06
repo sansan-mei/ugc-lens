@@ -17,6 +17,8 @@ const CLI = process.env.UGC_LENS_TEST_CLI ?? fileURLToPath(new URL('../../src/cl
 
 test('mcp 参数只接受工作目录', () => {
   assert.equal(parseMcpArgs(['--cwd', '/data']).cwd, '/data')
+  assert.equal(parseMcpArgs(['--cwd', '/data']).web, false)
+  assert.equal(parseMcpArgs(['--web']).web, true)
   assert.throws(() => parseMcpArgs(['data']), /位置参数/)
   assert.throws(() => parseMcpArgs(['--cwd', ' ']), /目录路径/)
 })

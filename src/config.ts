@@ -76,15 +76,21 @@ export function writeGlobalConfig(llm: LlmConfigFile, homeDir: string = homedir(
   return path
 }
 
-function readConfigFile(cwd: string): LlmConfigFile {
-  const file = join(cwd, CONFIG_DIR, 'config.json')
+/** 读取 dir/.ugc-lens/config.json 的某个顶层字段；文件或字段不存在时返回空对象 */
+export function readConfigSection<T extends object>(dir: string, section: string): Partial<T> {
+  const file = join(dir, CONFIG_DIR, 'config.json')
   if (!existsSync(file)) return {}
   try {
-    const parsed = JSON.parse(readFileSync(file, 'utf8')) as { llm?: LlmConfigFile }
-    return parsed.llm ?? {}
+    const parsed = JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>
+    const value = parsed[section]
+    return value && typeof value === 'object' ? value as Partial<T> : {}
   } catch (error) {
     throw new ConfigError(`无法解析 ${file}: ${(error as Error).message}`)
   }
+}
+
+function readConfigFile(cwd: string): LlmConfigFile {
+  return readConfigSection<LlmConfigFile>(cwd, 'llm')
 }
 
 /** 空字符串视为未设置，方便在 .env 里留空占位 */

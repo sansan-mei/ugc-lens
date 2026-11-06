@@ -32,6 +32,7 @@ const MAIN_USAGE = `ugc-lens：分析文本记录、评论、弹幕等内容
 
 用法：
   ugc-lens                             持续对话，自动选择导入、查询、分析和监听工具
+  ugc-lens --web                       持续对话并开启联网搜索（需配置 web，默认关闭）
   ugc-lens playbook                     查看分析手册和待审修改
   ugc-lens profile                     查看、开启或修正本地用户画像
   ugc-lens init                         初始化：选择提供商和模型，写入全局配置
@@ -44,7 +45,9 @@ const MAIN_USAGE = `ugc-lens：分析文本记录、评论、弹幕等内容
 
 模型和 API key 从环境变量、当前目录的 .env / .ugc-lens/config.json 或全局 ~/.ugc-lens/config.json 读取，例如：
   UGC_LENS_PROVIDER=deepseek
-  DEEPSEEK_API_KEY=你的 key`
+  DEEPSEEK_API_KEY=你的 key
+
+联网搜索默认关闭，开启方式见 README 的“联网搜索”一节。`
 
 /** dist/cli/index.js 和 src/cli/index.ts 到 package.json 的相对位置相同 */
 function version(): string {
@@ -60,16 +63,19 @@ if ((command === undefined && !process.stdin.isTTY) || command === '--help' || c
   console.log(MAIN_USAGE)
 } else if (command === '--version' || command === '-v') {
   console.log(version())
-} else if (command !== undefined && !Object.hasOwn(COMMANDS, command)) {
+} else if (command !== undefined && !command.startsWith('-') && !Object.hasOwn(COMMANDS, command)) {
   console.error(`未知命令：${command}\n\n${MAIN_USAGE}`)
   process.exitCode = 2
 } else {
-  const { run, usage } = command === undefined ? { run: runChat, usage: MAIN_USAGE } : COMMANDS[command as keyof typeof COMMANDS]
-  if (rest.includes('--help') || rest.includes('-h')) {
+  // 以选项开头时（如 ugc-lens --web）进入对话，选项交给对话解析
+  const chat = command === undefined || command.startsWith('-')
+  const { run, usage } = chat ? { run: runChat, usage: MAIN_USAGE } : COMMANDS[command as keyof typeof COMMANDS]
+  const args = chat && command !== undefined ? [command, ...rest] : rest
+  if (args.includes('--help') || args.includes('-h')) {
     console.log(usage)
   } else {
     try {
-      await run(rest)
+      await run(args)
     } catch (error) {
       const taskUsage = (error as { task_usage?: TaskUsage }).task_usage
       if (taskUsage?.calls.length) console.error(`本任务已知 token ${taskUsage.known_tokens}，用量未知 ${taskUsage.unknown_calls} 次`)

@@ -122,16 +122,18 @@ ugc-lens 是一个**分析用户互动内容（评论、弹幕、回复等）的
 - 每轮对话、一次 MCP 工具调用、一次 CLI analyze/ask 命令各自定义任务边界；后台每个文件分析使用独立任务，不继承启动监听那一轮的账本。本地缓存命中不虚增模型调用；重试失败尝试标记用量未知，成功响应仅计一次。已知用量与未知请求的字符估算分开，后者参与软预算检查，不能当作实际账单。
 - `task_usage` 返回调用明细与总量；旧 `usage` 继续表示本层响应用量，不能再作为整次任务总量。报告和 CLI 显示任务统计，MCP 通过 `structuredContent.task_usage` 返回，错误对象携带当前快照，后台失败或取消时也保存到账本字段。缺失接口用量保持未知，不包含 MCP 宿主自身消耗。
 
-### 2.7 联网搜索与网页读取（roadmap 第 16 步，待实现）
+### 2.7 联网搜索与网页读取（roadmap 第 16 步）
 
-- 本节是后续设计，不代表现有能力。目前所有工具都只读取本地数据和文件。
 - **用途**：核实评论中的事实性说法，解释梗和圈内用语，补充内容与事件背景。外部资料只用于解释和核实，不替代数据证据，不进入统计分母。
-- **入口范围**：默认关闭，配置或 `--web` 显式开启后，在对话和 ask 中提供。固定 `analyze` 流水线不联网，保持报告可复现；MCP 服务需单独开启才暴露联网工具，因为宿主通常自带联网能力，重复提供会多一条注入路径。
-- **工具**：只读的 `web_search` 和 `web_fetch`，用 `defineTool` 定义，不引入 Agent 框架。搜索后端在工具之后可插拔，首批为 SearXNG JSON 接口和 Tavily；搜索 key 与模型凭证一样只来自可信配置，并遵守第 2.6 节的端点与凭证绑定。
-- **网页读取**：Readability 抽取正文并截断。网络层只允许 http/https，拒绝回环、私网、链路本地和 metadata 地址（含 DNS 解析结果），重定向逐跳校验，限制大小、超时和内容类型；不执行脚本、不带 cookie。
-- **不可信内容**：网页结果作为带来源标记的不可信数据进入工具结果，不改 system prompt，不插入 user 消息，保持第 8.2 节不变式。任务调用过联网工具后，副作用工具必须经审批，无审批入口时拒绝；网页内容不得写入画像、learnings 或 playbook。
-- **引用**：外部证据使用 `web:<序号>`，记录 URL、最终 URL、抓取时间和摘句，与互动证据 ID 分属不同命名空间；引用校验只接受本任务实际获取过的页面及页面中存在的摘句。
-- **成本**：联网次数和字节计入任务账本（第 2.6 节），单任务有次数上限；本地缓存记录抓取时间和过期时间，命中时如实标注。
+- **入口范围**：默认关闭。对话与 `ask` 使用 `--web` 或配置 `web.enabled: true` 开启；固定 `analyze` 流水线不联网，保持报告可复现。MCP 服务需 `ugc-lens mcp --web` 开启，且只供服务内部的 `ask` 使用，不向宿主直接暴露 `web_search` / `web_fetch`：宿主通常自带联网能力，重复提供会多一条注入路径。
+- **配置**（`src/web/config.ts`）：配置文件 `web` 字段与 `llm` 并列。开启联网只认参数（`--web`）、进程环境 `UGC_LENS_WEB` 和全局配置 `web.enabled`，项目配置及项目 `.env` 不能替用户开启，因为开启后数据内容可能经搜索词或 URL 发往外部。其他字段为 `provider`（`searxng` / `tavily`）、`base_url`、`api_key_env`、`api_key`、`max_calls`、`timeout_ms`、`max_bytes`、`max_chars`、`cache_ttl_hours`。优先级同模型配置：参数 > 环境变量（`UGC_LENS_WEB_PROVIDER`、`UGC_LENS_WEB_BASE_URL`）> 项目配置 > 全局配置 > 预设。来自全局配置或进程环境的 key 只能用于可信来源确定的端点，项目配置及项目 `.env` 改端点时不能带走它们，规则与第 2.6 节一致。
+- **搜索后端**（`src/web/search.ts`）：SearXNG 调用 `GET <base>/search?format=json`，Tavily 调用 `POST <base>/search`（默认 `https://api.tavily.com`，`Authorization: Bearer`）。两者直接用 `fetch` 实现，不引入官方 SDK，便于用本地 HTTP 服务测试并减少依赖。搜索端点来自可信配置，可以是用户自建的内网 SearXNG，不受网页读取的地址限制；错误信息不包含 key。
+- **网页读取**（`src/web/fetch.ts`）：使用 `node:http` / `node:https`，在连接时通过自定义 `lookup` 校验实际解析到的地址，避免先查 DNS 再连接之间被换成内网地址；IP 字面量单独校验。拒绝回环、私网、链路本地、运营商 NAT、保留与组播地址、云 metadata 地址、IPv4 映射或 NAT64 形式的上述地址。只允许 http/https，拒绝 URL 中带用户名密码及 `localhost` 类主机名。重定向手动处理并逐跳重新校验，最多 5 次；限制超时、响应字节数及内容类型（HTML、XHTML、纯文本）；支持 gzip/deflate/br 及按 `charset` 解码 GBK 等编码。不执行脚本、不发送 cookie。正文用 `@mozilla/readability` 配合 `linkedom` 抽取（两者在读取网页时才动态加载，不影响命令行启动），抽取失败时退回去掉脚本与样式后的纯文本，再按 `max_chars` 截断。未采用 `request-filtering-agent`：内置 `lookup` 已能在连接时校验，不需要额外依赖。
+- **工具与会话**（`src/web/tools.ts`）：`WebSession` 保存本对话已获取的来源，按出现顺序编号为 `web:N`；搜索结果以摘要作为来源正文，读取网页后同一 URL 的来源正文替换为页面正文。工具结果为 JSON，带 `untrusted: true` 与提示语，正文放在 `content` 字段，不改变 system prompt，也不插入 user 消息，保持第 8.2 节不变式。
+- **副作用工具门禁**：对话中只要有联网工具返回过内容（包括历史中的），`record_profile`、`record_learning`、`playbook_update` 等写入工具执行前必须经过审批（`ApprovalRequest` 新增 `after_web`），没有审批入口时拒绝。网页内容因此不能写入画像、learnings 或 playbook。轮次结束后的自动画像学习只读取用户原话，不受网页影响。
+- **引用**：回答中外部资料写作 `[web:N]`，直接引用原文时用「摘句」[web:N]。`findWebCitations` 校验编号是否存在、摘句是否出现在该来源正文（忽略空白），并列出回答里出现但本对话未获取过的 URL。外部引用与互动证据 ID 分属不同命名空间，`findCitations` 不把 `web:N` 当作数据 ID。
+- **残余风险**：开启后，被分析数据中的注入文字仍可能诱导模型把数据内容写进搜索词或 URL 发往外部；门禁只保护本地写入，不能完全阻止这种外传。因此默认关闭，并在 README 提示只对可公开处理的数据开启。
+- **预算与缓存**：任务账本新增 `web` 计数：搜索次数、读取次数、读取字节数、缓存命中次数。每个任务（一轮对话、一次 ask）网络请求次数默认最多 8 次，达到上限后工具返回错误，不再发请求；缓存命中不计入次数上限。缓存位于项目 `.ugc-lens/web-cache/`，按搜索后端与查询、或 URL 作键，记录原获取时间与过期时间（默认 24 小时），命中时返回原获取时间；损坏的缓存条目按未命中处理，写入使用临时文件加改名。
 
 ## 3. Agent 循环
 
@@ -363,6 +365,7 @@ const tool = defineTool({
 | 数据 | `search_feedback` | 按关键词、类型、时间、点赞数、属地筛选互动内容，分页返回 |
 | 数据 | `get_feedback` | 按 ID 读取全文及上下文（上一级、回复） |
 | 报告 | `list_reports` / `get_report` | 读取已生成的报告 |
+| 联网 | `web_search` / `web_fetch` | 默认关闭；搜索网页、读取网页正文，结果为不可信外部资料（见 2.7） |
 | 第二版 | `collect` | 通过数据源接口补充搜集 |
 
 ### 4.3 基础工具与确认

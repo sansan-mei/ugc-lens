@@ -1,7 +1,8 @@
 import { createInterface } from 'node:readline'
 import { createSession, type ChatSession } from '../chat/session.ts'
 import { ConfigError, loadLlmConfig } from '../config.ts'
-import { analysisModel, askModel, UsageError } from './common.ts'
+import { parseArgs } from 'node:util'
+import { analysisModel, askModel, formatWebCitations, UsageError, webSessionFor } from './common.ts'
 import { formatEvent } from './format_event.ts'
 import { formatWatchEvent } from './watch.ts'
 
@@ -28,6 +29,8 @@ export async function runChatFlow(session: ChatSession, io: ChatIo, signal?: Abo
           const result = await session.ask(question, signal)
           if (signal?.aborted) break
           io.print(result.answer.trim() || '本轮未完成，可以继续描述你的需求。')
+          const webCheck = formatWebCitations(result.web_citations)
+          if (webCheck) io.print(webCheck)
           if (result.profile_learning?.warning) io.print(result.profile_learning.warning)
           io.print(`（本轮内部已知 token ${result.task_usage.known_tokens}，用量未知 ${result.task_usage.unknown_calls} 次）`)
           if (result.profile_learning?.usage) io.print(`（画像学习 token ${result.profile_learning.usage.input_tokens}+${result.profile_learning.usage.output_tokens}）`)
@@ -44,13 +47,21 @@ export async function runChatFlow(session: ChatSession, io: ChatIo, signal?: Abo
   }
 }
 
-export async function runChat(): Promise<void> {
+export function parseChatArgs(argv: readonly string[]): { web: boolean } {
+  const { values, positionals } = parseArgs({ args: [...argv], allowPositionals: true, options: { web: { type: 'boolean', default: false } } })
+  if (positionals.length) throw new UsageError(`未知参数：${positionals.join(' ')}`)
+  return { web: values.web }
+}
+
+export async function runChat(argv: readonly string[] = []): Promise<void> {
+  const args = parseChatArgs(argv)
   if (!process.stdin.isTTY) throw new UsageError('对话模式需要在终端里交互运行')
   let config
   try { config = loadLlmConfig() } catch (error) {
     if (error instanceof ConfigError) throw new ConfigError(`${error.message}。请先运行 ugc-lens init 配置模型`)
     throw error
   }
+  const web = webSessionFor(args.web)
   const rl = createInterface({ input: process.stdin, output: process.stdout, prompt: '\n你 > ' })
   // 在首个 await 前订阅行事件，支持一次粘贴多条消息以及等待模型时输入。
   const lines = rl[Symbol.asyncIterator]()
@@ -60,7 +71,7 @@ export async function runChat(): Promise<void> {
   rl.on('SIGINT', interrupt)
   const session = createSession({
     memory: { cwd: process.cwd(), onWarning: (message) => console.error(message) },
-    model: askModel(config), analysisModel: analysisModel(config), modelName: config.model,
+    model: askModel(config), analysisModel: analysisModel(config), modelName: config.model, web,
     onEvent: (event) => {
       if (event.type === 'tool_start' || event.type === 'model_retry') console.error(formatEvent(event))
     },

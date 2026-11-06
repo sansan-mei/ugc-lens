@@ -8,6 +8,7 @@ const usageSchema = z.object({ input_tokens: z.number(), output_tokens: z.number
 const taskUsageSchema = z.object({
   task_id: z.string(), token_budget: z.number(), known_tokens: z.number(), unknown_estimated_tokens: z.number(), unknown_calls: z.number(),
   calls: z.array(z.object({ id: z.string(), stage: z.string(), final: z.boolean(), status: z.enum(['pending', 'ok', 'failed']), input_tokens: z.number().nullable(), output_tokens: z.number().nullable() })),
+  web: z.object({ searches: z.number(), fetches: z.number(), bytes: z.number(), cache_hits: z.number() }).optional(),
 })
 
 const taskSchema = z.object({

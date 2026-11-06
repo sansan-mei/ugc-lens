@@ -8,6 +8,8 @@ export function describeApproval(request: ApprovalRequest): string {
       return `执行命令\n  $ ${request.command}\n  目录：${request.cwd}`
     case 'overwrite_file':
       return `覆盖文件\n  ${request.path}\n  原大小 ${request.old_bytes} 字节 → 新大小 ${request.new_bytes} 字节`
+    case 'after_web':
+      return `本对话已读取外部网页，模型请求写入本地记录\n  工具：${request.tool}\n  网页内容可能包含诱导指令，确认内容来自你本人的要求后再允许`
   }
 }
 

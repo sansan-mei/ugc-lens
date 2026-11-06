@@ -9,6 +9,7 @@ import { createDatasetStore } from '../../src/dataset/store.ts'
 import { makeDataset, makeItem } from '../helpers/dataset.ts'
 import { isolateEnv } from '../helpers/env.ts'
 import { configureProfile } from '../../src/memory/profile.ts'
+import { createWebSession } from '../../src/web/tools.ts'
 
 const dataset = makeDataset([makeItem({ id: 'c1', text: '价格太贵', likes: 10 }), makeItem({ id: 'c2', text: '内容很好' })])
 
@@ -269,4 +270,27 @@ test('MCP 可在没有模型配置时导入 TXT 并查询来源行号', async ()
     const search = await connection.client.callTool({ name: 'search_feedback', arguments: { kinds: ['record'], query: '售后' } })
     assert.match(text(search), /line_3.*记录.*希望改善售后/)
   } finally { await connection.close(); env.restore() }
+})
+
+test('MCP --web 只供内部 ask 联网，不向宿主暴露联网工具；同一对话复用来源编号', async () => {
+  const queries: string[] = []
+  const backend = { name: 'fake', async search(query: string) { queries.push(query); return [{ title: '背景', url: 'https://news.example/a', snippet: '官方十月发布说明', engine: 'fake' }] } }
+  const config = { provider: 'searxng' as const, baseUrl: 'http://search.invalid', maxCalls: 3, timeoutMs: 1000, maxBytes: 1000, maxChars: 1000, cacheTtlMs: 1000 }
+  let created = 0
+  const model = createFakeModel([
+    { tool_calls: [{ name: 'web_search', args: { query: '官方 说明' } }] },
+    { content: '数据显示有人嫌贵 [c1]；外部资料显示「官方十月发布说明」[web:1]' },
+    { content: '前面提到的来源是 [web:1]' },
+  ])
+  const connection = await connect({ model, load: async () => dataset, web: () => { created++; return createWebSession({ config, backend }) } })
+  try {
+    const manifest = await connection.client.listTools()
+    assert.ok(!manifest.tools.some((t) => t.name.startsWith('web_')))
+    const first = JSON.parse(text(await connection.client.callTool({ name: 'ask', arguments: { file: 'data.json', question: '为什么涨价' } })))
+    assert.deepEqual(first.web_citations.valid, ['web:1'])
+    const second = JSON.parse(text(await connection.client.callTool({ name: 'ask', arguments: { conversation_id: first.conversation_id, question: '来源是什么' } })))
+    assert.deepEqual(second.web_citations.valid, ['web:1'])
+    assert.equal(created, 1)
+    assert.deepEqual(queries, ['官方 说明'])
+  } finally { await connection.close() }
 })

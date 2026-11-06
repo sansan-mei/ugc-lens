@@ -6,6 +6,8 @@ import { test } from 'node:test'
 import { createFakeModel } from '../../src/agent/fake_model.ts'
 import { createSession } from '../../src/chat/session.ts'
 import { makeDataset, makeItem } from '../helpers/dataset.ts'
+import { parseChatArgs } from '../../src/cli/chat.ts'
+import { createWebSession, WEB_PROMPT } from '../../src/web/tools.ts'
 
 const dataset = makeDataset([makeItem({ id: 'c1', text: '价格太贵' })])
 
@@ -154,4 +156,36 @@ test('持续对话可以直接导入纯文本并按 record 检索，追问继续
     assert.ok(second.messages.some((m) => m.role === 'tool' && m.content?.includes('记录 希望改善售后')))
     assert.equal(model.requests.at(-1)?.messages.filter((m) => m.role === 'user').length, 2)
   } finally { await session.close(); await rm(cwd, { recursive: true, force: true }) }
+})
+
+test('开启联网时会话提供联网工具和规则，返回外部引用核对；未开启时没有', async () => {
+  const backend = { name: 'fake', async search() { return [{ title: '梗的出处', url: 'https://wiki.example/meme', snippet: '这个梗出自某部动画', engine: 'fake' }] } }
+  const web = createWebSession({ config: { provider: 'searxng', baseUrl: 'http://search.invalid', maxCalls: 3, timeoutMs: 1000, maxBytes: 1000, maxChars: 1000, cacheTtlMs: 1000 }, backend })
+  const model = createFakeModel([
+    { tool_calls: [{ name: 'web_search', args: { query: '梗 出处' } }] },
+    { content: '外部资料显示「这个梗出自某部动画」[web:1]，另见 [web:5]' },
+  ])
+  const session = createSession({ model, cwd: '/data', web })
+  try {
+    const result = await session.ask('这个梗是什么意思')
+    assert.ok(String(model.requests[0]!.messages[0]!.content).includes(WEB_PROMPT))
+    assert.ok(model.requests[0]!.tools.some((t) => t.function.name === 'web_fetch'))
+    assert.deepEqual(result.web_citations?.valid, ['web:1'])
+    assert.deepEqual(result.web_citations?.invalid, ['web:5'])
+    assert.equal(result.task_usage.web?.searches, 1)
+  } finally { await session.close() }
+
+  const plain = createFakeModel([{ content: '好' }])
+  const off = createSession({ model: plain, cwd: '/data' })
+  try {
+    const result = await off.ask('你好')
+    assert.ok(!plain.requests[0]!.tools.some((t) => t.function.name.startsWith('web_')))
+    assert.equal(result.web_citations, undefined)
+  } finally { await off.close() }
+})
+
+test('对话入口解析 --web，拒绝未知位置参数', () => {
+  assert.deepEqual(parseChatArgs([]), { web: false })
+  assert.deepEqual(parseChatArgs(['--web']), { web: true })
+  assert.throws(() => parseChatArgs(['data.json']), /未知参数/)
 })

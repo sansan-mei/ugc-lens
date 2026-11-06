@@ -11,7 +11,11 @@ export interface TaskUsage {
   unknown_estimated_tokens: number
   unknown_calls: number
   calls: Array<{ id: string; stage: string; final: boolean; status: 'pending' | 'ok' | 'failed'; input_tokens: number | null; output_tokens: number | null }>
+  /** 联网工具的用量；网络请求次数为 searches + fetches，缓存命中单独计数 */
+  web?: WebUsage
 }
+
+export interface WebUsage { searches: number; fetches: number; bytes: number; cache_hits: number }
 
 export class TaskBudgetError extends Error {
   override name = 'TaskBudgetError'
@@ -27,6 +31,15 @@ export class TaskLedger {
   }
   get exhausted(): boolean { return this.value.known_tokens + this.value.unknown_estimated_tokens >= this.value.token_budget }
   snapshot(): TaskUsage { return structuredClone(this.value) }
+  /** 本任务已发出的联网请求次数，不含缓存命中 */
+  get webRequests(): number { return (this.value.web?.searches ?? 0) + (this.value.web?.fetches ?? 0) }
+  recordWeb(kind: 'search' | 'fetch' | 'cache_hit', bytes = 0): void {
+    const web = this.value.web ??= { searches: 0, fetches: 0, bytes: 0, cache_hits: 0 }
+    if (kind === 'search') web.searches++
+    else if (kind === 'fetch') web.fetches++
+    else web.cache_hits++
+    web.bytes += bytes
+  }
   async complete(model: AgentModel, request: AgentModelRequest, stage: string, final: boolean): Promise<ChatResult> {
     request.signal.throwIfAborted()
     if (this.exhausted && (!final || this.finalized)) throw new TaskBudgetError()

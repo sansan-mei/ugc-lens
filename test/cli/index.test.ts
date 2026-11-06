@@ -32,7 +32,8 @@ describe('parseAnalyzeArgs', () => {
 
 describe('parseAskArgs', () => {
   test('第一个是文件，后面依次是问题；空问题去掉', () => {
-    assert.deepEqual(parseAskArgs(['a.json', '吐槽什么？', ' ', '追问', '--verbose']), { file: 'a.json', questions: ['吐槽什么？', '追问'], verbose: true })
+    assert.deepEqual(parseAskArgs(['a.json', '吐槽什么？', ' ', '追问', '--verbose']), { file: 'a.json', questions: ['吐槽什么？', '追问'], verbose: true, web: false })
+    assert.equal(parseAskArgs(['a.json', '这个梗什么意思', '--web']).web, true)
   })
   test('缺文件或缺问题时抛出 UsageError', () => {
     assert.throws(() => parseAskArgs([]), UsageError)

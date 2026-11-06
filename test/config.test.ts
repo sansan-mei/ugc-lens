@@ -2,7 +2,7 @@ import { createChatClient } from '../src/llm/client.ts'
 import { startMockServer, completion, sendJson } from './helpers/mock_server.ts'
 import assert from 'node:assert/strict'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, test } from 'node:test'
 import { ConfigError, globalConfigPath, loadLlmConfig, writeGlobalConfig } from '../src/config.ts'
@@ -21,6 +21,12 @@ function writeConfig(llm: Record<string, unknown>): void {
   mkdirSync(join(env.dir, '.ugc-lens'), { recursive: true })
   writeFileSync(join(env.dir, '.ugc-lens', 'config.json'), JSON.stringify({ llm }))
 }
+
+test('测试环境的用户主目录指向空临时目录，不读取本机全局配置', () => {
+  assert.equal(homedir(), env.home)
+  assert.equal(globalConfigPath(), join(env.home, '.ugc-lens', 'config.json'))
+  assert.throws(() => loadLlmConfig({}, env.dir), ConfigError)
+})
 
 describe('loadLlmConfig', () => {
   test('根据提供商预设得到接口地址和 key', () => {

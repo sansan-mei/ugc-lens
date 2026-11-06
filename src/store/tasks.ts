@@ -2,7 +2,8 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import * as z from 'zod'
 
-const usageSchema = z.object({ input_tokens: z.number(), output_tokens: z.number(), cached_input_tokens: z.number() })
+// 旧记录的 cached_input_tokens 总是数字；新记录未返回缓存字段时省略它，并记录未知次数
+const usageSchema = z.object({ input_tokens: z.number(), output_tokens: z.number(), cached_input_tokens: z.number().optional(), cached_unreported_calls: z.number().optional() })
 
 const taskUsageSchema = z.object({
   task_id: z.string(), token_budget: z.number(), known_tokens: z.number(), unknown_estimated_tokens: z.number(), unknown_calls: z.number(),

@@ -16,6 +16,7 @@ import { createChatClient } from '../src/llm/client.ts'
 import { DEFAULT_MAX_TOTAL_CHARS, planChunks } from '../src/pipeline/chunk.ts'
 import { estimateSummarize, summarizeChunks, type Dropped } from '../src/pipeline/summarize.ts'
 import { oneLine } from '../src/tools/data/format.ts'
+import { formatCachedTokens } from '../src/llm/usage.ts'
 
 const sample = fileURLToPath(
   new URL('../test/fixtures/bilibili/super_collect/BV1xx411c7mD/示例视频-100000001/bilibili_all.json', import.meta.url),
@@ -72,7 +73,7 @@ try {
   }, { invalid_finding: 0, unknown_ref: 0, bad_quote: 0, no_valid_refs: 0, over_limit: 0 })
   const u = result.usage
   console.log(`\n校验丢掉：${JSON.stringify(dropped)}`)
-  console.log(`实际：${result.calls} 次调用，输入 ${u.input_tokens}（缓存命中 ${u.cached_input_tokens}），输出 ${u.output_tokens}，耗时 ${(result.duration_ms / 1000).toFixed(1)} 秒`)
+  console.log(`实际：${result.calls} 次调用，输入 ${u.input_tokens}（缓存命中 ${formatCachedTokens(u)}），输出 ${u.output_tokens}，耗时 ${(result.duration_ms / 1000).toFixed(1)} 秒`)
 } catch (error) {
   if (!(error instanceof ImportError)) throw error
   console.error(`\n导入失败（${error.code}）：${error.message}`)

@@ -22,5 +22,6 @@ test('分批执行器走真实 fetch，强制调用拒绝后 auto，遗漏和超
     assert.equal(result.counts.skipped, 1)
     assert.equal(result.calls, server.requests.length)
     assert.equal(result.usage.input_tokens, 5)
+    assert.equal(result.usage.cached_input_tokens, undefined)
   } finally { await server.close() }
 })

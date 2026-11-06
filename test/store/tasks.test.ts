@@ -50,3 +50,14 @@ test('内容损坏时报错，不清空', async () => {
   await assert.rejects(openTaskStore(path), /任务文件格式不对/)
   assert.match(await readFile(path, 'utf8'), /unknown/)
 })
+
+test('用量记录兼容旧格式，缓存命中未知时不被改写成 0', async () => {
+  const path = join(dir, 'tasks.json')
+  const old = task('/old', { status: 'done', usage: { input_tokens: 10, output_tokens: 2, cached_input_tokens: 0 } })
+  const unknown = task('/new', { status: 'done', usage: { input_tokens: 10, output_tokens: 2, cached_unreported_calls: 3 } })
+  await writeFile(path, JSON.stringify({ version: 1, tasks: [old, unknown] }))
+  const store = await openTaskStore(path)
+  assert.deepEqual(store.get('/old')?.usage, old.usage)
+  assert.deepEqual(store.get('/new')?.usage, unknown.usage)
+  assert.equal('cached_input_tokens' in store.get('/new')!.usage!, false)
+})

@@ -2,10 +2,10 @@ import { completeTracked, currentTask, withTask } from '../agent/usage.ts'
 import * as z from 'zod'
 import type { AgentModel } from '../agent/model.ts'
 import type { FeedbackItem } from '../dataset/types.ts'
-import type { Usage } from '../llm/types.ts'
 import { approxTokens } from '../llm/tokens.ts'
 import { rejectsToolChoice } from '../pipeline/summarize.ts'
 import { toParametersSchema } from '../tools/define.ts'
+import { addUsage, emptyUsage } from '../llm/usage.ts'
 
 export interface BatchRecord<T> { id: string; status: 'processed' | 'failed' | 'skipped'; value?: T; reason?: string }
 
@@ -41,7 +41,7 @@ async function evaluateBatchesImpl<S extends z.ZodObject>(options: BatchOptions<
     batch.push(item); chars += n
   }
   if (batch.length) batches.push(batch)
-  const usage: Required<Usage> = { input_tokens: 0, output_tokens: 0, cached_input_tokens: 0 }
+  const usage = emptyUsage()
   let calls = 0
   let spent = 0
   let force = true
@@ -64,9 +64,7 @@ async function evaluateBatchesImpl<S extends z.ZodObject>(options: BatchOptions<
         force = false; response = await request()
       }
       signal.throwIfAborted()
-      usage.input_tokens += response.usage.input_tokens
-      usage.output_tokens += response.usage.output_tokens
-      usage.cached_input_tokens += response.usage.cached_input_tokens ?? 0
+      addUsage(usage, response.usage)
       spent += Math.max(response.usage.input_tokens + response.usage.output_tokens, approxTokens(options.system + input + JSON.stringify(response.message)))
       charged = true
       if (response.finishReason === 'length') throw new Error('模型输出被截断')

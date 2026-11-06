@@ -63,8 +63,10 @@ export interface ChatOptions {
 export interface Usage {
   input_tokens: number
   output_tokens: number
-  /** input_tokens 中命中提供商提示词缓存的部分，提供商不返回时没有这个字段 */
+  /** input_tokens 中命中提供商提示词缓存的部分，提供商不返回时没有这个字段；汇总时为已返回调用之和 */
   cached_input_tokens?: number
+  /** 仅汇总用量：其中未返回缓存字段的调用次数。全部未返回时没有 cached_input_tokens，表示未知而不是 0 */
+  cached_unreported_calls?: number
 }
 
 export interface ChatResult {

@@ -7,6 +7,7 @@ import { countTerms, createTokenizerFor, topTerms } from '../analysis/keywords.t
 import { computeStats, type DatasetStats } from '../dataset/stats.ts'
 import type { Dataset } from '../dataset/types.ts'
 import type { Usage } from '../llm/types.ts'
+import { addUsage, emptyUsage } from '../llm/usage.ts'
 import { loadPlaybook, playbookInfo, type MemoryOptions, type PlaybookInfo, type PlaybookSnapshot } from '../memory/playbook.ts'
 import { recordOutcome } from '../memory/learnings.ts'
 import { planChunks, type ChunkPlan } from './chunk.ts'
@@ -67,7 +68,7 @@ export interface AnalyzeResult {
   summary: SummarizeResult
   merge: MergeResult
   calls: number
-  usage: Required<Usage>
+  usage: Usage
   duration_ms: number
 }
 
@@ -115,11 +116,7 @@ export async function analyzeDataset(options: AnalyzeOptions): Promise<AnalyzeRe
   options.onProgress?.({ type: 'merged', themes: merge.themes.length, called: merge.called })
   const insights = await synthesizeInsights({ model: options.model, dataset, themes: merge.themes, playbook, signal: options.signal })
 
-  const usage: Required<Usage> = {
-    input_tokens: summary.usage.input_tokens + (merge.usage?.input_tokens ?? 0) + (insights.usage?.input_tokens ?? 0),
-    output_tokens: summary.usage.output_tokens + (merge.usage?.output_tokens ?? 0) + (insights.usage?.output_tokens ?? 0),
-    cached_input_tokens: summary.usage.cached_input_tokens + (merge.usage?.cached_input_tokens ?? 0) + (insights.usage?.cached_input_tokens ?? 0),
-  }
+  const usage = [summary.usage, merge.usage, insights.usage].reduce(addUsage, emptyUsage())
   const calls = summary.calls + (merge.called ? 1 : 0) + (insights.called ? 1 : 0)
   const generatedAt = now()
   const duration_ms = Math.round(performance.now() - started)

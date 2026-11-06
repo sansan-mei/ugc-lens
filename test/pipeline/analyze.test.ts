@@ -57,6 +57,8 @@ test('analyzeDataset：总结每块一次、合并和综合各一次，报告保
     assert.match(result.markdown, /### 发现 1：展示证据中的受众反馈/)
     assert.ok(!result.markdown.includes('合并后的主题'))
     assert.match(result.markdown, new RegExp(`调用模型 ${chunks + 2} 次`))
+    assert.match(result.markdown, /缓存命中 未知/)
+    assert.equal(result.usage.cached_unreported_calls, chunks + 2)
   } finally {
     await rm(dir, { recursive: true, force: true })
   }

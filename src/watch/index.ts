@@ -11,7 +11,7 @@ export interface AnalyzeOutcome {
   task_usage?: TaskUsage
   report?: string
   calls: number
-  usage: Required<Usage>
+  usage: Usage
 }
 
 export type QueueReason = 'new' | 'existing' | 'resume' | 'retry'

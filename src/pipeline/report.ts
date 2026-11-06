@@ -13,6 +13,7 @@ import type { InsightsResult } from './insights.ts'
 import type { Theme } from './merge.ts'
 import type { analysisCoverage } from '../analysis/coverage.ts'
 import { contentTimeline, contentTimelineRows } from '../analysis/content_timeline.ts'
+import { formatCachedTokens } from '../llm/usage.ts'
 
 export interface ReportRunInfo {
   task_usage?: TaskUsage
@@ -20,7 +21,7 @@ export interface ReportRunInfo {
   generated_at: Date
   duration_ms: number
   calls: number
-  usage: Required<Usage>
+  usage: Usage
   model?: string
   total_chunks: number
   /** 失败或被跳过的块数，大于 0 时报告里说明覆盖不完整 */
@@ -178,7 +179,7 @@ function runSection(run: ReportRunInfo): string[] {
     ...(run.playbook ? [`- 分析手册：版本 ${run.playbook.version}，指纹 ${run.playbook.hash}`] : []),
     `- 生成时间：${run.generated_at.toLocaleString('zh-CN', { hour12: false })}${run.model ? `，模型 ${run.model}` : ''}`,
     `- 耗时 ${(run.duration_ms / 1000).toFixed(1)} 秒，调用模型 ${run.calls} 次`,
-    `- token：输入 ${n(u.input_tokens)}（缓存命中 ${n(u.cached_input_tokens)}），输出 ${n(u.output_tokens)}`,
+    `- token：输入 ${n(u.input_tokens)}（缓存命中 ${formatCachedTokens(u)}），输出 ${n(u.output_tokens)}`,
   ]
   if (run.task_usage) lines.push(`- 本任务内部调用 ${run.task_usage.calls.length} 次，已知 token ${run.task_usage.known_tokens}，用量未知 ${run.task_usage.unknown_calls} 次；软预算 ${run.task_usage.token_budget}，在途请求和最多一次收尾可能超出；不含 MCP 宿主用量。`)
   if (run.incomplete_chunks > 0) {

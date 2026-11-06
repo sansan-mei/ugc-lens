@@ -95,6 +95,9 @@ describe('summarizeChunks', () => {
     assert.deepEqual(result.chunks.map((c) => c.chunk), plan.chunks.map((c) => c.index))
     for (const f of result.findings) assert.deepEqual(f.refs.map((r) => r.id), plan.chunks[f.chunk]!.ids.slice(0, 2))
     assert.equal(result.usage.input_tokens, result.chunks.reduce((s, c) => s + (c.usage?.input_tokens ?? 0), 0))
+    // 假模型不返回缓存字段：汇总不能报成命中 0
+    assert.equal(result.usage.cached_input_tokens, undefined)
+    assert.equal(result.usage.cached_unreported_calls, result.calls)
   })
 
   test('提示词里没有原 ID；传入方向时只用这些方向', async () => {

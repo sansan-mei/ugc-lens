@@ -99,6 +99,8 @@ describe('renderReport', () => {
   test('只放正常结果：块全部完成时不提未完成；有未完成的块时只用一句话说明', () => {
     assert.ok(!markdown.includes('没有完成'))
     assert.match(markdown, /输入 1,000（缓存命中 500），输出 200/)
+    const unknown = renderReport(input(themes, { run: run({ usage: { input_tokens: 1000, output_tokens: 200, cached_unreported_calls: 3 } }) }))
+    assert.match(unknown, /输入 1,000（缓存命中 未知），输出 200/)
     const partial = renderReport(input(themes, { run: run({ incomplete_chunks: 1 }) }))
     assert.equal(partial.split('\n').filter((l) => l.includes('没有完成')).length, 1)
   })

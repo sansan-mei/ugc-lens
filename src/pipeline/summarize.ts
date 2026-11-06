@@ -9,6 +9,7 @@ import type { ChatMessage, ToolDefinition, Usage } from '../llm/types.ts'
 import { toParametersSchema } from '../tools/define.ts'
 import type { Chunk, ChunkPlan } from './chunk.ts'
 import { contentLabels } from './chunk.ts'
+import { addUsage, emptyUsage } from '../llm/usage.ts'
 
 export const DEFAULT_DIRECTIONS = ['主要观点', '吐槽点', '正面评价', '争议'] as const
 export const RECORD_DIRECTIONS = ['主要主题', '反复出现的问题', '需求与建议', '差异与分歧'] as const
@@ -88,7 +89,7 @@ export interface SummarizeResult {
   chunks: ChunkSummary[]
   findings: Finding[]
   calls: number
-  usage: Required<Usage>
+  usage: Usage
   estimate: TokenEstimate
   duration_ms: number
 }
@@ -325,7 +326,7 @@ export async function summarizeChunks(options: SummarizeOptions): Promise<Summar
   const signal = options.signal ?? new AbortController().signal
   const chunks = options.plan.chunks
   const summaries: ChunkSummary[] = new Array(chunks.length)
-  const usage: Required<Usage> = { input_tokens: 0, output_tokens: 0, cached_input_tokens: 0 }
+  const usage = emptyUsage()
   let calls = 0
   let next = 0
 
@@ -341,9 +342,7 @@ export async function summarizeChunks(options: SummarizeOptions): Promise<Summar
       } else {
         calls++
         summary = await summarizeChunk(chunk, prepared, options, signal)
-        usage.input_tokens += summary.usage?.input_tokens ?? 0
-        usage.output_tokens += summary.usage?.output_tokens ?? 0
-        usage.cached_input_tokens += summary.usage?.cached_input_tokens ?? 0
+        addUsage(usage, summary.usage)
       }
       summaries[chunk.index] = summary
       options.onChunk?.(summary)

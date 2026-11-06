@@ -25,7 +25,8 @@ export class TaskBudgetError extends Error {
 export class TaskLedger {
   private readonly value: TaskUsage
   private finalized = false
-  constructor(tokenBudget = 100_000) {
+  /** 默认 200000：真实数据上一次完整报告（总结、合并、综合、补查）约 10 万～15 万 token */
+  constructor(tokenBudget = 200_000) {
     if (!Number.isFinite(tokenBudget) || tokenBudget <= 0) throw new Error('任务预算必须是正数')
     this.value = { task_id: randomUUID(), token_budget: tokenBudget, known_tokens: 0, unknown_estimated_tokens: 0, unknown_calls: 0, calls: [] }
   }

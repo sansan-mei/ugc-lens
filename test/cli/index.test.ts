@@ -15,18 +15,19 @@ const CLI = fileURLToPath(new URL('../../src/cli/index.ts', import.meta.url))
 describe('parseAnalyzeArgs', () => {
   test('默认值', () => {
     assert.deepEqual(parseAnalyzeArgs(['a.json']), {
-      file: 'a.json', output: undefined, save: true, maxTotalChars: undefined, directions: undefined, concurrency: undefined,
+      file: 'a.json', output: undefined, save: true, maxTotalChars: undefined, directions: undefined, concurrency: undefined, scenario: undefined, recheck: true,
     })
   })
   test('各个选项', () => {
-    const args = parseAnalyzeArgs(['a.json', '-o', 'r.md', '--no-save', '--chars', '20000', '--focus', '价格,售后', '--concurrency', '2'])
-    assert.deepEqual(args, { file: 'a.json', output: 'r.md', save: false, maxTotalChars: 20000, directions: ['价格', '售后'], concurrency: 2 })
+    const args = parseAnalyzeArgs(['a.json', '-o', 'r.md', '--no-save', '--chars', '20000', '--focus', '价格,售后', '--concurrency', '2', '--scenario', 'competitor', '--no-recheck'])
+    assert.deepEqual(args, { file: 'a.json', output: 'r.md', save: false, maxTotalChars: 20000, directions: ['价格', '售后'], concurrency: 2, scenario: 'competitor', recheck: false })
   })
   test('缺文件、多个文件、数字不对时抛出 UsageError', () => {
     assert.throws(() => parseAnalyzeArgs([]), UsageError)
     assert.throws(() => parseAnalyzeArgs(['a', 'b']), UsageError)
     assert.throws(() => parseAnalyzeArgs(['a', '--concurrency', '1.5']), UsageError)
     assert.throws(() => parseAnalyzeArgs(['a', '--chars=-1']), UsageError)
+    assert.throws(() => parseAnalyzeArgs(['a', '--scenario', 'finance']), /未知/)
   })
 })
 

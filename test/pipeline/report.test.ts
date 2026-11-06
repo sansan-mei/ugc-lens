@@ -145,3 +145,17 @@ test('晚段高峰优先进入关键时间轴，完整窗口保留在附录', ()
   assert.match(main, /广告揭晓/)
   assert.match(report, /1470–1500/)
 })
+
+test('补查段落区分未命中、全部已引用、放宽匹配和失败', () => {
+  const base = { index: 0, queries: ['价格'], matched: 0, candidates: 0, contradicts: [], qualifies: [], supports: 0, rejected: 0, relaxed: false }
+  const insight = { finding: '价格偏高', evidence: [{ point: '抱怨', refs: [{ id: 'c1', quote: '太贵了' }] }], counterevidence: [], boundary: 'b', meaning: 'm', verify: 'v' }
+  const render = (item: Record<string, unknown>, error?: string) => renderReport(input([], {
+    insights: { insights: [insight], called: true },
+    recheck: { items: [{ ...base, ...item } as never], called: true, error },
+  }))
+  assert.match(render({ status: 'no_candidates' }), /未检索到原文/)
+  assert.match(render({ status: 'no_candidates', matched: 2 }), /均已在本发现中引用/)
+  assert.match(render({ status: 'checked', matched: 3, candidates: 1, supports: 1, relaxed: true }), /补充任一词出现/)
+  assert.match(render({ status: 'checked', matched: 3, candidates: 1, supports: 1 }), /未发现反例或限定，不代表不存在/)
+  assert.match(render({ status: 'failed', matched: 3, candidates: 1 }, '预算耗尽'), /补查未完成（预算耗尽）/)
+})

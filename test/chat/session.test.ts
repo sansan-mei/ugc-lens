@@ -45,7 +45,7 @@ test('会话按模型选择导入和检索，追问保留完整历史和固定 s
 test('导入失败交给模型修正；生成报告复用流水线并传入关注点', async () => {
   const model = createFakeModel([
     { tool_calls: [{ name: 'load_dataset', args: { file: 'missing.json' } }] },
-    { tool_calls: [{ name: 'analyze_dataset', args: { file: 'data.json', directions: ['价格'] } }] },
+    { tool_calls: [{ name: 'analyze_dataset', args: { file: 'data.json', directions: ['价格'], scenario: 'reputation' } }] },
     { content: '报告已生成' },
   ])
   const analyzed: unknown[] = []
@@ -53,14 +53,14 @@ test('导入失败交给模型修正；生成报告复用流水线并传入关�
     model, cwd: '/data',
     load: async (file) => { if (file.endsWith('missing.json')) throw new Error('文件不存在'); return dataset },
     analyze: async (options) => {
-      analyzed.push({ dataset: options.dataset, directions: options.directions, cwd: options.cwd })
+      analyzed.push({ dataset: options.dataset, directions: options.directions, cwd: options.cwd, scenario: options.scenario, recheck: options.recheck })
       return { markdown: '# 价格报告', path: '/data/report.md', calls: 1, usage: { input_tokens: 1, output_tokens: 1, cached_input_tokens: 0 } }
     },
   })
   try {
     const result = await session.ask('分析价格')
     assert.match(result.messages.find((m) => m.role === 'tool')?.content ?? '', /错误.*文件不存在/)
-    assert.deepEqual(analyzed, [{ dataset, directions: ['价格'], cwd: '/data' }])
+    assert.deepEqual(analyzed, [{ dataset, directions: ['价格'], cwd: '/data', scenario: 'reputation', recheck: true }])
     assert.ok(result.messages.some((m) => m.role === 'tool' && m.content.includes('# 价格报告') && m.content.includes('/data/report.md')))
   } finally { await session.close() }
 })

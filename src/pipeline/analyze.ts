@@ -14,6 +14,8 @@ import { planChunks, type ChunkPlan } from './chunk.ts'
 import { analysisCoverage } from '../analysis/coverage.ts'
 import { mergeFindings, type MergeResult, type Theme } from './merge.ts'
 import { synthesizeInsights, type InsightsResult } from './insights.ts'
+import { recheckInsights, type RecheckResult } from './recheck.ts'
+import { applyScenario, loadScenario } from '../analysis/scenarios.ts'
 import { renderReport } from './report.ts'
 import {
   defaultDirections,
@@ -36,6 +38,10 @@ export interface AnalyzeOptions {
   dataset: Dataset
   /** 分析方向，默认四个；传入关注点时只分析这些方向 */
   directions?: readonly string[]
+  /** 场景手册 ID（如 reputation、competitor）：未传关注点时使用场景方向，规则追加到共同规则 */
+  scenario?: string
+  /** 是否用关键词补查核心发现的反例与限定，默认 true */
+  recheck?: boolean
   /** 交给模型的评论总字数，默认 80000 */
   maxTotalChars?: number
   concurrency?: number
@@ -54,6 +60,9 @@ export interface AnalyzeOptions {
 
 export interface AnalyzeResult {
   insights: InsightsResult
+  /** 关闭补查或没有核心发现时为 undefined */
+  recheck?: RecheckResult
+  scenario?: { id: string; title: string; hash: string }
   task_usage: TaskUsage
   coverage: ReturnType<typeof analysisCoverage>
   playbook: PlaybookInfo
@@ -80,11 +89,13 @@ function stamp(date: Date): string {
 /** 固定流水线：代码统计 → 分块 → 分块总结 → 合并 → 写报告。模型只参与总结和合并 */
 export async function analyzeDataset(options: AnalyzeOptions): Promise<AnalyzeResult> {
   if (!currentTask()) return withTask(() => analyzeDataset(options), options.tokenBudget)
-  const playbook = options.playbook ?? loadPlaybook(options.memory)
+  const scenario = options.scenario ? loadScenario(options.scenario) : undefined
+  const basePlaybook = options.playbook ?? loadPlaybook(options.memory)
+  const playbook = scenario ? applyScenario(basePlaybook, scenario) : basePlaybook
   const started = performance.now()
   const now = options.now ?? (() => new Date())
   const { dataset } = options
-  const directions = options.directions?.length ? options.directions : defaultDirections(dataset)
+  const directions = options.directions?.length ? options.directions : scenario?.directions ?? defaultDirections(dataset)
 
   const stats = computeStats(dataset)
   const { tokenizer } = createTokenizerFor(dataset.items.map((item) => item.text))
@@ -115,14 +126,20 @@ export async function analyzeDataset(options: AnalyzeOptions): Promise<AnalyzeRe
   })
   options.onProgress?.({ type: 'merged', themes: merge.themes.length, called: merge.called })
   const insights = await synthesizeInsights({ model: options.model, dataset, themes: merge.themes, playbook, signal: options.signal })
+  const recheck = options.recheck !== false && insights.insights.length
+    ? await recheckInsights({ model: options.model, dataset, insights: insights.insights, signal: options.signal })
+    : undefined
 
-  const usage = [summary.usage, merge.usage, insights.usage].reduce(addUsage, emptyUsage())
-  const calls = summary.calls + (merge.called ? 1 : 0) + (insights.called ? 1 : 0)
+  const usage = [summary.usage, merge.usage, insights.usage, recheck?.usage].reduce(addUsage, emptyUsage())
+  const calls = summary.calls + (merge.called ? 1 : 0) + (insights.called ? 1 : 0) + (recheck?.called ? 1 : 0)
+  const scenarioInfo = scenario ? { id: scenario.id, title: scenario.title, hash: scenario.hash } : undefined
   const generatedAt = now()
   const duration_ms = Math.round(performance.now() - started)
   const coverage = analysisCoverage(dataset, plan, summary.chunks)
   const markdown = renderReport({
     insights,
+    recheck,
+    scenario: scenarioInfo,
     dataset,
     stats,
     coverage: plan.coverage,
@@ -163,5 +180,5 @@ export async function analyzeDataset(options: AnalyzeOptions): Promise<AnalyzeRe
       merge_invalid_refs: merge.invalid_refs, merge_fallback: Boolean(merge.error), themes: merge.themes.length, calls,
     },
   })
-  return { insights, task_usage: currentTask()!.snapshot(), coverage, playbook: playbookInfo(playbook), memory_warning, markdown, path, themes: merge.themes, stats, plan, danmaku, summary, merge, calls, usage, duration_ms }
+  return { insights, recheck, scenario: scenarioInfo, task_usage: currentTask()!.snapshot(), coverage, playbook: playbookInfo(playbook), memory_warning, markdown, path, themes: merge.themes, stats, plan, danmaku, summary, merge, calls, usage, duration_ms }
 }

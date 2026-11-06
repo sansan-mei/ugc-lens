@@ -10,6 +10,7 @@ import type { Usage } from '../llm/types.ts'
 import { clock, compactRepeats, oneLine, sliceText } from '../tools/data/format.ts'
 import type { ChunkPlan } from './chunk.ts'
 import type { InsightsResult } from './insights.ts'
+import type { RecheckResult } from './recheck.ts'
 import type { Theme } from './merge.ts'
 import type { analysisCoverage } from '../analysis/coverage.ts'
 import { contentTimeline, contentTimelineRows } from '../analysis/content_timeline.ts'
@@ -30,6 +31,8 @@ export interface ReportRunInfo {
 
 export interface ReportInput {
   insights?: InsightsResult
+  recheck?: RecheckResult
+  scenario?: { id: string; title: string; hash: string }
   ledger?: ReturnType<typeof analysisCoverage>
   dataset: Dataset
   stats: DatasetStats
@@ -189,12 +192,37 @@ function runSection(run: ReportRunInfo): string[] {
   return lines
 }
 
+function recheckLines(recheck: RecheckResult | undefined, index: number, dataset: Dataset, repeats: (item: FeedbackItem) => number): string[] {
+  if (!recheck) return []
+  const item = recheck.items.find((i) => i.index === index)
+  if (!item) return []
+  const terms = item.queries.map((q) => `「${q}」`).join('')
+  if (!item.queries.length) return ['**补查**：模型未给出补查关键词，未补查。', '']
+  if (item.status === 'no_candidates') {
+    return [item.matched
+      ? `**补查**：用 ${terms} 在评论、回复和记录中检索到 ${n(item.matched)} 条，均已在本发现中引用，没有其他可核对的原文。`
+      : `**补查**：用 ${terms} 在评论、回复和记录中未检索到原文（放宽为任一词出现后仍无结果），关键词可能过窄，未能补查。`, '']
+  }
+  const scope = `用 ${terms}${item.relaxed ? '（原条件可核对原文不足，已补充任一词出现的结果）' : ''} 在评论、回复和记录中检索到 ${n(item.matched)} 条`
+  if (item.status === 'failed') return [`**补查**：${scope}，补查未完成（${recheck.error ?? '未知原因'}），以上发现未经补查。`, '']
+  const found = item.contradicts.length + item.qualifies.length
+  const lines = [`**补查**：${scope}，按点赞核对其中 ${n(item.candidates)} 条未引用原文：反例 ${item.contradicts.length} 条、限定 ${item.qualifies.length} 条、支持 ${item.supports} 条${found ? '。' : '；这些关键词的检索范围内未发现反例或限定，不代表不存在。'}`, '']
+  for (const [label, refs] of [['反例', item.contradicts], ['限定', item.qualifies]] as const) {
+    for (const ref of refs) {
+      const line = quoteLine({ id: ref.id, quote: ref.quote }, dataset, repeats, '')
+      if (line) lines.push(`${label}${ref.note ? `（${ref.note}）` : ''}：`, '', line, '')
+    }
+  }
+  return lines
+}
+
 export function renderReport(input: ReportInput): string {
   const { dataset } = input
   const header = [`# ${reportTitle(dataset)}`, '']
   const content = dataset.contents.length === 1 ? dataset.contents[0] : undefined
   const meta = [dataset.platform, content?.author, content?.published_at?.slice(0, 10), content?.url].filter(Boolean)
   if (meta.length > 0) header.push(meta.join(' · '), '')
+  if (input.scenario) header.push(`分析场景：${input.scenario.title}（场景手册 ${input.scenario.id}，指纹 ${input.scenario.hash}）`, '')
   if (input.directions.length) header.push(`分析方向：${input.directions.join('、')}`, '')
   const ledger = input.ledger ? ['## 处理覆盖记录', '', '| 类型 | 导入 | 重复正文信号 | 成功块内 | 失败块内 | 跳过块内 | 未选择 |', '|---|---:|---:|---:|---:|---:|---:|', ...input.ledger.kinds.map((r) => `| ${r.kind} | ${r.imported} | ${r.duplicate_texts} | ${r.processed} | ${r.failed} | ${r.skipped} | ${r.not_selected} |`), '', '成功块内表示原文进入已完成的总结块，不代表已逐条分类；重复计数不参与总数相加。导入路径跳过数：' + input.ledger.collections.reduce((s, r) => s + r.skipped, 0), ''] : []
   if (input.ledger) ledger.push('### 正文字幕覆盖', '', '| 内容 | 源/转换状态 | 源段数 | 转换失败 | 已导入 | 已提交模型 | 成功块内 | 失败块内 | 跳过 | 未选择 |', '|---|---|---:|---:|---:|---:|---:|---:|---:|---:|',
@@ -229,6 +257,7 @@ export function renderReport(input: ReportInput): string {
         }
       }
       conclusions.push(`**证据强弱与边界**：${insight.boundary}`, '', `**意义（分析推断）**：${insight.meaning}`, '', `**待验证事项**：${insight.verify}`, '')
+      conclusions.push(...recheckLines(input.recheck, i, dataset, repeats))
     }
   }
   const sections = [conclusions, timelineLines, ['## 附录：统计与处理范围', ''], overview(input), ledger, keywordSection(input.keywords, input.danmaku, (input.stats.items.record ?? 0) > 0), peakSection(input.danmaku), ...(insights.length ? [] : [['## 附录：分块主题（未综合核对）', ''], themeSections(input)]), fullTimeline, runSection(input.run)]

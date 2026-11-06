@@ -22,6 +22,7 @@ import { resolveDataset } from '../tools/data/shared.ts'
 import { defineTool } from '../tools/define.ts'
 import type { ToolContext } from '../tools/types.ts'
 import type { WebSession } from '../web/tools.ts'
+import { scenarioIds } from '../analysis/scenarios.ts'
 
 export interface McpServerOptions {
   tokenBudget?: number
@@ -109,13 +110,15 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
         ...selector,
         directions: z.array(z.string().min(1)).min(1).optional().describe('关注方向；不传使用默认分析方向'),
         max_total_chars: z.number().int().positive().optional().describe('发送给模型的评论总字数上限，默认 80000'),
+        scenario: z.enum(scenarioIds() as [string, ...string[]]).optional().describe('场景手册：reputation 危机与口碑，competitor 竞品对比'),
+        recheck: z.boolean().optional().describe('是否用关键词补查核心发现的反例，默认 true，多一次模型调用'),
       }),
-      async execute({ directions, max_total_chars, ...args }, ctx) {
+      async execute({ directions, max_total_chars, scenario, recheck, ...args }, ctx) {
         const dataset = await select(args, ctx.signal)
         const models = getModels()
         const result = await (options.analyze ?? analyzeDataset)({
           memory: options.memory, dataset, model: models.analysis, modelName: models.name, cwd, directions,
-          maxTotalChars: max_total_chars, signal: ctx.signal,
+          maxTotalChars: max_total_chars, scenario, recheck, signal: ctx.signal,
         })
         ctx.signal.throwIfAborted()
         return JSON.stringify({ dataset_id: dataset.id, path: result.path, markdown: result.markdown, calls: result.calls, usage: result.usage, memory_warning: result.memory_warning })

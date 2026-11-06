@@ -49,3 +49,5 @@ export { loadWebConfig, webEnabled, type WebConfig, type WebConfigFile } from '.
 export { createWebSession, findWebCitations, guardAfterWeb, WEB_PROMPT, type WebSession, type WebSource, type WebCitations } from './web/tools.ts'
 export { fetchPage, isBlockedAddress, type FetchedPage, type FetchPolicy } from './web/fetch.ts'
 export { createSearchBackend, WebError, type SearchBackend, type SearchHit } from './web/search.ts'
+export { listScenarios, loadScenario, applyScenario, scenarioIds, type Scenario } from './analysis/scenarios.ts'
+export { recheckInsights, collectRecheckCandidates, type RecheckResult, type RecheckItem } from './pipeline/recheck.ts'

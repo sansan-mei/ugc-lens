@@ -105,7 +105,7 @@ test('导入后查询和生成报告复用核心接口，路径以服务 cwd 为
     cwd: '/data', model: createFakeModel([]),
     load: async (file) => { loaded.push(file); return { ...dataset, file_path: file } },
     analyze: async (options) => {
-      analyzed.push({ id: options.dataset.id, cwd: options.cwd, directions: options.directions })
+      analyzed.push({ id: options.dataset.id, cwd: options.cwd, directions: options.directions, scenario: options.scenario, recheck: options.recheck })
       return { markdown: '# 报告', path: '/data/report.md', calls: 1, usage: { input_tokens: 1, output_tokens: 1, cached_input_tokens: 0 } }
     },
   })
@@ -115,11 +115,11 @@ test('导入后查询和生成报告复用核心接口，路径以服务 cwd 为
     const search = await connection.client.callTool({ name: 'search_feedback', arguments: { dataset_id: data.dataset_id, query: '价格' } })
     assert.match(text(search), /\[c1\].*价格太贵/)
     assert.doesNotMatch(text(search), /\[c2\]/)
-    const report = await connection.client.callTool({ name: 'analyze', arguments: { file: 'video.json', directions: ['价格'] } })
+    const report = await connection.client.callTool({ name: 'analyze', arguments: { file: 'video.json', directions: ['价格'], scenario: 'competitor', recheck: false } })
     assert.match(text(report), /# 报告/)
     assert.match(text(report), /\/data\/report.md/)
     assert.deepEqual(loaded, ['/data/video.json'])
-    assert.deepEqual(analyzed, [{ id: dataset.id, cwd: '/data', directions: ['价格'] }])
+    assert.deepEqual(analyzed, [{ id: dataset.id, cwd: '/data', directions: ['价格'], scenario: 'competitor', recheck: false }])
   } finally { await connection.close() }
 })
 

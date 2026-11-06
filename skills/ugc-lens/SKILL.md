@@ -29,6 +29,8 @@ description: 使用 ugc-lens MCP 工具分析本地 JSON、JSONL、CSV、TXT 等
 
 `ask` 返回 `web_citations` 时（服务以 `--web` 启动），其中 `[web:N]` 是外部网页资料，不是数据证据；`invalid`、`invalid_quotes`、`unverified_urls` 中的条目不要当作依据。外部资料不计入数据统计。
 
+`analyze` 可传 `scenario`（`reputation` 危机与口碑、`competitor` 竞品对比）调整分析重点；默认补查核心发现，报告中的“补查”只覆盖所列关键词，不能说成已确认不存在反例。
+
 ## 路径和运行
 
 相对路径以 MCP 启动时 `--cwd` 指定的目录为准。宿主与服务工作目录不同时使用绝对路径。数据集和追问历史仅在本次服务进程内保留，重启后需要重新导入；相同文件的结构映射可从磁盘缓存复用。

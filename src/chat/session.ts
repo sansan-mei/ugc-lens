@@ -20,6 +20,7 @@ import { createDataTools } from '../tools/data/index.ts'
 import { resolveDataset } from '../tools/data/shared.ts'
 import { defineTool } from '../tools/define.ts'
 import { watchDirectory, type WatchEvent } from '../watch/index.ts'
+import { scenarioIds } from '../analysis/scenarios.ts'
 import { findWebCitations, guardAfterWeb, WEB_PROMPT, type WebCitations, type WebSession } from '../web/tools.ts'
 
 const SESSION_ACTIONS = `你也负责完成用户的操作目标。用户不需要选择子命令：
@@ -115,11 +116,15 @@ export function createSession(options: SessionOptions): ChatSession {
       },
     }),
     defineTool({
-      name: 'analyze_dataset', description: '生成并保存完整 Markdown 分析报告。提供 file 自动导入，或用 dataset_id 选择已导入数据。',
-      parameters: z.object({ file: z.string().min(1).optional(), dataset_id: z.string().optional(), directions: z.array(z.string().min(1)).min(1).optional() }),
-      async execute({ file, dataset_id, directions }, ctx) {
+      name: 'analyze_dataset', description: '生成并保存完整 Markdown 分析报告。提供 file 自动导入，或用 dataset_id 选择已导入数据。用户关注危机、口碑、争议时可用 scenario=reputation，关注竞品比较时用 competitor。',
+      parameters: z.object({
+        file: z.string().min(1).optional(), dataset_id: z.string().optional(), directions: z.array(z.string().min(1)).min(1).optional(),
+        scenario: z.enum(scenarioIds() as [string, ...string[]]).optional().describe('场景手册'),
+        recheck: z.boolean().default(true).describe('是否用关键词补查核心发现的反例，多一次模型调用'),
+      }),
+      async execute({ file, dataset_id, directions, scenario, recheck }, ctx) {
         const dataset = file ? await importFile(file, ctx.signal) : resolveDataset(store, dataset_id)
-        const result = await analyze({ dataset, model, directions, cwd, memory: options.memory, modelName: options.modelName, signal: ctx.signal })
+        const result = await analyze({ dataset, model, directions, scenario, recheck, cwd, memory: options.memory, modelName: options.modelName, signal: ctx.signal })
         return JSON.stringify({ path: result.path, markdown: result.markdown, calls: result.calls, usage: result.usage, memory_warning: result.memory_warning })
       },
     }),

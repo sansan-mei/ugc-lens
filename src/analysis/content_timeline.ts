@@ -2,11 +2,9 @@ import { transcriptId } from '../dataset/evidence.ts'
 import type { Dataset } from '../dataset/types.ts'
 import { binCounts, detectPeaks } from './timeline.ts'
 
-export function contentTimeline(dataset: Dataset, options: { contentId?: string; binSec?: number; limit?: number; offset?: number } = {}) {
+export function contentTimelineRows(dataset: Dataset, options: { contentId?: string; binSec?: number } = {}) {
   const bin = options.binSec ?? 30
-  const limit = options.limit ?? 30
-  const offset = options.offset ?? 0
-  if (!Number.isInteger(bin) || bin < 1 || bin > 300 || !Number.isInteger(limit) || limit < 1 || limit > 100 || !Number.isInteger(offset) || offset < 0) throw new Error('非法时间轴参数')
+  if (!Number.isInteger(bin) || bin < 1 || bin > 300) throw new Error('非法时间轴参数')
   const rows = []
   for (const content of dataset.contents.filter((c) => !options.contentId || c.id === options.contentId)) {
     const timed = dataset.items.filter((i) => i.content_id === content.id && i.kind === 'danmaku' && Number.isFinite(i.video_time_sec) && i.video_time_sec! >= 0)
@@ -38,9 +36,20 @@ export function contentTimeline(dataset: Dataset, options: { contentId?: string;
       })
     }
   }
+  return rows
+}
+
+export function contentTimeline(dataset: Dataset, options: { contentId?: string; binSec?: number; limit?: number; offset?: number; selection?: 'key' } = {}) {
+  const bin = options.binSec ?? 30
+  const limit = options.limit ?? 30
+  const offset = options.offset ?? 0
+  if (!Number.isInteger(bin) || bin < 1 || bin > 300 || !Number.isInteger(limit) || limit < 1 || limit > 100 || !Number.isInteger(offset) || offset < 0) throw new Error('非法时间轴参数')
+  const rows = contentTimelineRows(dataset, options)
+  if (options.selection === 'key') rows.sort((a, b) => Number(Boolean(b.peak)) - Number(Boolean(a.peak)) || b.count - a.count || a.content_id.localeCompare(b.content_id) || a.start_sec - b.start_sec)
   const page: typeof rows = []
   let chars = 0
   for (const row of rows.slice(offset, offset + limit)) { const n = JSON.stringify(row).length; if (page.length && chars + n > 16_000) break; page.push(row); chars += n }
+  if (options.selection === 'key') page.sort((a, b) => a.content_id.localeCompare(b.content_id) || a.start_sec - b.start_sec)
   return { total: rows.length, rows: page, next_offset: offset + page.length < rows.length ? offset + page.length : null,
     note: '同内容时间窗口的观众反应与字幕原文；不是因果判定或画面猜测。未提供字幕时 transcript 为空。' }
 }

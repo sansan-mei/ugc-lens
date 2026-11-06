@@ -9,9 +9,10 @@ import type { Dataset, FeedbackItem } from '../dataset/types.ts'
 import type { Usage } from '../llm/types.ts'
 import { clock, compactRepeats, oneLine, sliceText } from '../tools/data/format.ts'
 import type { ChunkPlan } from './chunk.ts'
+import type { InsightsResult } from './insights.ts'
 import type { Theme } from './merge.ts'
 import type { analysisCoverage } from '../analysis/coverage.ts'
-import { contentTimeline } from '../analysis/content_timeline.ts'
+import { contentTimeline, contentTimelineRows } from '../analysis/content_timeline.ts'
 
 export interface ReportRunInfo {
   task_usage?: TaskUsage
@@ -27,6 +28,7 @@ export interface ReportRunInfo {
 }
 
 export interface ReportInput {
+  insights?: InsightsResult
   ledger?: ReturnType<typeof analysisCoverage>
   dataset: Dataset
   stats: DatasetStats
@@ -99,8 +101,8 @@ function overview(input: ReportInput): string[] {
   ].filter(Boolean)
   const generic = (stats.items.record ?? 0) > 0
   lines.push(`- ${generic ? '文本记录' : '互动内容'}：${kinds.join('、') || '无'}`)
-  if (stats.replies.reported > stats.replies.collected) {
-    lines.push(`- 回复：平台显示 ${n(stats.replies.reported)} 条，搜集到 ${n(stats.replies.collected)} 条`)
+  if (stats.replies.reported > 0 || stats.replies.collected > 0) {
+    lines.push(`- 已采集主评论下标注的回复数合计 ${n(stats.replies.reported)} 条，本次导入回复 ${n(stats.replies.collected)} 条；不代表全视频回复覆盖率，导入回复可能含孤立回复。`)
   }
   if (stats.time_range) lines.push(`- 发布时间：${stats.time_range.from.slice(0, 10)} ~ ${stats.time_range.to.slice(0, 10)}`)
   if (c.items_total > 0) {
@@ -150,13 +152,13 @@ function themeSections(input: ReportInput): string[] {
     if (themes.length === 0) continue
     lines.push(`## ${direction}`, '')
     themes.forEach((theme, i) => {
-      lines.push(`### ${i + 1}. ${theme.title}（约 ${n(theme.support)} 条）`, '')
+      lines.push(`### ${i + 1}. ${theme.title}（模型估计涉及约 ${n(theme.support)} 条，非逐条分类结果）`, '')
       for (const ref of topRefs(theme, dataset, QUOTES_PER_THEME)) {
         const line = quoteLine(ref, dataset, repeats, '')
         if (line) lines.push(line, '')
       }
       for (const child of theme.children) {
-        lines.push(`- **${child.title}**（约 ${n(child.support)} 条）`, '')
+        lines.push(`- **${child.title}**（模型估计涉及约 ${n(child.support)} 条，非逐条分类结果）`, '')
         for (const ref of topRefs(child, dataset, QUOTES_PER_CHILD)) {
           const line = quoteLine(ref, dataset, repeats, '  ')
           if (line) lines.push(line, '')
@@ -192,11 +194,42 @@ export function renderReport(input: ReportInput): string {
   const content = dataset.contents.length === 1 ? dataset.contents[0] : undefined
   const meta = [dataset.platform, content?.author, content?.published_at?.slice(0, 10), content?.url].filter(Boolean)
   if (meta.length > 0) header.push(meta.join(' · '), '')
+  if (input.directions.length) header.push(`分析方向：${input.directions.join('、')}`, '')
   const ledger = input.ledger ? ['## 处理覆盖记录', '', '| 类型 | 导入 | 重复正文信号 | 成功块内 | 失败块内 | 跳过块内 | 未选择 |', '|---|---:|---:|---:|---:|---:|---:|', ...input.ledger.kinds.map((r) => `| ${r.kind} | ${r.imported} | ${r.duplicate_texts} | ${r.processed} | ${r.failed} | ${r.skipped} | ${r.not_selected} |`), '', '成功块内表示原文进入已完成的总结块，不代表已逐条分类；重复计数不参与总数相加。导入路径跳过数：' + input.ledger.collections.reduce((s, r) => s + r.skipped, 0), ''] : []
   if (input.ledger) ledger.push('### 正文字幕覆盖', '', '| 内容 | 源/转换状态 | 源段数 | 转换失败 | 已导入 | 已提交模型 | 成功块内 | 失败块内 | 跳过 | 未选择 |', '|---|---|---:|---:|---:|---:|---:|---:|---:|---:|',
     ...input.ledger.transcripts.map((r) => `| ${cell(r.content_id)} | ${r.source_status} | ${r.source_elements ?? '未知'} | ${r.conversion_failed ?? '未知'} | ${r.imported} | ${r.submitted} | ${r.processed} | ${r.failed} | ${r.skipped} | ${r.not_selected} |`), '', '未配置字幕映射且无导入片段时，源状态为未知，不能据此声称源中没有字幕。', '')
-  const timeline = contentTimeline(input.dataset, { limit: 30 })
-  const timelineLines = timeline.rows.length ? ['## 字幕与观众反应时间轴', '', '| 内容 | 视频秒数 | 弹幕数 | 字幕原文及位置 | 观众反应及 ID |', '|---|---|---:|---|---|', ...timeline.rows.map((row) => `| ${cell(row.title ?? row.content_id)} | ${row.start_sec}–${row.end_sec}${row.peak ? '（高峰）' : ''} | ${row.count} | ${row.transcript.length ? row.transcript.map((t) => `${cell(t.text)} [${cell(t.ref)}]`).join('；') : '未提供对应字幕，不猜测内容'} | ${row.feedback.map((f) => `${cell(f.text)} [${cell(f.id)}]`).join('；')} |`), '', ...(timeline.next_offset === null ? [] : [`共 ${timeline.total} 个字幕或弹幕窗口，此处显示前 ${timeline.rows.length} 个，可用 get_content_timeline 翻页。`, '']), '时间对齐不代表因果关系，也不代表已观看视频画面。', ''] : []
-  const sections = [overview(input), ledger, keywordSection(input.keywords, input.danmaku, (input.stats.items.record ?? 0) > 0), peakSection(input.danmaku), timelineLines, themeSections(input), runSection(input.run)]
+  const timeline = contentTimeline(input.dataset, { limit: 12, selection: 'key' })
+  const timelineRow = (row: (typeof timeline.rows)[number]) => `| ${cell(row.title ?? row.content_id)} | ${row.start_sec}–${row.end_sec}${row.peak ? '（高峰）' : ''} | ${row.count} | ${row.transcript.length ? row.transcript.map((t) => `${cell(t.text)} [${cell(t.ref)}]`).join('；') : '未提供对应字幕，不猜测内容'} | ${row.feedback.map((f) => `${cell(f.text)} [${cell(f.id)}]`).join('；')} |`
+  const table = ['| 内容 | 视频秒数 | 弹幕数 | 字幕原文及位置 | 观众反应及 ID |', '|---|---|---:|---|---|']
+  const timelineLines = timeline.rows.length ? ['## 字幕与观众反应时间轴', '', '优先选择高峰和弹幕较多的关键窗口，再按内容和时间展示；时间对齐不代表因果关系，也不代表已观看视频画面。', '', ...table, ...timeline.rows.map(timelineRow), '', '每窗最多摘录 10 段字幕与 5 条弹幕，每条最多 500 字；未在此展示的窗口见完整时间轴附录，原文可按 ID 查询。', ''] : []
+  const fullTimeline: string[] = []
+  if (timeline.next_offset !== null) {
+    fullTimeline.push('## 附录：完整时间轴', '', '全部窗口按内容和时间排列；每窗证据仍为摘录。', '', ...table)
+    fullTimeline.push(...contentTimelineRows(input.dataset).map(timelineRow))
+    fullTimeline.push('')
+  }
+  const conclusions = ['## 核心结论', '']
+  const insights = input.insights?.insights ?? []
+  if (!insights.length) conclusions.push('本次未形成通过引用校验的核心发现；附录保留分块主题，尚未完成综合核对。', '')
+  else {
+    conclusions.push('以下为基于候选主题所附原文的模型综合判断，未覆盖全量逐条分类；意义属于分析推断，待验证事项不代表已证实。', '')
+    for (const [i, insight] of insights.entries()) conclusions.push(`${i + 1}. **${insight.finding}**`, '')
+    const repeats = repeatCounter(dataset)
+    for (const [i, insight] of insights.entries()) {
+      conclusions.push(`### 发现 ${i + 1}：${insight.finding}`, '')
+      for (const [label, groups] of [['证据', insight.evidence], ['反例/分歧', insight.counterevidence]] as const) {
+        conclusions.push(`**${label}**${groups.length ? '' : '：当前展示证据中未发现，不代表不存在。'}`, '')
+        for (const group of groups) {
+          conclusions.push(group.point, '')
+          for (const ref of group.refs) {
+            const line = quoteLine(ref, dataset, repeats, '')
+            if (line) conclusions.push(line, '')
+          }
+        }
+      }
+      conclusions.push(`**证据强弱与边界**：${insight.boundary}`, '', `**意义（分析推断）**：${insight.meaning}`, '', `**待验证事项**：${insight.verify}`, '')
+    }
+  }
+  const sections = [conclusions, timelineLines, ['## 附录：统计与处理范围', ''], overview(input), ledger, keywordSection(input.keywords, input.danmaku, (input.stats.items.record ?? 0) > 0), peakSection(input.danmaku), ...(insights.length ? [] : [['## 附录：分块主题（未综合核对）', ''], themeSections(input)]), fullTimeline, runSection(input.run)]
   return [...header, ...sections.filter((s) => s.length > 0).flatMap((s) => [...s, ''])].join('\n').replace(/\n{3,}/g, '\n\n').trimEnd() + '\n'
 }

@@ -3,7 +3,7 @@ import { FEEDBACK_KINDS, type Dataset, type FeedbackKind } from './types.ts'
 export interface DatasetStats {
   contents: number
   items: Record<FeedbackKind, number>
-  /** 一级评论上的回复数：平台显示的总数与实际搜集到的数量 */
+  /** 已导入主评论的 reply_count 之和与所有导入回复数（可能含孤立回复），不是全视频覆盖率 */
   replies: { reported: number; collected: number }
   /** 评论、回复、回答的发布时间范围，弹幕没有发布时间 */
   time_range?: { from: string; to: string }

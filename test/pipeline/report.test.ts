@@ -73,9 +73,9 @@ describe('renderReport', () => {
   test('结构：标题、概况、关键词、各方向主题、运行信息；没有主题的方向不出现', () => {
     assert.match(markdown, /^# 《测试视频》分析报告\n/)
     const headings = markdown.split('\n').filter((l) => l.startsWith('## '))
-    assert.deepEqual(headings, ['## 概况', '## 关键词', '## 字幕与观众反应时间轴', '## 主要观点', '## 吐槽点', '## 运行信息'])
-    assert.match(markdown, /### 1\. 整体评价一般（约 12 条）/)
-    assert.match(markdown, /- \*\*和别家比\*\*（约 3 条）/)
+    assert.deepEqual(headings, ['## 核心结论', '## 字幕与观众反应时间轴', '## 附录：统计与处理范围', '## 概况', '## 关键词', '## 附录：分块主题（未综合核对）', '## 主要观点', '## 吐槽点', '## 运行信息'])
+    assert.match(markdown, /### 1\. 整体评价一般（模型估计涉及约 12 条，非逐条分类结果）/)
+    assert.match(markdown, /- \*\*和别家比\*\*（模型估计涉及约 3 条，非逐条分类结果）/)
     assert.match(markdown, /价格（3）/)
     assert.ok(markdown.endsWith('\n') && !markdown.includes('\n\n\n'))
   })
@@ -116,4 +116,30 @@ describe('renderReport', () => {
     const none = makeDataset(dataset.items, { contents: [] })
     assert.match(renderReport(input([], {}, none)), /^# test\.json 分析报告/)
   })
+})
+
+test('回复分母就地说明；估计数量不伪装逐条统计', () => {
+  const data = makeDataset([makeItem({ id: 'p', reply_count: 337 }), makeItem({ id: 'r', kind: 'reply', parent_id: 'p' })])
+  const report = renderReport(input([theme('主要观点', '结论', ['p'])], {}, data))
+  assert.match(report, /已采集主评论下标注的回复数合计 337 条/)
+  assert.match(report, /不代表全视频回复覆盖率/)
+  assert.match(report, /模型估计涉及约 3 条，非逐条分类结果/)
+  assert.ok(!report.includes('平台显示'))
+})
+
+test('核心结论先于统计，分歧双方分别展示；成功综合后省略原始主题', () => {
+  const report = renderReport(input([theme('主要观点', '低价值问候', ['c4'])], { insights: { called: true, insights: [{ finding: '内容接受与品牌记忆需分别验证', evidence: [{ point: '内容评价', refs: [{ id: 'c5', quote: '还可以' }] }], counterevidence: [{ point: '负面证据', refs: [{ id: 'c1', quote: '太贵了' }] }], boundary: '零散线索', meaning: '分开衡量目标', verify: '补充回忆调查' }] } }))
+  assert.ok(report.indexOf('## 核心结论') < report.indexOf('## 概况'))
+  assert.ok(!report.includes('低价值问候'))
+  for (const text of ['还可以', '太贵了', '反例/分歧', '零散线索', '分开衡量目标', '补充回忆调查']) assert.ok(report.includes(text))
+})
+
+test('晚段高峰优先进入关键时间轴，完整窗口保留在附录', () => {
+  const items = Array.from({ length: 50 }, (_, i) => makeItem({ id: `d${i}`, kind: 'danmaku', text: `普通窗口${i}`, video_time_sec: i * 30 }))
+  items.push(...Array.from({ length: 30 }, (_, i) => makeItem({ id: `late${i}`, kind: 'danmaku', text: '广告揭晓', video_time_sec: 1000 })))
+  const data = makeDataset(items)
+  const report = renderReport(input([], {}, data))
+  const main = report.slice(report.indexOf('## 字幕与观众反应时间轴'), report.indexOf('## 附录：完整时间轴'))
+  assert.match(main, /广告揭晓/)
+  assert.match(report, /1470–1500/)
 })

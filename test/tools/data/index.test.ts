@@ -49,7 +49,7 @@ describe('数据工具', () => {
     const result = await toolsFor()('get_dataset_stats')
     assert.match(result, /测试视频/)
     assert.match(result, /comment 2，reply 12，danmaku 1/)
-    assert.match(result, /平台显示 5 条，实际搜集到 12 条/)
+    assert.match(result, /已采集主评论下标注的回复数合计 5 条，本次导入回复 12 条/)
     assert.match(result, /广东 1/)
     const top = result.split('\n').filter((line) => line.startsWith('['))
     assert.deepEqual(top.map((line) => line.match(/^\[(\w+)\]/)?.[1]), ['c2', 'c1'])
@@ -69,7 +69,8 @@ describe('数据工具', () => {
       makeItem({ id: 'c', reply_count: 3 }),
       makeItem({ id: 'r', kind: 'reply', parent_id: 'c' }),
     ])])('get_dataset_stats')
-    assert.match(result, /33%/)
+    assert.match(result, /不代表全视频回复覆盖率/)
+    assert.doesNotMatch(result, /33%/)
     assert.doesNotMatch(result, /回复是不完整的样本/)
     assert.match(result, /不能仅凭.*比例/)
   })

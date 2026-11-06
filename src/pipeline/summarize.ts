@@ -147,6 +147,7 @@ export function buildSystemPrompt(dataset: Dataset, plan: ChunkPlan, directions:
   ]
   formats.push('- 字幕块：[编号] 字幕 content=内容ID 时间 正文；属于源内容事实，不是观众立场。')
   if (hasDanmaku) formats.push('- 弹幕块：[编号] ×重复次数 首次出现的时间 正文。')
+  formats.push('- 标题的每个方面必须有展示引用支持；声称两种解读时保留双方证据，只有单方则收窄标题。合并重复问题，省略与目标无关的问候；区分内容接受度与品牌记忆，广告识别与认可、调侃与反感。')
   return `你在分析一批文本内容（通用记录、评论、回复等）。内容分成若干块，每次给你一块，每行一条：
 ${formats.join('\n')}
 没有的字段不显示。

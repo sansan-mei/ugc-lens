@@ -12,6 +12,7 @@ import { recordOutcome } from '../memory/learnings.ts'
 import { planChunks, type ChunkPlan } from './chunk.ts'
 import { analysisCoverage } from '../analysis/coverage.ts'
 import { mergeFindings, type MergeResult, type Theme } from './merge.ts'
+import { synthesizeInsights, type InsightsResult } from './insights.ts'
 import { renderReport } from './report.ts'
 import {
   defaultDirections,
@@ -51,6 +52,7 @@ export interface AnalyzeOptions {
 }
 
 export interface AnalyzeResult {
+  insights: InsightsResult
   task_usage: TaskUsage
   coverage: ReturnType<typeof analysisCoverage>
   playbook: PlaybookInfo
@@ -111,17 +113,19 @@ export async function analyzeDataset(options: AnalyzeOptions): Promise<AnalyzeRe
     signal: options.signal,
   })
   options.onProgress?.({ type: 'merged', themes: merge.themes.length, called: merge.called })
+  const insights = await synthesizeInsights({ model: options.model, dataset, themes: merge.themes, playbook, signal: options.signal })
 
   const usage: Required<Usage> = {
-    input_tokens: summary.usage.input_tokens + (merge.usage?.input_tokens ?? 0),
-    output_tokens: summary.usage.output_tokens + (merge.usage?.output_tokens ?? 0),
-    cached_input_tokens: summary.usage.cached_input_tokens + (merge.usage?.cached_input_tokens ?? 0),
+    input_tokens: summary.usage.input_tokens + (merge.usage?.input_tokens ?? 0) + (insights.usage?.input_tokens ?? 0),
+    output_tokens: summary.usage.output_tokens + (merge.usage?.output_tokens ?? 0) + (insights.usage?.output_tokens ?? 0),
+    cached_input_tokens: summary.usage.cached_input_tokens + (merge.usage?.cached_input_tokens ?? 0) + (insights.usage?.cached_input_tokens ?? 0),
   }
-  const calls = summary.calls + (merge.called ? 1 : 0)
+  const calls = summary.calls + (merge.called ? 1 : 0) + (insights.called ? 1 : 0)
   const generatedAt = now()
   const duration_ms = Math.round(performance.now() - started)
   const coverage = analysisCoverage(dataset, plan, summary.chunks)
   const markdown = renderReport({
+    insights,
     dataset,
     stats,
     coverage: plan.coverage,
@@ -162,5 +166,5 @@ export async function analyzeDataset(options: AnalyzeOptions): Promise<AnalyzeRe
       merge_invalid_refs: merge.invalid_refs, merge_fallback: Boolean(merge.error), themes: merge.themes.length, calls,
     },
   })
-  return { task_usage: currentTask()!.snapshot(), coverage, playbook: playbookInfo(playbook), memory_warning, markdown, path, themes: merge.themes, stats, plan, danmaku, summary, merge, calls, usage, duration_ms }
+  return { insights, task_usage: currentTask()!.snapshot(), coverage, playbook: playbookInfo(playbook), memory_warning, markdown, path, themes: merge.themes, stats, plan, danmaku, summary, merge, calls, usage, duration_ms }
 }

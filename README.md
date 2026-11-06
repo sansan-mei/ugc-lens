@@ -182,7 +182,7 @@ ugc-lens profile --learn ./my_history.txt # 仅导入自己选择的用户发言
 先用 `ugc-lens init` 配置模型。MCP 由宿主启动，不需要自己开一个服务终端。Claude Code 中可以添加：
 
 ```bash
-claude mcp add --transport stdio ugc-lens -- npx -y ugc-lens@0.0.9 mcp --cwd /绝对路径/数据项目
+claude mcp add --transport stdio ugc-lens -- npx -y ugc-lens@0.0.10 mcp --cwd /绝对路径/数据项目
 ```
 
 测试本地源码时：
@@ -200,7 +200,7 @@ claude mcp add --transport stdio ugc-lens -- node /绝对路径/ugc-lens/src/cli
   "mcpServers": {
     "ugc-lens": {
       "command": "npx",
-      "args": ["-y", "ugc-lens@0.0.9", "mcp", "--cwd", "/绝对路径/数据项目"]
+      "args": ["-y", "ugc-lens@0.0.10", "mcp", "--cwd", "/绝对路径/数据项目"]
     }
   }
 }

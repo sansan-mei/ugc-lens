@@ -1,5 +1,6 @@
+import { getEvidence } from '../../dataset/evidence.ts'
 import * as z from 'zod'
-import { getFeedback, getReplies } from '../../dataset/query.ts'
+import { getReplies } from '../../dataset/query.ts'
 import type { DatasetStore } from '../../dataset/store.ts'
 import { defineTool } from '../define.ts'
 import type { AgentTool } from '../types.ts'
@@ -13,7 +14,7 @@ export function createGetFeedbackTool(store: DatasetStore, options: DataToolOpti
   const maxChars = options.maxOutputChars ?? DEFAULT_MAX_OUTPUT_CHARS
   return defineTool({
     name: 'get_feedback',
-    description: '按 ID 读取互动内容的全文，以及上下文：它回复的上一级、它下面的回复（按时间先后）。一次最多 10 个 ID。',
+    description: '按 ID 读取互动内容或字幕证据的全文，以及上下文：它回复的上一级、它下面的回复（按时间先后）。一次最多 10 个 ID。',
     parameters: z.object({
       dataset_id: datasetIdParam,
       ids: z.array(z.string().min(1)).min(1).max(10).describe('条目 ID，即结果中方括号里的部分，不含方括号'),
@@ -23,15 +24,15 @@ export function createGetFeedbackTool(store: DatasetStore, options: DataToolOpti
     async execute({ dataset_id, ids, reply_offset, reply_limit }) {
       const dataset = resolveDataset(store, dataset_id)
       const showContent = hasManyContents(dataset)
-      const missing = ids.filter((id) => !getFeedback(dataset, id))
+      const missing = ids.filter((id) => !getEvidence(dataset, id))
       if (missing.length === ids.length) throw new Error(`找不到这些 ID：${missing.join(', ')}。ID 要和结果中方括号里的完全一致`)
 
       const blocks: string[] = []
       for (const id of ids) {
-        const item = getFeedback(dataset, id)
+        const item = getEvidence(dataset, id)
         if (!item) continue
         const lines = [formatItem(item, { maxChars: FULL_TEXT_CHARS, showContent })]
-        const parent = item.parent_id ? getFeedback(dataset, item.parent_id) : undefined
+        const parent = item.parent_id ? getEvidence(dataset, item.parent_id) : undefined
         if (parent) lines.push(`  上一级：${formatItem(parent, { maxChars: CONTEXT_CHARS })}`)
         else if (item.parent_id) lines.push(`  上一级 [${item.parent_id}] 不在数据里`)
 

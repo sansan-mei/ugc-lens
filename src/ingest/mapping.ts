@@ -85,8 +85,8 @@ const content = z.strictObject({
 export const mappingSchema = z.strictObject({
   platform: z.string().min(1).describe('平台：bilibili、douyin、xhs、zhihu、youtube、weibo、kuaishou，通用记录或判断不了填 unknown'),
   content: content.optional(),
-  collections: z.array(collection).min(1).describe('互动内容集合：评论、弹幕、回答等'),
-})
+  collections: z.array(collection).describe('互动内容集合：评论、弹幕、回答等；仅字幕来源可为空'),
+}).refine((rule) => rule.collections.length > 0 || rule.content?.transcript !== undefined, '至少提供一个互动集合或字幕映射')
 
 export type Mapping = z.output<typeof mappingSchema>
 export type CollectionRule = Mapping['collections'][number]

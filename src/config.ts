@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
+import { parseEnv } from 'node:util'
 import { join } from 'node:path'
 import {
   PROVIDERS,
@@ -40,14 +41,10 @@ export class ConfigError extends Error {
 
 const CONFIG_DIR = '.ugc-lens'
 
-/** 读取 cwd/.env 进环境变量（不覆盖已有的），没有就什么都不做 */
-export function loadDotEnv(cwd: string): void {
+/** 独立解析项目 .env，不将项目值提升为进程级可信配置。 */
+export function loadDotEnv(cwd: string): Record<string, string | undefined> {
   const file = join(cwd, '.env')
-  if (!existsSync(file)) return
-  // Bun 没有 process.loadEnvFile，但启动时会自动加载当前目录的 .env
-  if (typeof process.loadEnvFile !== 'function') return
-  // 已存在的环境变量不会被 .env 覆盖，保证命令行里临时指定的值优先
-  process.loadEnvFile(file)
+  return existsSync(file) ? parseEnv(readFileSync(file, 'utf8')) : {}
 }
 
 export function globalConfigPath(homeDir: string = homedir()): string {
@@ -106,10 +103,11 @@ export function loadLlmConfig(
   cwd: string = process.cwd(),
   homeDir: string = homedir(),
 ): LlmConfig {
-  loadDotEnv(cwd)
+  const dotenv = loadDotEnv(cwd)
   const file = readConfigFile(cwd)
   const global = existsSync(globalConfigPath(homeDir)) ? readConfigFile(homeDir) : {}
-  const env = process.env
+  const trustedEnv = process.env
+  const env = { ...dotenv, ...trustedEnv }
 
   const provider = pick(overrides.provider, env.UGC_LENS_PROVIDER, file.provider, global.provider)
   if (!provider) {
@@ -140,6 +138,26 @@ export function loadLlmConfig(
 
   const apiKeyEnv = pick(overrides.api_key_env, file.api_key_env, global.api_key_env, preset?.apiKeyEnv)
   const apiKey = pick(overrides.api_key, apiKeyEnv ? env[apiKeyEnv] : undefined, file.api_key, global.api_key)
+  if (apiKey) {
+    const inheritedGlobal = apiKey === global.api_key
+    const inheritedProcess = apiKeyEnv !== undefined && apiKey === trustedEnv[apiKeyEnv]
+    if (inheritedGlobal || inheritedProcess) {
+      const trustedProvider = pick(overrides.provider, trustedEnv.UGC_LENS_PROVIDER, global.provider)
+      const keyPreset = Object.values(PROVIDERS).find((p: ProviderPreset) => p.apiKeyEnv === apiKeyEnv)
+      const trustedPreset: ProviderPreset | undefined = trustedProvider && isProviderId(trustedProvider) && trustedProvider !== 'custom'
+        ? PROVIDERS[trustedProvider] : inheritedGlobal ? undefined : keyPreset
+      const trustedKeyEnv = pick(overrides.api_key_env, global.api_key_env, trustedPreset?.apiKeyEnv)
+      if (inheritedProcess && apiKeyEnv !== trustedKeyEnv && !overrides.api_key) {
+        throw new ConfigError('端点与凭证来源未绑定：项目不能自行选择其他进程凭证，请在可信配置指定 api_key_env')
+      }
+      const trustedRegion = pick(overrides.region, trustedEnv.UGC_LENS_REGION, global.region) === 'global' ? 'global' : 'cn'
+      const boundEndpoint = pick(overrides.base_url, trustedEnv.UGC_LENS_BASE_URL, global.base_url,
+        trustedPreset && resolveBaseUrl(trustedPreset, trustedRegion))
+      if (!boundEndpoint || baseUrl.replace(/\/+$/, '') !== boundEndpoint.replace(/\/+$/, '')) {
+        throw new ConfigError('端点变化不能继承凭证：请在可信代码参数、进程环境或全局配置中显式绑定 base_url')
+      }
+    }
+  }
   // 本地服务（ollama、lmstudio、custom）可以没有 key
   if (preset?.apiKeyEnv && !apiKey && provider !== 'lmstudio') {
     throw new ConfigError(`缺少 API key：设置 ${apiKeyEnv}，或运行 ugc-lens init 写入全局配置`)

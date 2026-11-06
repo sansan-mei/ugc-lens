@@ -1,3 +1,4 @@
+import { currentTask, withTask } from '../agent/usage.ts'
 import { createMemoryTools } from '../memory/tools.ts'
 import type { MemoryOptions } from '../memory/playbook.ts'
 import { randomUUID } from 'node:crypto'
@@ -22,6 +23,7 @@ import { defineTool } from '../tools/define.ts'
 import type { ToolContext } from '../tools/types.ts'
 
 export interface McpServerOptions {
+  tokenBudget?: number
   memory?: MemoryOptions
   cwd?: string
   model?: AgentModel
@@ -150,16 +152,17 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
       description: tool.description,
       inputSchema: fromJsonSchema<Record<string, unknown>>(tool.parameters),
       annotations: { readOnlyHint: readOnly.has(tool.name), destructiveHint: false, openWorldHint: !readOnly.has(tool.name) },
-    }, async (args, request) => {
+    }, async (args, request) => withTask(async () => {
       const signal = AbortSignal.any([lifetime.signal, request.mcpReq.signal])
       const context: ToolContext = { run_id: randomUUID(), cwd, signal, approve: denyAll }
       try {
         signal.throwIfAborted()
-        return { content: [{ type: 'text', text: await tool.execute(args, context) }] }
+        const text = await tool.execute(args, context)
+        return { content: [{ type: 'text', text }], structuredContent: { task_usage: currentTask()!.snapshot() } }
       } catch (error) {
-        return { isError: true, content: [{ type: 'text', text: `错误：${error instanceof Error ? error.message : String(error)}` }] }
+        return { isError: true, content: [{ type: 'text', text: `错误：${error instanceof Error ? error.message : String(error)}\n${JSON.stringify({ task_usage: currentTask()!.snapshot() })}` }] }
       }
-    })
+    }, options.tokenBudget))
   }
   server.server.onclose = () => {
     lifetime.abort()

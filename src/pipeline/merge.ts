@@ -1,3 +1,4 @@
+import { completeTracked, currentTask, withTask, TaskBudgetError } from '../agent/usage.ts'
 import { DEFAULT_PLAYBOOK, playbookRules, type PlaybookSnapshot } from '../memory/playbook.ts'
 import * as z from 'zod'
 import type { AgentModel } from '../agent/model.ts'
@@ -158,6 +159,7 @@ export function parseThemes(
 }
 
 export async function mergeFindings(options: MergeOptions): Promise<MergeResult> {
+  if (!currentTask()) return withTask(() => mergeFindings(options))
   const { findings, directions } = options
   const minSupport = options.minSupport ?? 2
   const all = findings.map((_, i) => i)
@@ -172,7 +174,7 @@ export async function mergeFindings(options: MergeOptions): Promise<MergeResult>
   ]
   const signal = options.signal ?? new AbortController().signal
   const call = (forced: boolean) =>
-    options.model.complete({ messages, tools: [tool], toolChoice: forced ? { type: 'function', function: { name: TOOL_NAME } } : 'auto', signal })
+    completeTracked(options.model, { messages, tools: [tool], toolChoice: forced ? { type: 'function', function: { name: TOOL_NAME } } : 'auto', signal }, 'merge')
 
   let usage: Usage | undefined
   try {
@@ -199,7 +201,7 @@ export async function mergeFindings(options: MergeOptions): Promise<MergeResult>
     if (signal.aborted) throw error
     return {
       themes: finish(standalone(findings, all), directions, minSupport),
-      called: true,
+      called: !(error instanceof TaskBudgetError),
       usage,
       error: (error as Error).message,
       invalid_refs: 0,

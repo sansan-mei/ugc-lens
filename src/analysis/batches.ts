@@ -1,3 +1,4 @@
+import { completeTracked, currentTask, withTask } from '../agent/usage.ts'
 import * as z from 'zod'
 import type { AgentModel } from '../agent/model.ts'
 import type { FeedbackItem } from '../dataset/types.ts'
@@ -9,11 +10,17 @@ import { toParametersSchema } from '../tools/define.ts'
 export interface BatchRecord<T> { id: string; status: 'processed' | 'failed' | 'skipped'; value?: T; reason?: string }
 
 /** 一批的非法或重复 ID 使该批失败；遗漏只影响遗漏项。 */
-export async function evaluateBatches<S extends z.ZodObject>(options: {
+type BatchOptions<S extends z.ZodObject> = {
   items: readonly FeedbackItem[]; model: AgentModel; system: string; row: S
   validate?: (row: z.output<S>, item: FeedbackItem) => void
   tokenBudget?: number; batchSize?: number; maxChars?: number; signal?: AbortSignal
-}) {
+}
+
+export function evaluateBatches<S extends z.ZodObject>(options: BatchOptions<S>): ReturnType<typeof evaluateBatchesImpl<S>> {
+  return withTask(() => evaluateBatchesImpl(options), options.tokenBudget)
+}
+
+async function evaluateBatchesImpl<S extends z.ZodObject>(options: BatchOptions<S>) {
   const signal = options.signal ?? new AbortController().signal
   signal.throwIfAborted()
   const budget = options.tokenBudget ?? 30_000
@@ -41,14 +48,14 @@ export async function evaluateBatches<S extends z.ZodObject>(options: {
   let exhausted = false
   for (const current of batches) {
     signal.throwIfAborted()
-    if (spent >= budget) {
+    if (currentTask()?.exhausted || spent >= budget) {
       exhausted = true
       for (const item of current) records.set(item.id, { id: item.id, status: 'skipped', reason: '达到 token 预算' })
       continue
     }
     const input = JSON.stringify(current.map(({ id, text, kind, content_id, parent_id }) => ({ id, text, kind, content_id, parent_id })))
     const messages = [{ role: 'system' as const, content: options.system }, { role: 'user' as const, content: input }]
-    const request = () => { calls++; return options.model.complete({ messages, tools: [tool], toolChoice: force ? { type: 'function', function: { name: tool.function.name } } : 'auto', signal }) }
+    const request = () => { calls++; return completeTracked(options.model, { messages, tools: [tool], toolChoice: force ? { type: 'function', function: { name: tool.function.name } } : 'auto', signal }, 'evaluation') }
     let charged = false
     try {
       let response
@@ -87,5 +94,5 @@ export async function evaluateBatches<S extends z.ZodObject>(options: {
   const ordered = options.items.map((i) => records.get(i.id)!)
   const counts = { total: ordered.length, processed: 0, failed: 0, skipped: 0 }
   for (const row of ordered) counts[row.status]++
-  return { records: ordered, counts, coverage: counts.total ? counts.processed / counts.total : 0, calls, usage, budget_consumed: spent, stop_reason: exhausted ? 'token_budget' : counts.failed + counts.skipped ? 'partial' : 'completed' }
+  return { task_usage: currentTask()?.snapshot(), records: ordered, counts, coverage: counts.total ? counts.processed / counts.total : 0, calls, usage, budget_consumed: spent, stop_reason: exhausted ? 'token_budget' : counts.failed + counts.skipped ? 'partial' : 'completed' }
 }

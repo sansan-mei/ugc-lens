@@ -1,6 +1,8 @@
+import type { Evidence } from '../../dataset/evidence.ts'
 import type { Dataset, FeedbackItem } from '../../dataset/types.ts'
 
-const KIND_LABELS: Record<FeedbackItem['kind'], string> = {
+const KIND_LABELS: Record<Evidence['kind'], string> = {
+  transcript: '字幕',
   comment: '评论',
   reply: '回复',
   danmaku: '弹幕',
@@ -44,7 +46,7 @@ export interface FormatItemOptions {
 }
 
 /** 例：[1003] 评论 赞94 回复3 2024-10-22 浙江 用户3：正文… */
-export function formatItem(item: FeedbackItem, options: FormatItemOptions = {}): string {
+export function formatItem(item: Evidence, options: FormatItemOptions = {}): string {
   const parts = [`[${item.id}]`, KIND_LABELS[item.kind]]
   if (item.likes !== undefined) parts.push(`赞${item.likes}`)
   if (item.reply_count) parts.push(`回复${item.reply_count}`)

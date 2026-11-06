@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import type { TaskUsage } from '../agent/usage.ts'
 /**
  * 命令行入口：ugc-lens 默认进入持续对话，子命令用于单次操作
  * 开发时：node src/cli/index.ts <命令> ...
@@ -70,6 +71,8 @@ if ((command === undefined && !process.stdin.isTTY) || command === '--help' || c
     try {
       await run(rest)
     } catch (error) {
+      const taskUsage = (error as { task_usage?: TaskUsage }).task_usage
+      if (taskUsage?.calls.length) console.error(`本任务已知 token ${taskUsage.known_tokens}，用量未知 ${taskUsage.unknown_calls} 次`)
       if (error instanceof UsageError || isParseArgsError(error)) {
         console.error(`${(error as Error).message}\n\n${usage}`)
         process.exitCode = 2

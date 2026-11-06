@@ -42,3 +42,8 @@ test('mappingSchema：下一级默认是 reply、不递归', () => {
   const parsed = mappingSchema.parse({ ...base, collections: [{ ...base.collections[0], children: [{ path: 'replies' }] }] })
   assert.deepEqual(parsed.collections[0]?.children?.[0], { kind: 'reply', path: 'replies', recursive: false })
 })
+
+test('仅字幕来源允许没有互动集合，不能用空规则冒充可分析数据', () => {
+  assert.equal(mappingSchema.safeParse({ platform: 'x', content: { path: '$', fields: { id: 'id' }, transcript: { path: 'captions', start: 'start', end: 'end', text: 'text' } }, collections: [] }).success, true)
+  assert.equal(mappingSchema.safeParse({ platform: 'x', collections: [] }).success, false)
+})

@@ -1,8 +1,9 @@
+import type { TaskUsage } from '../agent/usage.ts'
 import { basename } from 'node:path'
 import type { DanmakuSummary } from '../analysis/danmaku.ts'
 import type { TermStat } from '../analysis/keywords.ts'
 import { dedupeKey, stripReplyPrefix } from '../analysis/text.ts'
-import { getFeedback } from '../dataset/query.ts'
+import { getEvidence } from '../dataset/evidence.ts'
 import type { DatasetStats } from '../dataset/stats.ts'
 import type { Dataset, FeedbackItem } from '../dataset/types.ts'
 import type { Usage } from '../llm/types.ts'
@@ -13,6 +14,7 @@ import type { analysisCoverage } from '../analysis/coverage.ts'
 import { contentTimeline } from '../analysis/content_timeline.ts'
 
 export interface ReportRunInfo {
+  task_usage?: TaskUsage
   playbook?: { version: number; hash: string }
   generated_at: Date
   duration_ms: number
@@ -65,7 +67,7 @@ function inline(text: string, max: number, stripPrefix = true): string {
 }
 
 function quoteLine(ref: Theme['refs'][number], dataset: Dataset, repeats: (item: FeedbackItem) => number, indent: string): string | undefined {
-  const item = getFeedback(dataset, ref.id)
+  const item = getEvidence(dataset, ref.id)
   if (!item) return undefined
   const meta = [
     item.author?.name,
@@ -73,7 +75,7 @@ function quoteLine(ref: Theme['refs'][number], dataset: Dataset, repeats: (item:
     item.likes ? `赞 ${n(item.likes)}` : undefined,
     item.kind === 'danmaku' && item.video_time_sec !== undefined ? `弹幕 ${clock(item.video_time_sec)}` : undefined,
   ].filter(Boolean)
-  const count = repeats(item)
+  const count = item.kind === 'transcript' ? 1 : repeats({ ...item, kind: item.kind })
   const same = count > 1 ? `（类似内容 ${n(count)} 条）` : ''
   const text = ref.quote ? `……${ref.quote}……` : inline(item.text, QUOTE_CHARS, item.kind !== 'record')
   return `${indent}> ${text}${same}${meta.length > 0 ? ` —— ${meta.join(' · ')}` : ''} \`${item.id}\``
@@ -81,7 +83,7 @@ function quoteLine(ref: Theme['refs'][number], dataset: Dataset, repeats: (item:
 
 function topRefs(theme: Theme, dataset: Dataset, limit: number): Theme['refs'] {
   return [...theme.refs]
-    .sort((a, b) => (getFeedback(dataset, b.id)?.likes ?? 0) - (getFeedback(dataset, a.id)?.likes ?? 0))
+    .sort((a, b) => (getEvidence(dataset, b.id)?.likes ?? 0) - (getEvidence(dataset, a.id)?.likes ?? 0))
     .slice(0, limit)
 }
 
@@ -176,6 +178,7 @@ function runSection(run: ReportRunInfo): string[] {
     `- 耗时 ${(run.duration_ms / 1000).toFixed(1)} 秒，调用模型 ${run.calls} 次`,
     `- token：输入 ${n(u.input_tokens)}（缓存命中 ${n(u.cached_input_tokens)}），输出 ${n(u.output_tokens)}`,
   ]
+  if (run.task_usage) lines.push(`- 本任务内部调用 ${run.task_usage.calls.length} 次，已知 token ${run.task_usage.known_tokens}，用量未知 ${run.task_usage.unknown_calls} 次；软预算 ${run.task_usage.token_budget}，在途请求和最多一次收尾可能超出；不含 MCP 宿主用量。`)
   if (run.incomplete_chunks > 0) {
     lines.push(`- ${run.total_chunks} 块里有 ${run.incomplete_chunks} 块没有完成，上面的观点只基于其余部分`)
   }
@@ -190,8 +193,10 @@ export function renderReport(input: ReportInput): string {
   const meta = [dataset.platform, content?.author, content?.published_at?.slice(0, 10), content?.url].filter(Boolean)
   if (meta.length > 0) header.push(meta.join(' · '), '')
   const ledger = input.ledger ? ['## 处理覆盖记录', '', '| 类型 | 导入 | 重复正文信号 | 成功块内 | 失败块内 | 跳过块内 | 未选择 |', '|---|---:|---:|---:|---:|---:|---:|', ...input.ledger.kinds.map((r) => `| ${r.kind} | ${r.imported} | ${r.duplicate_texts} | ${r.processed} | ${r.failed} | ${r.skipped} | ${r.not_selected} |`), '', '成功块内表示原文进入已完成的总结块，不代表已逐条分类；重复计数不参与总数相加。导入路径跳过数：' + input.ledger.collections.reduce((s, r) => s + r.skipped, 0), ''] : []
+  if (input.ledger) ledger.push('### 正文字幕覆盖', '', '| 内容 | 源/转换状态 | 源段数 | 转换失败 | 已导入 | 已提交模型 | 成功块内 | 失败块内 | 跳过 | 未选择 |', '|---|---|---:|---:|---:|---:|---:|---:|---:|---:|',
+    ...input.ledger.transcripts.map((r) => `| ${cell(r.content_id)} | ${r.source_status} | ${r.source_elements ?? '未知'} | ${r.conversion_failed ?? '未知'} | ${r.imported} | ${r.submitted} | ${r.processed} | ${r.failed} | ${r.skipped} | ${r.not_selected} |`), '', '未配置字幕映射且无导入片段时，源状态为未知，不能据此声称源中没有字幕。', '')
   const timeline = contentTimeline(input.dataset, { limit: 30 })
-  const timelineLines = timeline.rows.length ? ['## 字幕与观众反应时间轴', '', '| 内容 | 视频秒数 | 弹幕数 | 字幕原文及位置 | 观众反应及 ID |', '|---|---|---:|---|---|', ...timeline.rows.map((row) => `| ${cell(row.title ?? row.content_id)} | ${row.start_sec}–${row.end_sec}${row.peak ? '（高峰）' : ''} | ${row.count} | ${row.transcript.length ? row.transcript.map((t) => `${cell(t.text)} [${cell(t.ref)}]`).join('；') : '未提供对应字幕，不猜测内容'} | ${row.feedback.map((f) => `${cell(f.text)} [${cell(f.id)}]`).join('；')} |`), '', ...(timeline.next_offset === null ? [] : [`共 ${timeline.total} 个有弹幕窗口，此处显示前 ${timeline.rows.length} 个，可用 get_content_timeline 翻页。`, '']), '时间对齐不代表因果关系，也不代表已观看视频画面。', ''] : []
+  const timelineLines = timeline.rows.length ? ['## 字幕与观众反应时间轴', '', '| 内容 | 视频秒数 | 弹幕数 | 字幕原文及位置 | 观众反应及 ID |', '|---|---|---:|---|---|', ...timeline.rows.map((row) => `| ${cell(row.title ?? row.content_id)} | ${row.start_sec}–${row.end_sec}${row.peak ? '（高峰）' : ''} | ${row.count} | ${row.transcript.length ? row.transcript.map((t) => `${cell(t.text)} [${cell(t.ref)}]`).join('；') : '未提供对应字幕，不猜测内容'} | ${row.feedback.map((f) => `${cell(f.text)} [${cell(f.id)}]`).join('；')} |`), '', ...(timeline.next_offset === null ? [] : [`共 ${timeline.total} 个字幕或弹幕窗口，此处显示前 ${timeline.rows.length} 个，可用 get_content_timeline 翻页。`, '']), '时间对齐不代表因果关系，也不代表已观看视频画面。', ''] : []
   const sections = [overview(input), ledger, keywordSection(input.keywords, input.danmaku, (input.stats.items.record ?? 0) > 0), peakSection(input.danmaku), timelineLines, themeSections(input), runSection(input.run)]
   return [...header, ...sections.filter((s) => s.length > 0).flatMap((s) => [...s, ''])].join('\n').replace(/\n{3,}/g, '\n\n').trimEnd() + '\n'
 }

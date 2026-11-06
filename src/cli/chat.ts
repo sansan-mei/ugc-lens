@@ -29,6 +29,7 @@ export async function runChatFlow(session: ChatSession, io: ChatIo, signal?: Abo
           if (signal?.aborted) break
           io.print(result.answer.trim() || '本轮未完成，可以继续描述你的需求。')
           if (result.profile_learning?.warning) io.print(result.profile_learning.warning)
+          io.print(`（本轮内部已知 token ${result.task_usage.known_tokens}，用量未知 ${result.task_usage.unknown_calls} 次）`)
           if (result.profile_learning?.usage) io.print(`（画像学习 token ${result.profile_learning.usage.input_tokens}+${result.profile_learning.usage.output_tokens}）`)
           if (result.stop_reason !== 'completed') io.print(`（本轮停止原因：${result.stop_reason}）`)
         } catch (error) {

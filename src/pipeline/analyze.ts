@@ -1,3 +1,4 @@
+import { currentTask, withTask, type TaskUsage } from '../agent/usage.ts'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { AgentModel } from '../agent/model.ts'
@@ -50,6 +51,7 @@ export interface AnalyzeOptions {
 }
 
 export interface AnalyzeResult {
+  task_usage: TaskUsage
   coverage: ReturnType<typeof analysisCoverage>
   playbook: PlaybookInfo
   memory_warning?: string
@@ -74,6 +76,7 @@ function stamp(date: Date): string {
 
 /** 固定流水线：代码统计 → 分块 → 分块总结 → 合并 → 写报告。模型只参与总结和合并 */
 export async function analyzeDataset(options: AnalyzeOptions): Promise<AnalyzeResult> {
+  if (!currentTask()) return withTask(() => analyzeDataset(options), options.tokenBudget)
   const playbook = options.playbook ?? loadPlaybook(options.memory)
   const started = performance.now()
   const now = options.now ?? (() => new Date())
@@ -128,6 +131,7 @@ export async function analyzeDataset(options: AnalyzeOptions): Promise<AnalyzeRe
     directions,
     ledger: coverage,
     run: {
+      task_usage: currentTask()!.snapshot(),
       playbook: playbookInfo(playbook),
       generated_at: generatedAt,
       duration_ms,
@@ -158,5 +162,5 @@ export async function analyzeDataset(options: AnalyzeOptions): Promise<AnalyzeRe
       merge_invalid_refs: merge.invalid_refs, merge_fallback: Boolean(merge.error), themes: merge.themes.length, calls,
     },
   })
-  return { coverage, playbook: playbookInfo(playbook), memory_warning, markdown, path, themes: merge.themes, stats, plan, danmaku, summary, merge, calls, usage, duration_ms }
+  return { task_usage: currentTask()!.snapshot(), coverage, playbook: playbookInfo(playbook), memory_warning, markdown, path, themes: merge.themes, stats, plan, danmaku, summary, merge, calls, usage, duration_ms }
 }

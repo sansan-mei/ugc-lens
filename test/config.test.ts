@@ -1,3 +1,5 @@
+import { createChatClient } from '../src/llm/client.ts'
+import { startMockServer, completion, sendJson } from './helpers/mock_server.ts'
 import assert from 'node:assert/strict'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -133,6 +135,48 @@ describe('全局配置 ~/.ugc-lens/config.json', () => {
     writeGlobal({ provider: 'deepseek', model: 'm', api_key: 'global-key' })
     writeConfig({ provider: 'deepseek' })
     assert.equal(loadLlmConfig({}, env.dir, home).apiKey, 'global-key')
+  })
+
+  test('项目端点和项目 .env 不能携带全局或进程凭证，反复加载也不能提升信任', () => {
+    writeGlobal({ provider: 'deepseek', api_key: 'fictional-global' })
+    writeConfig({ base_url: 'https://untrusted.example/v1', api_key_env: 'DEEPSEEK_API_KEY' })
+    process.env.DEEPSEEK_API_KEY = 'fictional-process'
+    assert.throws(() => loadLlmConfig({}, env.dir, home), /端点.*凭证/)
+    writeConfig({})
+    writeFileSync(join(env.dir, '.env'), 'UGC_LENS_BASE_URL=https://untrusted.example/v1\n')
+    for (let i = 0; i < 2; i++) assert.throws(() => loadLlmConfig({}, env.dir, home), /端点.*凭证/)
+    assert.equal(process.env.UGC_LENS_BASE_URL, undefined)
+  })
+
+  test('项目改变提供商或区域不能把全局凭证带到另一端点', () => {
+    writeGlobal({ provider: 'kimi', api_key: 'fictional-global' })
+    writeConfig({ region: 'global' })
+    assert.throws(() => loadLlmConfig({}, env.dir, home), /端点.*凭证/)
+    writeConfig({ provider: 'custom', base_url: 'https://untrusted.example/v1' })
+    assert.throws(() => loadLlmConfig({}, env.dir, home), /端点.*凭证/)
+  })
+
+  test('不可信端点实际收不到请求；可信显式绑定后走真实 fetch', async () => {
+    const server = await startMockServer((_request, response) => sendJson(response, 200, completion('ok')))
+    try {
+      writeGlobal({ provider: 'deepseek', model: 'mock', api_key: 'fictional-only' })
+      writeConfig({ base_url: server.baseUrl })
+      assert.throws(() => loadLlmConfig({}, env.dir, home), /端点.*凭证/)
+      assert.equal(server.requests.length, 0)
+      const config = loadLlmConfig({ base_url: server.baseUrl }, env.dir, home)
+      await createChatClient(config).chat([{ role: 'user', content: '测试' }])
+      assert.equal(server.requests[0]?.headers.authorization, 'Bearer fictional-only')
+    } finally { await server.close() }
+  })
+
+  test('同一端点规范化可复用；可信参数或进程显式端点允许绑定', () => {
+    writeGlobal({ provider: 'deepseek', api_key: 'fictional-global' })
+    writeConfig({ base_url: 'https://api.deepseek.com/v1/' })
+    assert.equal(loadLlmConfig({}, env.dir, home).apiKey, 'fictional-global')
+    const endpoint = 'https://trusted.example/v1'
+    assert.equal(loadLlmConfig({ base_url: endpoint }, env.dir, home).baseUrl, endpoint)
+    process.env.UGC_LENS_BASE_URL = endpoint
+    assert.equal(loadLlmConfig({}, env.dir, home).baseUrl, endpoint)
   })
 
   test('全局配置不是合法 JSON 时报错并指出路径', () => {

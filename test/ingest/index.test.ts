@@ -120,3 +120,21 @@ test('datasetId：同一文件得到同一 ID，相对路径与绝对路径等�
   assert.notEqual(datasetId(BV_FIXTURE), datasetId(AV_FIXTURE))
   assert.equal(datasetId(join(process.cwd(), 'a.json')), datasetId('a.json'))
 })
+
+test('拒绝缓存只适用于相同文件内容；fresh 成功能治愈旧拒绝', async () => {
+  const cacheDir = join(dir, 'reject-recovery')
+  const file = join(dir, 'recover.json')
+  const empty = { list: [{ id: 'a', text: '' }] }
+  const valid = { list: [{ id: 'a', text: '可分析的有效正文' }] }
+  assert.equal(describeShape(empty).fingerprint, describeShape(valid).fingerprint)
+  const reject = () => createFakeModel([{ tool_calls: [{ name: 'reject_file', args: { reason: '当前没有正文' } }] }, { content: '完成' }])
+  const rule = { platform: 'x', collections: [{ path: '$.list', kind: 'comment', fields: { id: 'id', text: 'text' } }] }
+  const accept = () => createFakeModel([{ tool_calls: [{ name: 'submit_mapping', args: rule }] }, { content: '完成' }])
+  await writeFile(file, JSON.stringify(empty))
+  await assert.rejects(loadDataset(file, { cacheDir, model: reject() }), isImportError('not_feedback'))
+  await writeFile(file, JSON.stringify(valid))
+  assert.equal((await loadDataset(file, { cacheDir, model: accept() })).items.length, 1)
+  await assert.rejects(loadDataset(file, { cacheDir, model: reject(), useCache: false }), isImportError('not_feedback'))
+  await loadDataset(file, { cacheDir, model: accept(), useCache: false })
+  assert.equal((await loadDataset(file, { cacheDir, model: failingModel })).mapping.from_cache, true)
+})

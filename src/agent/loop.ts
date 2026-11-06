@@ -1,3 +1,4 @@
+import { completeTracked, currentTask, withTask, TaskBudgetError, type TaskUsage } from './usage.ts'
 import { randomUUID } from 'node:crypto'
 import type { ChatMessage, ChatResult, ToolCall, ToolChoice, Usage } from '../llm/types.ts'
 import { denyAll, type Approver } from '../tools/approval.ts'
@@ -44,6 +45,7 @@ export interface AgentStep {
 
 export interface AgentRunResult {
   run_id: string
+  task_usage: TaskUsage
   answer: string
   stop_reason: StopReason
   steps: AgentStep[]
@@ -54,6 +56,7 @@ export interface AgentRunResult {
 }
 
 export interface RunAgentOptions {
+  stage?: string
   model: AgentModel
   /** 初始消息，通常是 system + user。不会被修改 */
   messages: readonly ChatMessage[]
@@ -79,6 +82,7 @@ export function finalizeNotice(reason: StopReason): string {
 }
 
 export async function runAgent(options: RunAgentOptions): Promise<AgentRunResult> {
+  if (!currentTask()) return withTask(() => runAgent(options), options.limits?.tokenBudget)
   const limits: AgentLimits = { ...DEFAULT_LIMITS, ...options.limits }
   const run_id = randomUUID()
   const startedAt = Date.now()
@@ -112,7 +116,7 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentRunResult
 
   // 停止检查放在工具执行之后、下一次调用模型之前
   const limitReason = (step: number): StopReason | undefined => {
-    if (usage.input_tokens + usage.output_tokens >= limits.tokenBudget) return 'token_budget'
+    if (currentTask()!.exhausted || usage.input_tokens + usage.output_tokens >= limits.tokenBudget) return 'token_budget'
     if (consecutiveToolErrors >= limits.maxConsecutiveToolErrors) return 'tool_errors'
     if (step > limits.maxSteps) return 'max_steps'
     return undefined
@@ -120,14 +124,14 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentRunResult
 
   const callModel = async (step: number, toolChoice: ToolChoice, final: boolean): Promise<ChatResult> => {
     emit({ type: 'model_start', run_id, step, final })
-    const result = await options.model.complete({
+    const result = await completeTracked(options.model, {
       messages,
       tools: definitions,
       toolChoice,
       signal,
       onRetry: ({ attempt, delayMs, error }) =>
         emit({ type: 'model_retry', run_id, step, attempt, delay_ms: delayMs, reason: error.message.slice(0, 200) }),
-    })
+    }, options.stage ?? 'agent', final)
     usage.input_tokens += result.usage.input_tokens
     usage.output_tokens += result.usage.output_tokens
     emit({
@@ -150,7 +154,7 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentRunResult
     try {
       result = await callModel(step, 'auto', false)
     } catch (error) {
-      stopReason = abortReason()
+      stopReason = abortReason() ?? (error instanceof TaskBudgetError ? 'token_budget' : undefined)
       if (stopReason) break
       throw error
     }
@@ -189,7 +193,7 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentRunResult
 
   const duration_ms = Date.now() - startedAt
   emit({ type: 'run_end', run_id, stop_reason: stopReason, usage: { ...usage }, duration_ms })
-  return { run_id, answer, stop_reason: stopReason, steps, messages, usage, duration_ms }
+  return { run_id, task_usage: currentTask()!.snapshot(), answer, stop_reason: stopReason, steps, messages, usage, duration_ms }
 
   async function finalize(reason: StopReason): Promise<string> {
     const last = messages.at(-1)
@@ -203,6 +207,7 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentRunResult
       result = await callModel(step, 'none', true)
     } catch (error) {
       if (abortReason()) return ''
+      if (error instanceof TaskBudgetError) return finalizeNotice(reason)
       throw error
     }
     messages.push(result.message)

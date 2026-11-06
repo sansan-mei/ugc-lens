@@ -1,3 +1,4 @@
+import { currentTask, withTask } from '../agent/usage.ts'
 import { readdir, stat } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import * as z from 'zod'
@@ -35,6 +36,7 @@ function buildSessionPrompt(playbook: PlaybookSnapshot): string {
 export const SESSION_SYSTEM_PROMPT = buildSessionPrompt(DEFAULT_PLAYBOOK)
 
 export interface SessionOptions {
+  tokenBudget?: number
   memory?: MemoryOptions
   model: AgentModel
   analysisModel?: AgentModel
@@ -138,13 +140,13 @@ export function createSession(options: SessionOptions): ChatSession {
             if (event.type === 'watching') ready()
             options.onWatchEvent?.(event)
           },
-          analyze: async (file, taskSignal) => {
+          analyze: async (file, taskSignal) => withTask(async () => {
             // 监听每次重新导入，避免使用对话里旧的文件快照。
             const dataset = await load(file, { model, signal: taskSignal, cacheDir: join(cwd, '.ugc-lens', 'mappings') })
             const result = await analyze({ dataset, model, directions, cwd, memory: options.memory, modelName: options.modelName, signal: taskSignal })
             datasets.set(dataset.id, dataset)
-            return { report: result.path, calls: result.calls, usage: result.usage }
-          },
+            return { task_usage: currentTask()!.snapshot(), report: result.path, calls: result.calls, usage: result.usage }
+          }, undefined, true),
         })).then(() => { failed(new Error('监听在启动前已停止')) }, (error: unknown) => {
           failed(error)
           if (!signal.aborted) options.onWatchEvent?.({ type: 'error', message: (error as Error).message })
@@ -168,6 +170,7 @@ export function createSession(options: SessionOptions): ChatSession {
   ]
   return {
     async ask(question, signal) {
+      return withTask(async () => {
       if (lifetime.signal.aborted) throw new Error('会话已关闭')
       if (busy) throw new Error('请等待上一轮完成')
       currentQuestion = question
@@ -188,8 +191,9 @@ export function createSession(options: SessionOptions): ChatSession {
           })
         }
         const profile_learning = result.stop_reason === 'aborted' || roundSignal.aborted ? undefined : await learnProfile(options.memory, model, question, roundSignal)
-        return { ...result, memory_warning, profile_learning }
+        return { ...result, task_usage: currentTask()!.snapshot(), memory_warning, profile_learning }
       } finally { busy = undefined; currentQuestion = '' }
+      }, options.tokenBudget)
     },
     async close() {
       lifetime.abort()

@@ -1,3 +1,4 @@
+import { currentTask, withTask, type TaskUsage } from '../agent/usage.ts'
 import type { RunEventListener } from '../agent/events.ts'
 import { runAgent, type AgentLimits, type AgentRunResult } from '../agent/loop.ts'
 import type { AgentModel } from '../agent/model.ts'
@@ -37,6 +38,7 @@ export interface AskOptions {
 }
 
 export interface AskResult {
+  task_usage: TaskUsage
   profile_learning?: Awaited<ReturnType<typeof learnProfile>>
   playbook?: PlaybookInfo
   memory_warning?: string
@@ -50,6 +52,7 @@ export const ASK_LIMITS: Partial<AgentLimits> = { maxSteps: 12 }
 
 /** 追问的核心函数，命令行、代码调用、MCP 都通过它 */
 export async function askDataset(options: AskOptions): Promise<AskResult> {
+  if (!currentTask()) return withTask(() => askDataset(options), options.limits?.tokenBudget)
   const store = createDatasetStore(options.datasets)
   const history = options.history?.length ? options.history : [{ role: 'system' as const, content: buildAskPrompt(options.playbook ?? loadPlaybook(options.memory)) }]
   const playbook = promptPlaybookInfo(history.find((m) => m.role === 'system')?.content ?? '')
@@ -68,5 +71,6 @@ export async function askDataset(options: AskOptions): Promise<AskResult> {
     observations: { steps: run.steps.length, stop_reason: run.stop_reason, valid_citations: citations.valid.length, invalid_citations: citations.invalid.length },
   })
   const profile_learning = run.stop_reason === 'aborted' || options.signal?.aborted ? undefined : await learnProfile(options.memory, options.tools?.sentimentModel ?? options.model, options.question, options.signal)
-  return { answer: run.answer, citations, run, playbook, memory_warning, profile_learning }
+  run.task_usage = currentTask()!.snapshot()
+  return { task_usage: currentTask()!.snapshot(), answer: run.answer, citations, run, playbook, memory_warning, profile_learning }
 }

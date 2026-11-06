@@ -41,3 +41,6 @@ export { DEFAULT_PLAYBOOK, loadPlaybook, parsePlaybook, initPlaybook, proposePla
 export type { MemoryOptions, PlaybookSnapshot, PlaybookInfo, PlaybookChange, PlaybookProposal } from './memory/playbook.ts'
 export { recordLearning, searchLearnings } from './memory/learnings.ts'
 export type { Learning } from './memory/learnings.ts'
+
+export { withTask, currentTask, TaskLedger, TaskBudgetError, type TaskUsage } from './agent/usage.ts'
+export { getEvidence, transcriptId, transcriptEvidence, type Evidence } from './dataset/evidence.ts'

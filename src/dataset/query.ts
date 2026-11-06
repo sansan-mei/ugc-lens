@@ -1,3 +1,4 @@
+import { getEvidence } from './evidence.ts'
 import type { Dataset, FeedbackItem, FeedbackKind } from './types.ts'
 
 export type FeedbackSort = 'likes' | 'replies' | 'newest' | 'oldest' | 'video_time'
@@ -133,7 +134,7 @@ export function findCitations(text: string, datasets: readonly Dataset[]): { val
   const valid: string[] = []
   const invalid: string[] = []
   for (const id of ids) {
-    if (datasets.some((dataset) => getFeedback(dataset, id))) valid.push(id)
+    if (datasets.some((dataset) => getEvidence(dataset, id))) valid.push(id)
     else if (!datasets.some((dataset) => indexOf(dataset).bracketed.has(id))) invalid.push(id)
   }
   return { valid, invalid }

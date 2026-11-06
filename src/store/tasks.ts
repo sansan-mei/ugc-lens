@@ -4,6 +4,11 @@ import * as z from 'zod'
 
 const usageSchema = z.object({ input_tokens: z.number(), output_tokens: z.number(), cached_input_tokens: z.number() })
 
+const taskUsageSchema = z.object({
+  task_id: z.string(), token_budget: z.number(), known_tokens: z.number(), unknown_estimated_tokens: z.number(), unknown_calls: z.number(),
+  calls: z.array(z.object({ id: z.string(), stage: z.string(), final: z.boolean(), status: z.enum(['pending', 'ok', 'failed']), input_tokens: z.number().nullable(), output_tokens: z.number().nullable() })),
+})
+
 const taskSchema = z.object({
   /** 绝对路径，也是任务的唯一标识 */
   file: z.string(),
@@ -14,6 +19,7 @@ const taskSchema = z.object({
   report: z.string().optional(),
   calls: z.number().optional(),
   usage: usageSchema.optional(),
+  task_usage: taskUsageSchema.optional(),
   error: z.string().optional(),
 })
 

@@ -10,6 +10,7 @@ const outcomeSchema = z.discriminatedUnion('type', [
 
 const ruleSchema = z.object({
   created_at: z.string(),
+  source_digest: z.string().optional(),
   /** 生成这条规则时的文件名，方便人查看 */
   file_name: z.string(),
   outcome: outcomeSchema,
@@ -65,8 +66,9 @@ export async function listCache(dir: string): Promise<CacheEntry[]> {
 /** 追加一条规则；内容完全相同的规则不重复保存 */
 export async function addCacheRule(dir: string, fingerprint: string, rule: CacheRule): Promise<void> {
   const entry = (await readCache(dir, fingerprint)) ?? { version: 2, fingerprint, rules: [] }
-  const key = JSON.stringify(rule.outcome)
-  if (!entry.rules.some((existing) => JSON.stringify(existing.outcome) === key)) entry.rules.push(rule)
+  if (rule.outcome.type === 'mapping') entry.rules = entry.rules.filter((r) => r.outcome.type !== 'rejected')
+  const key = JSON.stringify([rule.outcome, rule.source_digest])
+  if (!entry.rules.some((existing) => JSON.stringify([existing.outcome, existing.source_digest]) === key)) entry.rules.push(rule)
 
   await mkdir(dir, { recursive: true })
   const target = entryPath(dir, fingerprint)

@@ -36,7 +36,7 @@ const SYSTEM_PROMPT = `你负责识别一个结构化数据文件的结构，告
 1. 判断文件来自哪个平台，找出被评论的对象（视频、笔记、问题）和所有文本记录数组。
 2. 调用 submit_mapping 提交映射规则。程序会用规则试转换全部数据，并返回每个集合导入了多少条、每个字段的命中率。
 3. 如果返回错误，按错误修改规则后重新提交。警告不影响通过，但如果提示有数组没被使用，想一想是否漏掉了弹幕、回复之类的集合。
-4. 文件里没有可分析文本（如纯数字表格、用户 ID 列表）时，调用 reject_file 说明原因。
+4. 字幕是可分析的源正文；仅有字幕时填写 content.transcript 并允许 collections=[]，不能因为没有评论或弹幕拒绝。文件里没有可分析文本（如纯数字表格、用户 ID 列表）时，调用 reject_file 说明原因。
 5. 规则通过或文件被拒绝后，回复“完成”。
 
 注意：
@@ -77,6 +77,7 @@ export async function inferMapping(options: InferOptions): Promise<InferResult> 
   })
 
   const run = await runAgent({
+    stage: 'ingest',
     model: options.model,
     messages: [
       { role: 'system', content: SYSTEM_PROMPT },

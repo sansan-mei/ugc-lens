@@ -1,3 +1,4 @@
+import { currentTask, withTask } from '../agent/usage.ts'
 import { parseArgs } from 'node:util'
 import type { AgentRunResult } from '../agent/loop.ts'
 import { askDataset } from '../ask/index.ts'
@@ -32,6 +33,7 @@ export function parseAskArgs(argv: readonly string[]): AskArgs {
 }
 
 export async function runAsk(argv: readonly string[]): Promise<void> {
+  if (!currentTask()) return withTask(() => runAsk(argv))
   const args = parseAskArgs(argv)
   const config = loadLlmConfig()
   const model = askModel(config)
@@ -54,6 +56,7 @@ export async function runAsk(argv: readonly string[]): Promise<void> {
         if (args.verbose || event.type === 'tool_start' || event.type === 'model_retry') console.error(formatEvent(event))
       },
     })
+    console.error(`（本任务内部已知 token ${result.task_usage.known_tokens}，用量未知 ${result.task_usage.unknown_calls} 次）`)
     history = result.run.messages
     if (result.profile_learning?.warning) console.error(result.profile_learning.warning)
     if (result.profile_learning?.usage) console.error(`（画像学习 token ${result.profile_learning.usage.input_tokens}+${result.profile_learning.usage.output_tokens}）`)

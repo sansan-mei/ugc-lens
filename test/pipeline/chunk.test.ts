@@ -80,7 +80,7 @@ describe('planChunks', () => {
     }
     assert.equal(plan.coverage.items_included, plan.coverage.items_total)
     assert.equal(plan.coverage.sampled, false)
-    assert.deepEqual(plan.chunks.map((c) => c.kind), ['threads', 'danmaku'])
+    assert.deepEqual(plan.chunks.map((c) => c.kind), ['threads', 'danmaku', 'transcript'])
     assert.equal(plan.coverage.danmaku_represented, plan.coverage.danmaku_total)
   })
 
@@ -96,13 +96,13 @@ describe('planChunks', () => {
     assert.deepEqual(plan.chunks.map((c) => c.index), plan.chunks.map((_, i) => i))
   })
 
-  test('行格式：不带原 ID 和类型，带赞、日期、属地、用户名；去掉“回复 @某人 :”', () => {
+  test('行格式：带赞、日期、属地、用户名；回复保留称呼和关系', () => {
     const dataset = makeDataset([
       makeItem({ id: '123456789012', text: '价格太贵了吧', likes: 94, reply_count: 1, created_at: '2024-10-22T10:00:00+08:00', author: { name: '用户3', location: '浙江' } }),
       makeItem({ id: '223456789012', kind: 'reply', parent_id: '123456789012', text: '回复 @用户3 :确实不便宜', likes: 2 }),
     ])
     const [chunk] = planChunks(dataset).chunks
-    assert.deepEqual(chunk?.lines, ['[1] 赞94 回复1 2024-10-22 浙江 用户3：价格太贵了吧', '  ↳[2] 赞2 确实不便宜'])
+    assert.deepEqual(chunk?.lines, ['[1] 赞94 回复1 2024-10-22 浙江 用户3：价格太贵了吧', '  ↳[2] 赞2 回复 @用户3 :确实不便宜 {parent=123456789012 root=123456789012 content=BV1}'])
     assert.deepEqual(chunk?.ids, ['123456789012', '223456789012'])
   })
 
@@ -128,9 +128,9 @@ describe('planChunks', () => {
     ])
     const plan = planChunks(dataset)
     const ids = plan.chunks.flatMap((c) => c.ids)
-    assert.deepEqual([...ids].sort(), ['c', 'd', 'd2', 'e', 'f'].sort())
+    assert.deepEqual([...ids].sort(), ['c', 'd', 'd2', 'e', 'f', 'f2'].sort())
     assert.equal(plan.coverage.low_info, 3)
-    assert.equal(planChunks(dataset, { dropLowInfo: false }).chunks.flatMap((c) => c.ids).length, 8)
+    assert.equal(planChunks(dataset, { dropLowInfo: false }).chunks.flatMap((c) => c.ids).length, dataset.items.length)
   })
 
   test('一级内容截断时不留下半个 emoji', () => {
@@ -166,7 +166,7 @@ describe('planChunks', () => {
     assert.equal(plan.coverage.items_included, included.length)
   })
 
-  test('复读评论合并成一行，注明另有多少条，并计入代表条数', () => {
+  test('复读评论压缩正文并保留成员身份，注明重复数量与代表条数', () => {
     const plan = planChunks(makeDataset(threads(30, 0, (i) => (i < 20 ? '666666666666' : `正常评论${i}`))))
     const line = plan.chunks[0]!.lines.find((l) => l.includes('同样 +'))
     assert.match(line ?? '', /666…（6×12）（同样 \+19）/)
@@ -196,4 +196,41 @@ describe('planChunks', () => {
     assert.equal(chunk.represents, 6)
     assert.deepEqual([plan.coverage.danmaku_groups_included, plan.coverage.danmaku_represented], [2, 6])
   })
+})
+
+test('同正文的跨视频或有回复的独立评论保留全部身份与回复', () => {
+  const dataset = makeDataset([
+    makeItem({ id: 'p1', content_id: 'v1', text: '共同建议很好' }),
+    makeItem({ id: 'p2', content_id: 'v2', text: '共同建议很好' }),
+    makeItem({ id: 'p3', content_id: 'v1', text: '共同建议很好' }),
+    makeItem({ id: 'r1', content_id: 'v1', parent_id: 'p1', kind: 'reply', text: '我反对这个建议' }),
+    makeItem({ id: 'r2', content_id: 'v2', parent_id: 'p2', kind: 'reply', text: '我支持这个建议' }),
+    makeItem({ id: 'r3', content_id: 'v1', parent_id: 'p3', kind: 'reply', text: '第三个不同的回复' }),
+  ])
+  const ids = planChunks(dataset, { dropLowInfo: false }).chunks.flatMap((c) => c.ids)
+  assert.deepEqual(new Set(ids), new Set(dataset.items.map((i) => i.id)))
+})
+
+test('多级回复按点赞重排和父级截断后仍保留直接回复指向', () => {
+  const dataset = makeDataset([
+    makeItem({ id: 'p', text: '建议很好' }),
+    makeItem({ id: 'r1', kind: 'reply', parent_id: 'p', text: '我反对', likes: 1 }),
+    makeItem({ id: 'r2', kind: 'reply', parent_id: 'r1', text: '回复 @某人：我同意你', likes: 10 }),
+  ])
+  for (const maxRepliesPerThread of [1, 20]) {
+    const plan = planChunks(dataset, { dropLowInfo: false, maxRepliesPerThread })
+    const line = plan.chunks.flatMap((c) => c.lines).find((s) => s.includes('我同意你'))!
+    assert.match(line, /parent=r1/)
+    assert.match(line, /root=p/)
+    assert.match(line, /content=BV1/)
+    if (maxRepliesPerThread === 1) assert.match(line, /未列出/)
+  }
+})
+
+test('大量重复评论保留来源时仍遵守单块上限', () => {
+  const dataset = makeDataset(Array.from({ length: 100 }, (_, i) => makeItem({ id: `duplicate-${i}`, text: '完全相同且不能丢失身份的正文' })))
+  const maxChunkChars = 500
+  const plan = planChunks(dataset, { maxChunkChars })
+  assert.ok(plan.chunks.every((c) => c.chars <= maxChunkChars))
+  assert.equal(plan.chunks.flatMap((c) => c.ids).length, dataset.items.length)
 })

@@ -1,3 +1,4 @@
+import { transcriptId } from '../dataset/evidence.ts'
 import { FEEDBACK_KINDS, type Dataset } from '../dataset/types.ts'
 import type { ChunkPlan } from '../pipeline/chunk.ts'
 import type { ChunkSummary } from '../pipeline/summarize.ts'
@@ -16,7 +17,18 @@ export function analysisCoverage(dataset: Dataset, plan?: ChunkPlan, summaries?:
     for (const item of items) counts[(states.get(item.id) ?? 'not_selected') as 'processed' | 'failed' | 'skipped' | 'selected' | 'not_selected']++
     return { kind, ...counts }
   }).filter((row) => row.imported > 0)
-  return { collections, kinds, stage: summaries ? 'summarize' : plan ? 'planned' : 'import', notes: [
+  const transcripts = dataset.contents.map((content) => {
+    const source = dataset.report.transcripts?.find((r) => r.content_id === content.id)
+    const ids = (content.transcript ?? []).map((_, i) => transcriptId(content.id, i))
+    const count = (state: string) => ids.filter((id) => states.get(id) === state).length
+    const processed = count('processed')
+    const failed = count('failed')
+    return { content_id: content.id, source_status: source?.status ?? (ids.length ? 'imported' : 'unknown'),
+      source_elements: source?.elements ?? null, conversion_failed: source?.failed ?? null,
+      imported: ids.length, submitted: processed + failed, processed, failed,
+      selected: count('selected'), skipped: count('skipped'), not_selected: ids.filter((id) => !states.has(id)).length }
+  })
+  return { collections, kinds, transcripts, stage: summaries ? 'summarize' : plan ? 'planned' : 'import', notes: [
     '计数仅针对当前导入文件，搜集端采样与平台全量另行说明。',
     '重复正文只记录信号，不判定水军；逐条分类与情感分析仍按独立 ID 等权统计。',
     'processed 表示原文 ID 进入成功总结块，不表示主题或情感已逐条核验；弹幕复读代表数另见报告。',

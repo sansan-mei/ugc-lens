@@ -1,3 +1,4 @@
+import { currentTask, withTask } from '../agent/usage.ts'
 import { writeFile } from 'node:fs/promises'
 import { parseArgs } from 'node:util'
 import { loadLlmConfig } from '../config.ts'
@@ -50,6 +51,7 @@ export function parseAnalyzeArgs(argv: readonly string[]): AnalyzeArgs {
 }
 
 export async function runAnalyze(argv: readonly string[]): Promise<void> {
+  if (!currentTask()) return withTask(() => runAnalyze(argv))
   const args = parseAnalyzeArgs(argv)
   const config = loadLlmConfig()
   const model = analysisModel(config)

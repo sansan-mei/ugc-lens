@@ -1,3 +1,4 @@
+import type { TaskUsage } from '../agent/usage.ts'
 import { watch, type FSWatcher } from 'node:fs'
 import { stat } from 'node:fs/promises'
 import { resolve } from 'node:path'
@@ -7,6 +8,7 @@ import type { Task, TaskStore } from '../store/tasks.ts'
 import { compilePatterns, DEFAULT_PATTERNS, scanFiles } from './pattern.ts'
 
 export interface AnalyzeOutcome {
+  task_usage?: TaskUsage
   report?: string
   calls: number
   usage: Required<Usage>
@@ -183,17 +185,19 @@ export async function watchDirectory(options: WatchOptions): Promise<void> {
       emit({ type: 'started', file, waiting: queue.length })
       try {
         const outcome = await options.analyze(file, signal)
-        const done: Task = { ...running, status: 'done', finished_at: now(), report: outcome.report, calls: outcome.calls, usage: outcome.usage }
+        const done: Task = { ...running, status: 'done', finished_at: now(), report: outcome.report, calls: outcome.calls, usage: outcome.usage, task_usage: outcome.task_usage }
         await store.put(done)
         emit({ type: 'done', file, task: done })
       } catch (error) {
+        const task_usage = (error as { task_usage?: TaskUsage }).task_usage
+        if (task_usage) await store.put({ ...running, task_usage })
         // 被取消的任务保持 running，下次启动时接着做
         if (signal.aborted) {
           interrupted = file
           break
         }
         const message = (error as Error).message
-        await store.put({ ...running, status: 'failed', finished_at: now(), error: message })
+        await store.put({ ...running, status: 'failed', finished_at: now(), error: message, task_usage })
         emit({ type: 'failed', file, error: message })
       }
     }

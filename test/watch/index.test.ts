@@ -210,3 +210,22 @@ test('显式 pattern 可监听 TXT、JSONL 和 CSV，并通过共用导入器读
     assert.deepEqual(new Set(imported), new Set(['服务体验不错', '售后需要改进', '价格有点高']))
   } finally { await w.stop() }
 })
+
+test('后台任务失败后保存账本，重新打开仍保留已知用量', async () => {
+  const { withTask, completeTracked } = await import('../../src/agent/usage.ts')
+  const { createFakeModel } = await import('../../src/agent/fake_model.ts')
+  const path = join(root, 'ledger-tasks.json')
+  const store = await openTaskStore(path)
+  const file = join(data, 'cost_all.json')
+  await put(file)
+  const watcher = await start(store, { existing: true, analyze: async () => withTask(async () => {
+    await completeTracked(createFakeModel([{ content: '已消耗用量' }]), { messages: [], tools: [], toolChoice: 'auto', signal: new AbortController().signal }, 'analysis')
+    throw new Error('后续失败')
+  }) })
+  try {
+    await watcher.waitFor((e) => e.type === 'failed')
+    const saved = (await openTaskStore(path)).get(file)!
+    assert.ok(saved.task_usage && saved.task_usage.known_tokens > 0)
+    assert.equal(saved.task_usage.calls.length, 1)
+  } finally { await watcher.stop() }
+})

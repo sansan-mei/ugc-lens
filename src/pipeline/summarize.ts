@@ -1,7 +1,8 @@
+import { completeTracked, currentTask, withTask, TaskBudgetError } from '../agent/usage.ts'
 import { DEFAULT_PLAYBOOK, playbookRules, type PlaybookSnapshot } from '../memory/playbook.ts'
 import * as z from 'zod'
 import type { AgentModel } from '../agent/model.ts'
-import { getFeedback } from '../dataset/query.ts'
+import { getEvidence } from '../dataset/evidence.ts'
 import type { Dataset } from '../dataset/types.ts'
 import { approxTokens } from '../llm/tokens.ts'
 import type { ChatMessage, ToolDefinition, Usage } from '../llm/types.ts'
@@ -142,8 +143,9 @@ function describeDataset(dataset: Dataset): string {
 export function buildSystemPrompt(dataset: Dataset, plan: ChunkPlan, directions: readonly string[], maxFindings: number, playbook: PlaybookSnapshot = DEFAULT_PLAYBOOK): string {
   const hasDanmaku = plan.chunks.some((chunk) => chunk.kind === 'danmaku')
   const formats = [
-    '- [编号] 赞数 回复数 日期 IP 属地 用户名：正文。以 ↳ 开头的是上一条的回复。“（同样 +N）”表示另有 N 条内容相同。',
+    '- [编号] 赞数 回复数 日期 IP 属地 用户名：正文。以 ↳ 开头的是回复，parent/root/content 明确直接回复对象、根评论及内容归属；排列顺序不代表回复关系。“（同样 +N）”表示另有 N 条内容相同。',
   ]
+  formats.push('- 字幕块：[编号] 字幕 content=内容ID 时间 正文；属于源内容事实，不是观众立场。')
   if (hasDanmaku) formats.push('- 弹幕块：[编号] ×重复次数 首次出现的时间 正文。')
   return `你在分析一批文本内容（通用记录、评论、回复等）。内容分成若干块，每次给你一块，每行一条：
 ${formats.join('\n')}
@@ -165,7 +167,7 @@ ${describeDataset(dataset)}`
 }
 
 function chunkMessage(chunk: Chunk, total: number): string {
-  const kind = chunk.kind === 'danmaku' ? '弹幕' : '文本记录'
+  const kind = chunk.kind === 'danmaku' ? '弹幕' : chunk.kind === 'transcript' ? '源内容字幕' : '文本记录'
   return `第 ${chunk.index + 1}/${total} 块（${kind}）：\n${chunk.lines.join('\n')}`
 }
 
@@ -215,7 +217,7 @@ export function parseFindings(
     }
     for (const quote of parsed.data.quotes ?? []) {
       const ref = quote.ref === undefined ? undefined : refs.get(quote.ref)
-      const text = ref && getFeedback(dataset, ref.id)?.text
+      const text = ref && getEvidence(dataset, ref.id)?.text
       if (!ref || !text || !quote.text.trim() || !squeeze(text).includes(squeeze(quote.text))) dropped.bad_quote++
       else ref.quote = quote.text.trim()
     }
@@ -282,12 +284,12 @@ async function summarizeChunk(chunk: Chunk, prepared: Prepared, options: Summari
   ]
   let usage: Usage | undefined
   const call = (forced: boolean) =>
-    options.model.complete({
+    completeTracked(options.model, {
       messages,
       tools: [prepared.tool],
       toolChoice: forced ? { type: 'function', function: { name: TOOL_NAME } } : 'auto',
       signal,
-    })
+    }, 'summarize')
   try {
     let result
     try {
@@ -310,12 +312,13 @@ async function summarizeChunk(chunk: Chunk, prepared: Prepared, options: Summari
     const { findings, dropped } = parseFindings(args, chunk, options.dataset, prepared.directions, prepared.maxFindings)
     return { chunk: chunk.index, status: 'ok', findings, dropped, usage }
   } catch (error) {
-    return { chunk: chunk.index, status: 'failed', findings: [], dropped: emptyDropped(), usage, error: (error as Error).message }
+    return { chunk: chunk.index, status: error instanceof TaskBudgetError ? 'skipped' : 'failed', findings: [], dropped: emptyDropped(), usage, error: (error as Error).message }
   }
 }
 
 /** 每块调用一次模型，不走 Agent 循环：工具结果不需要再交回模型 */
 export async function summarizeChunks(options: SummarizeOptions): Promise<SummarizeResult> {
+  if (!currentTask()) return withTask(() => summarizeChunks(options), options.tokenBudget)
   const started = performance.now()
   const prepared = prepare(options)
   const signal = options.signal ?? new AbortController().signal
@@ -332,7 +335,7 @@ export async function summarizeChunks(options: SummarizeOptions): Promise<Summar
       const chunk = chunks[next++]!
       let summary: ChunkSummary
       if (signal.aborted) summary = skip(chunk, '已取消')
-      else if (options.tokenBudget !== undefined && usage.input_tokens + usage.output_tokens >= options.tokenBudget) {
+      else if (currentTask()?.exhausted || options.tokenBudget !== undefined && usage.input_tokens + usage.output_tokens >= options.tokenBudget) {
         summary = skip(chunk, `已用 token 达到预算 ${options.tokenBudget}`)
       } else {
         calls++

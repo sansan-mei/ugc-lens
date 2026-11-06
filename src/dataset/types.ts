@@ -1,3 +1,4 @@
+import type { TaskUsage } from '../agent/usage.ts'
 /** 平台名，由模型根据文件内容判断，如 bilibili、xhs；判断不了时为 unknown */
 export type Platform = string
 
@@ -72,6 +73,7 @@ export interface ImportReport {
   contents: number
   items: number
   content?: { path: string; elements: number; field_hits: Record<string, number> }
+  transcripts?: Array<{ content_id: string; path: string; status: 'absent' | 'empty' | 'failed' | 'imported'; elements: number; imported: number; failed: number }>
   collections: CollectionReport[]
   errors: string[]
   warnings: string[]
@@ -80,6 +82,7 @@ export interface ImportReport {
 }
 
 export interface Dataset {
+  task_usage?: TaskUsage
   id: string
   platform: Platform
   file_path: string

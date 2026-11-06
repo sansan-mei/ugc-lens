@@ -82,7 +82,7 @@ function pickProviderId(input: string): ProviderId | undefined {
 /** 交互式初始化流程；返回写入的配置，用户取消时返回 undefined */
 export async function runInitFlow(deps: InitDeps): Promise<LlmConfigFile | undefined> {
   const { io } = deps
-  loadDotEnv(deps.cwd ?? process.cwd())
+  const initEnv = { ...loadDotEnv(deps.cwd ?? process.cwd()), ...process.env }
   const existing = readGlobalConfig(deps.homeDir)
   const fetchModels = deps.fetchModels ?? fetchModelsReal
   const verifyModel = deps.verifyModel ?? verifyModelReal
@@ -122,7 +122,7 @@ export async function runInitFlow(deps: InitDeps): Promise<LlmConfigFile | undef
   const keyEnv = preset?.apiKeyEnv
   const needsKey = Boolean(keyEnv) && provider !== 'lmstudio'
   if (provider !== 'ollama') {
-    const envKey = keyEnv ? process.env[keyEnv] : undefined
+    const envKey = keyEnv ? initEnv[keyEnv] : undefined
     const hints = [
       envKey ? `环境变量 ${keyEnv} 里已经有，回车用它` : '',
       existing.api_key ? '回车保持已保存的 key' : '',
@@ -137,7 +137,7 @@ export async function runInitFlow(deps: InitDeps): Promise<LlmConfigFile | undef
   }
 
   const baseUrl = file.base_url ?? (preset ? resolveBaseUrl(preset, region) : '')
-  const effectiveKey = file.api_key ?? (keyEnv ? process.env[keyEnv] : undefined)
+  const effectiveKey = file.api_key ?? (keyEnv ? initEnv[keyEnv] : undefined)
   try {
     io.print('正在获取模型列表……')
     const models = await fetchModels({ baseUrl, apiKey: effectiveKey })

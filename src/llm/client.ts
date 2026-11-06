@@ -143,7 +143,7 @@ export function createChatClient(config: LlmConfig, options: ChatClientOptions =
       }
       const cached = raw.usage?.prompt_cache_hit_tokens ?? raw.usage?.prompt_tokens_details?.cached_tokens
       if (cached !== undefined) usage.cached_input_tokens = cached
-      return { message, finishReason: choice.finish_reason, usage, model: raw.model }
+      return { message, finishReason: choice.finish_reason, usage, model: raw.model, usageReported: raw.usage?.prompt_tokens !== undefined && raw.usage?.completion_tokens !== undefined }
     },
 
     async listModels() {

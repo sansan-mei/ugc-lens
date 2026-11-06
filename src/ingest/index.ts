@@ -1,3 +1,4 @@
+import { currentTask, withTask } from '../agent/usage.ts'
 import { createHash } from 'node:crypto'
 import { basename, join, resolve } from 'node:path'
 import type { RunEventListener } from '../agent/events.ts'
@@ -66,6 +67,7 @@ async function findCachedMapping(
 }
 /** 读入结构化文件或文本记录，转换成统一格式。流程见 docs/architecture.md 第 5.3 节 */
 export async function loadDataset(filePath: string, options: LoadDatasetOptions = {}): Promise<Dataset> {
+  if (!currentTask()) return withTask(() => loadDataset(filePath, options), undefined)
   const absolute = resolve(filePath)
   const input = await readInput(absolute, options.signal)
   const { data } = input
@@ -73,9 +75,11 @@ export async function loadDataset(filePath: string, options: LoadDatasetOptions 
   const tabular = input.format === 'csv' || input.format === 'tsv'
   // 表头名称影响列语义，不能仅凭列数相同复用另一个表格的规则。
   if (tabular) shape = { ...shape, fingerprint: createHash('sha256').update(shape.fingerprint + JSON.stringify((data as { columns: unknown }).columns)).digest('hex').slice(0, 16) }
+  const sourceDigest = createHash('sha256').update(absolute).update('\0').update(JSON.stringify(data)).digest('hex')
   const cacheDir = options.cacheDir ?? defaultCacheDir()
 
   const build = (result: ApplyResult, platform: string, fromCache: boolean): Dataset => ({
+    task_usage: currentTask()!.snapshot(),
     id: datasetId(absolute),
     platform,
     source: { format: input.format },
@@ -97,7 +101,7 @@ export async function loadDataset(filePath: string, options: LoadDatasetOptions 
 
   if (options.useCache !== false) {
     const exact = await readCache(cacheDir, shape.fingerprint)
-    const rejected = exact?.rules.find((rule) => rule.outcome.type === 'rejected')
+    const rejected = exact?.rules.find((rule) => rule.outcome.type === 'rejected' && rule.source_digest === sourceDigest)
     if (rejected?.outcome.type === 'rejected') {
       throw new ImportError('not_feedback', `${basename(absolute)} 没有可分析文本：${rejected.outcome.reason}`)
     }
@@ -128,6 +132,7 @@ export async function loadDataset(filePath: string, options: LoadDatasetOptions 
   await addCacheRule(cacheDir, shape.fingerprint, {
     created_at: new Date().toISOString(),
     file_name: basename(absolute),
+    source_digest: outcome.type === 'rejected' ? sourceDigest : undefined,
     outcome: outcome.type === 'mapping' ? { type: 'mapping', mapping: outcome.mapping } : outcome,
   })
 

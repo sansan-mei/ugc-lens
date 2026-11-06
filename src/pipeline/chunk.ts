@@ -1,3 +1,4 @@
+import { transcriptEvidence } from '../dataset/evidence.ts'
 import { groupDanmaku, type DanmakuGroup, type DanmakuSummary } from '../analysis/danmaku.ts'
 import { dedupeKey, isLowInfo, seededRandom, stripReplyPrefix } from '../analysis/text.ts'
 import { getFeedback, getReplies } from '../dataset/query.ts'
@@ -7,6 +8,7 @@ import { clock, compactRepeats, oneLine, sliceText } from '../tools/data/format.
 /** 一条一级内容（评论、回答）和它下面的回复，分块时不拆开 */
 export interface Thread {
   root: FeedbackItem
+  merged_roots?: FeedbackItem[]
   /** 所有层级的回复，点赞多的在前，最多 maxRepliesPerThread 条 */
   replies: FeedbackItem[]
   /** 因为数量上限没放进来的回复 */
@@ -19,7 +21,7 @@ export interface Thread {
 
 export interface Chunk {
   index: number
-  kind: 'threads' | 'danmaku'
+  kind: 'threads' | 'danmaku' | 'transcript'
   /** 发给模型的行，用块内编号 [1]、[2]… 代替原 ID */
   lines: string[]
   /** 块内编号 n 对应 ids[n-1]，引用校验和换回原 ID 用 */
@@ -116,15 +118,15 @@ export function buildThreads(dataset: Dataset, options: { maxRepliesPerThread?: 
 }
 
 /**
- * 正文相同（按 dedupeKey）的一级内容只保留热度最高的一条，记下重复次数。
- * 被合并的那些的回复不再单独列出。重复越多越优先，因为“很多人说同一句话”本身就是信号。
+ * 仅合并同内容下没有回复的重复正文；有回复的证据串保留独立身份。
  */
 export function mergeDuplicateThreads(threads: readonly Thread[]): Thread[] {
   const groups = new Map<string, Thread[]>()
   const unique: Thread[] = []
   for (const thread of threads) {
-    const key = dedupeKey(thread.root.text)
-    if (!key) {
+    const textKey = dedupeKey(thread.root.text)
+    const key = JSON.stringify([thread.root.content_id, thread.root.kind, thread.root.parent_id, textKey])
+    if (!textKey || thread.replies.length || thread.omitted_replies) {
       unique.push(thread)
       continue
     }
@@ -134,7 +136,7 @@ export function mergeDuplicateThreads(threads: readonly Thread[]): Thread[] {
   }
   for (const list of groups.values()) {
     const [best, ...rest] = [...list].sort((a, b) => b.score - a.score)
-    unique.push(rest.length === 0 ? best! : { ...best!, duplicates: rest.length, score: best!.score + 0.5 * Math.log1p(rest.length) })
+    unique.push(rest.length === 0 ? best! : { ...best!, merged_roots: rest.flatMap((t) => [t.root, ...(t.merged_roots ?? [])]), duplicates: rest.length, score: best!.score + 0.5 * Math.log1p(rest.length) })
   }
   return unique
 }
@@ -148,7 +150,8 @@ function liked(item: FeedbackItem): boolean {
  * 返回 undefined 表示整串去掉。
  */
 export function dropLowInfo(thread: Thread): { thread?: Thread; dropped: number } {
-  const replies = thread.replies.filter((reply) => reply.kind === 'record' || liked(reply) || !isLowInfo(reply.text))
+  const parents = new Set(thread.replies.map((reply) => reply.parent_id))
+  const replies = thread.replies.filter((reply) => parents.has(reply.id) || reply.kind === 'record' || liked(reply) || !isLowInfo(reply.text))
   const dropped = thread.replies.length - replies.length
   const empty = replies.length === 0 && thread.omitted_replies === 0 && thread.duplicates === 0
   if (thread.root.kind !== 'record' && empty && !liked(thread.root) && !(thread.root.reply_count ?? 0) && isLowInfo(thread.root.text)) {
@@ -177,14 +180,21 @@ function itemLine(item: FeedbackItem, label: string, max: number, labels: Map<st
   if (item.author?.location) parts.push(item.author.location)
   if (labels) parts.push(labels.get(item.content_id) ?? `@${item.content_id}`)
   const name = item.author?.name ? `${item.author.name}：` : ''
-  return `${parts.join(' ')} ${name}${body(item.text, item.kind === 'record' ? Infinity : max, item.kind !== 'record')}`
+  return `${parts.join(' ')} ${name}${body(item.text, item.kind === 'record' ? Infinity : max, false)}`
 }
 
 /** 编号从 start 开始：一级内容是 start，回复依次加一 */
 function threadLines(thread: Thread, start: number, labels: Map<string, string> | undefined): string[] {
-  const root = itemLine(thread.root, `[${start}]`, ROOT_CHARS, labels)
+  const missingParent = thread.root.parent_id ? ` {parent=${thread.root.parent_id}（未列出或未知） root=未知 content=${thread.root.content_id}}` : ''
+  const root = itemLine(thread.root, `[${start}]`, ROOT_CHARS, labels) + missingParent
   const lines = [thread.duplicates > 0 ? `${root}（同样 +${thread.duplicates}）` : root]
-  thread.replies.forEach((reply, i) => lines.push(`  ↳${itemLine(reply, `[${start + i + 1}]`, REPLY_CHARS, undefined)}`))
+  for (const [i, member] of (thread.merged_roots ?? []).entries()) lines.push(`${itemLine(member, `[${start + i + 1}]`, ROOT_CHARS, labels)}（同文于[${start}]，已计入同样数量）`)
+  const included = new Set([thread.root.id, ...thread.replies.map((r) => r.id)])
+  thread.replies.forEach((reply, i) => {
+    const parent = reply.parent_id ?? '未知'
+    const relation = `parent=${parent}${included.has(parent) ? '' : '（未列出或未知）'} root=${thread.root.parent_id ? '未知' : thread.root.id} content=${reply.content_id}`
+    lines.push(`  ↳${itemLine(reply, `[${start + (thread.merged_roots?.length ?? 0) + i + 1}]`, REPLY_CHARS, labels)} {${relation}}`)
+  })
   if (thread.omitted_replies > 0) lines.push(`  ↳ （另有 ${thread.omitted_replies} 条回复未列出）`)
   return lines
 }
@@ -265,10 +275,16 @@ export function planChunks(dataset: Dataset, options: ChunkOptions = {}): ChunkP
   const labels = contentLabels(dataset)
   const allThreads = buildThreads(dataset, options)
   const merged = mergeDuplicateThreads(allThreads)
+  const repeatedIds = new Set(merged.filter((t) => t.duplicates > 0).flatMap((t) => [t.root.id, ...(t.merged_roots ?? []).map((r) => r.id)]))
+  const bounded = merged.flatMap((thread) => {
+    if (!thread.merged_roots?.length || cost(threadLines(thread, WIDE_LABEL, labels)) <= maxChunkChars) return [thread]
+    // 保留来源后，大型重复组不再是可无限压缩的单条串，恢复为独立的可装块单元。
+    return [thread.root, ...thread.merged_roots].map((root) => ({ ...thread, root, merged_roots: [], duplicates: 0 }))
+  })
   let lowInfo = 0
   const threads: Thread[] = []
-  for (const thread of merged) {
-    if (options.dropLowInfo === false) {
+  for (const thread of bounded) {
+    if (options.dropLowInfo === false || repeatedIds.has(thread.root.id)) {
       threads.push(thread)
       continue
     }
@@ -290,8 +306,8 @@ export function planChunks(dataset: Dataset, options: ChunkOptions = {}): ChunkP
   let itemsIncluded = 0
   for (const thread of selected) {
     const fitted = fitThread(thread, labels, maxChunkChars)
-    const ids = [fitted.root.id, ...fitted.replies.map((r) => r.id)]
-    builder.add('threads', (start) => threadLines(fitted, start, labels), ids, ids.length + fitted.duplicates)
+    const ids = [fitted.root.id, ...(fitted.merged_roots ?? []).map((r) => r.id), ...fitted.replies.map((r) => r.id)]
+    builder.add('threads', (start) => threadLines(fitted, start, labels), ids, ids.length)
     itemsIncluded += ids.length
   }
 
@@ -304,6 +320,11 @@ export function planChunks(dataset: Dataset, options: ChunkOptions = {}): ChunkP
   for (const group of chosen.values()) {
     builder.add('danmaku', (start) => [danmakuLine(group, start)], [group.id], group.count)
     represented += group.count
+  }
+
+  for (const line of transcriptEvidence(dataset)) {
+    // 字幕也是原文证据，单独分块，不能仅在报告中展示。
+    builder.add('transcript', (start) => [`[${start}] 字幕 content=${line.content_id} ${clock(line.video_time_sec!)} ${oneLine(line.text)}`], [line.id], 1)
   }
 
   return {

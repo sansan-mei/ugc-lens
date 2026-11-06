@@ -1,3 +1,4 @@
+import { currentTask, withTask } from '../agent/usage.ts'
 import { relative } from 'node:path'
 import { parseArgs } from 'node:util'
 import { loadLlmConfig } from '../config.ts'
@@ -75,8 +76,10 @@ export function formatWatchEvent(event: WatchEvent, dir: string): string {
       return `▶ 开始分析：${show(event.file)}${event.waiting > 0 ? `（后面还有 ${event.waiting} 个）` : ''}`
     case 'done': {
       const { usage, calls, report } = event.task
+      const ledger = event.task.task_usage
+      const total = ledger ? `，本任务已知 token ${ledger.known_tokens}，用量未知 ${ledger.unknown_calls} 次` : ''
       const cost = usage ? `，调用 ${calls} 次，输入 ${usage.input_tokens}、输出 ${usage.output_tokens} token` : ''
-      return `✓ 完成：${show(event.file)}${cost}${report ? `\n  报告：${report}` : ''}`
+      return `✓ 完成：${show(event.file)}${cost}${total}${report ? `\n  报告：${report}` : ''}`
     }
     case 'failed':
       return `✗ 失败：${show(event.file)}：${event.error}`
@@ -104,7 +107,7 @@ export async function runWatch(argv: readonly string[]): Promise<void> {
     scanIntervalMs: args.scanIntervalMs,
     settleMs: args.settleMs,
     onEvent: (event) => console.log(formatWatchEvent(event, args.dir)),
-    analyze: async (file, taskSignal) => {
+    analyze: async (file, taskSignal) => withTask(async () => {
       const dataset = await loadDataset(file, { model, signal: taskSignal })
       const result = await analyzeDataset({
         memory: { cwd: process.cwd(), onWarning: (message) => console.error(message) },
@@ -116,7 +119,7 @@ export async function runWatch(argv: readonly string[]): Promise<void> {
         maxTotalChars: args.maxTotalChars,
         onProgress: (event) => console.log(formatAnalyzeProgress(event)),
       })
-      return { report: result.path, calls: result.calls, usage: result.usage }
-    },
+      return { task_usage: currentTask()!.snapshot(), report: result.path, calls: result.calls, usage: result.usage }
+    }, undefined, true),
   })
 }

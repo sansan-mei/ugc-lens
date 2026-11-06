@@ -275,3 +275,28 @@ test('取不到 text 的元素跳过并计数', () => {
   assert.equal(report.collections[0]?.skipped, 1)
   assert.ok(report.warnings.some((line) => line.includes('text 命中率 67%')))
 })
+
+test('重复父评论仍访问后一次新增回复，重复回复不重复导入', () => {
+  const data = { list: [
+    { id: 'p', text: '共同父评论', replies: [{ id: 'a', text: '第一个回复' }] },
+    { id: 'p', text: '共同父评论', replies: [{ id: 'a', text: '第一个回复' }, { id: 'b', text: '另一个反对回复' }] },
+  ] }
+  const result = applyMapping(data, mapping({ platform: 'x', collections: [{ path: '$.list', kind: 'comment', fields: { id: 'id', text: 'text' }, children: [{ path: 'replies', kind: 'reply' }] }] }), { file_path: '/x.json' })
+  assert.deepEqual(result.items.map((i) => i.id).sort(), ['a', 'b', 'p'])
+  assert.ok(result.items.filter((i) => i.kind === 'reply').every((i) => i.parent_id === 'p'))
+  assert.deepEqual(result.report.errors, [])
+})
+
+test('字幕字段映射错误不能报告命中率百分百或成功导入', () => {
+  const result = applyMapping({ id: 'v', captions: [{ start: 0, end: 2, text: '正文' }], list: [{ text: '评论正文' }] }, mapping({ platform: 'x', content: { path: '$', fields: { id: 'id' }, transcript: { path: 'captions', start: 'missing', end: 'end', text: 'text' } }, collections: [{ path: '$.list', kind: 'comment', fields: { text: 'text' } }] }), { file_path: '/x.json' })
+  assert.equal(result.report.content?.field_hits.transcript, 0)
+  assert.ok(result.report.errors.some((e) => /字幕/.test(e)))
+})
+
+
+test('扁平子回复中的显式直接父 ID 优先于容器父评论，并继承内容归属', () => {
+  const rule = mapping({ platform: 'x', collections: [{ path: '$.list', kind: 'comment', fields: { id: 'id', text: 'text', content_id: 'video' }, children: [{ path: 'replies', kind: 'reply', fields: { id: 'id', text: 'text', parent_id: 'target' } }] }] })
+  const result = applyMapping({ list: [{ id: 'p', video: 'v', text: '建议很好', replies: [{ id: 'r1', text: '我反对', target: 'p' }, { id: 'r2', text: '我同意你', target: 'r1' }] }] }, rule, { file_path: '/x.json' })
+  assert.equal(result.items.find((i) => i.id === 'r2')?.parent_id, 'r1')
+  assert.ok(result.items.every((i) => i.content_id === 'v'))
+})

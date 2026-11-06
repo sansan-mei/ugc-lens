@@ -68,6 +68,8 @@ export interface Usage {
 }
 
 export interface ChatResult {
+  /** false 表示接口没有返回完整用量，账本不能将缺失值当成零。 */
+  usageReported?: boolean
   message: AssistantMessage
   /** stop：正常结束；length：达到 max_tokens 被截断；tool_calls：请求调用工具 */
   finishReason: string

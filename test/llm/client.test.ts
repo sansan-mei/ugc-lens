@@ -159,6 +159,30 @@ describe('createChatClient', () => {
     assert.equal('cached_input_tokens' in results[2]!, false)
   })
 
+  test('多轮请求保持已有前缀和工具定义，缓存命中仍属于总输入', async () => {
+    let call = 0
+    server = await startMockServer((_req, res) => sendJson(res, 200, { ...completion('ok'), usage: {
+      prompt_tokens: 100, completion_tokens: 5,
+      prompt_tokens_details: { cached_tokens: call++ === 0 ? 0 : 80 },
+    } }))
+    const client = createChatClient(configFor(server.baseUrl))
+    const messages = [{ role: 'system' as const, content: '固定分析规则' }, { role: 'user' as const, content: '先看价格争议' }]
+    const tools = [{ type: 'function' as const, function: { name: 'query', description: '查询证据', parameters: { type: 'object', properties: {} } } }]
+    const snapshot = structuredClone({ messages, tools })
+    const first = await client.chat(messages, { tools })
+    const next = [...messages, first.message, { role: 'user' as const, content: '再看购买意愿' }]
+    const second = await client.chat(next, { tools })
+    const bodies = server.requests.map((r) => r.body as { messages: unknown[]; tools: unknown })
+    assert.deepEqual(bodies[1]!.messages.slice(0, messages.length), bodies[0]!.messages)
+    assert.deepEqual(bodies[1]!.tools, bodies[0]!.tools)
+    assert.deepEqual({ messages, tools }, snapshot)
+    assert.equal(first.usage.cached_input_tokens, 0)
+    assert.ok(second.usage.cached_input_tokens! > first.usage.cached_input_tokens!)
+    assert.equal(second.usage.input_tokens, first.usage.input_tokens)
+    assert.ok(second.usage.cached_input_tokens! <= second.usage.input_tokens)
+    assert.equal(server.requests.length, 2)
+  })
+
   test('没有工具时请求里不带 tools 和 tool_choice，回答里也没有 tool_calls 字段', async () => {
     server = await startMockServer((_req, res) => sendJson(res, 200, completion('ok')))
     const result = await createChatClient(configFor(server.baseUrl)).chat([{ role: 'user', content: 'hi' }], {

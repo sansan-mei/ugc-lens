@@ -143,16 +143,26 @@ export function applyMapping(data: unknown, mapping: Mapping, ctx: ApplyContext)
       let transcript: ContentInfo['transcript']
       if (rule.transcript) {
         const spec = rule.transcript
+        let elements = 0
+        let imported = 0
         const lines = take('transcript', spec.path, (raw) => {
           if (!Array.isArray(raw)) return undefined
-          return raw.flatMap((line) => {
+          elements = raw.length
+          const converted = raw.flatMap((line) => {
             const start = toNumber(getField(line, data, spec.start))
             const end = toNumber(getField(line, data, spec.end))
             const text = toText(getField(line, data, spec.text))
-            return start !== undefined && end !== undefined && text !== undefined ? [{ start_sec: start, end_sec: end, text }] : []
+            return start !== undefined && end !== undefined && start >= 0 && end > start && text !== undefined
+              ? [{ start_sec: start, end_sec: end, text }] : []
           })
+          imported = converted.length
+          return elements > 0 && imported === 0 ? undefined : converted
         })
         transcript = lines?.length ? lines : undefined
+        const raw = get(spec.path)
+        const status = raw === undefined || raw === null ? 'absent' : !Array.isArray(raw) || elements > imported ? 'failed' : elements === 0 ? 'empty' : 'imported'
+        ;(report.transcripts ??= []).push({ content_id: id, path: spec.path, status, elements, imported, failed: elements - imported })
+        if (status === 'failed') errors.push(`内容 ${id} 字幕转换失败：${elements} 段中导入 ${imported} 段，请检查字幕字段和时间范围`)
       }
 
       const url = take('url', fields.url, toText) ?? rule.url_template?.replaceAll('{id}', id)
@@ -232,14 +242,11 @@ export function applyMapping(data: unknown, mapping: Mapping, ctx: ApplyContext)
 
     const text = take('text', fields.text, toText)
     const rawId = take('id', fields.id, toId)
-    const fieldParent =
-      parentId === undefined
-        ? take('parent_id', fields.parent_id, (raw) => {
-            // 一级评论的 parent 常写成 0 或空值，字段存在就算命中，用空字符串表示“没有上一级”
-            const value = toId(raw)
-            return value === undefined || value === '0' ? '' : value
-          })
-        : undefined
+    const fieldParent = take('parent_id', fields.parent_id, (raw) => {
+      // 一级评论的 parent 常写成 0 或空值；嵌套回复则回退到容器父 ID。
+      const value = toId(raw)
+      return value === undefined || value === '0' ? '' : value
+    })
     const contentId = owner ? undefined : take('content_id', fields.content_id, toId)
     const location = take('author_location', fields.author_location, toLocation)
     const author = {
@@ -259,7 +266,7 @@ export function applyMapping(data: unknown, mapping: Mapping, ctx: ApplyContext)
       return
     }
 
-    const parent = parentId ?? (fieldParent || undefined)
+    const parent = fieldParent || parentId
     const finalKind: FeedbackKind = kind === 'comment' && parentId === undefined && parent !== undefined ? 'reply' : kind
     let id = rawId
     if (id === undefined) {
@@ -285,14 +292,14 @@ export function applyMapping(data: unknown, mapping: Mapping, ctx: ApplyContext)
     }
     const existing = byId.get(id)
     // 同一条内容被搜集了两次（MediaCrawler 的文件里常见），去掉重复的；正文不同则留下，最后报 ID 重复
-    if (existing && existing.text === item.text && existing.content_id === item.content_id) {
+    if (existing && existing.text === item.text && existing.content_id === item.content_id && existing.parent_id === item.parent_id) {
       duplicatesDropped++
-      return
+    } else {
+      if (!existing) byId.set(id, item)
+      collectionReport.imported++
+      items.push(item)
+      if (!item.content_id) unassigned.push(item)
     }
-    if (!existing) byId.set(id, item)
-    collectionReport.imported++
-    items.push(item)
-    if (!item.content_id) unassigned.push(item)
 
     if (depth >= MAX_RECURSION) return
     for (const childRule of children) {
@@ -305,7 +312,7 @@ export function applyMapping(data: unknown, mapping: Mapping, ctx: ApplyContext)
       const sameLevel = childRule.recursive && label.endsWith(`[].${childRule.path}`)
       const childLabel = sameLevel ? label : `${label}[].${childRule.path}`
       for (const childElement of childElements) {
-        visit(childElement, childRule.kind, childFields, grandchildren, childLabel, id, owner, depth + 1, childInherited)
+        visit(childElement, childRule.kind, childFields, grandchildren, childLabel, id, owner ?? (item.content_id ? { id: item.content_id, platform } : undefined), depth + 1, childInherited)
       }
     }
   }
@@ -390,7 +397,7 @@ export function applyMapping(data: unknown, mapping: Mapping, ctx: ApplyContext)
   const missingParents = items.filter((item) => item.parent_id !== undefined && !counts.has(item.parent_id)).length
   if (missingParents > 0) warnings.push(`${missingParents} 条回复的上一级不在文件里`)
 
-  if (items.length === 0 && errors.length === 0) errors.push('没有导入任何条目')
+  if (items.length === 0 && !contents.some((c) => c.transcript?.length) && errors.length === 0) errors.push('没有导入任何条目')
 
   for (const array of ctx.arrays ?? []) {
     if (!array.objects || array.total < UNMAPPED_ARRAY_MIN) continue
@@ -415,6 +422,7 @@ export function formatReport(report: ImportReport): string {
       .join('、') || '无'
   const lines = [`共 ${report.contents} 个内容、${report.items} 条互动内容。`]
   if (report.content) lines.push(`内容 ${report.content.path}：${report.content.elements} 个；字段命中：${hits(report.content.field_hits)}`)
+  for (const entry of report.transcripts ?? []) lines.push(`字幕 ${entry.content_id} ${entry.path}：${entry.status}，源段数 ${entry.elements}，导入 ${entry.imported}，转换失败 ${entry.failed}`)
   for (const item of report.collections) {
     lines.push(
       `集合 ${item.path}（${item.kind}）：元素 ${item.elements}，导入 ${item.imported}，跳过 ${item.skipped}；字段命中：${hits(item.field_hits)}`,

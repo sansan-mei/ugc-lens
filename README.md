@@ -308,11 +308,21 @@ ugc-lens host prepare video_all.json --focus 价格,售后
 ugc-lens host search video_all.json "退款|退钱"     # 真实匹配总数和原文
 ugc-lens host get video_all.json <ID>             # 全文、上级和直接回复
 ugc-lens host verify video_all.json report.md     # [ID] 存在、"摘句" [ID] 逐字出现；有问题退出码 1
+
+# 逐条标注：导出 → 宿主写 answers/*.jsonl → 校验并汇总
+ugc-lens host label-export video_all.json sentiment --target 价格   # 情感
+ugc-lens host label-export video_all.json topics --topics topics.json  # 主题归类
+ugc-lens host label-export video_all.json business --goal 付费机会     # 商业机会
+ugc-lens host label-import video_all.json .ugc-lens/host/<ID>/labels-sentiment
+
+ugc-lens host recheck video_all.json --query "退款|退钱" --exclude 101,102   # 补查反例候选
+ugc-lens host propose summarize add --text="- 区分广告与真实体验"          # 待审的手册修改
 ```
 
 - media_crawl 导出的 B 站 `*_all.json` 有内置规则，配置 key 的完整流水线也不再需要模型识别它的结构。
 - `facts.md` 与完整报告的统计部分相同（概况、属地、关键词、弹幕高峰、字幕时间轴）；分块沿用同样的去重、压缩和抽样，块内直接显示原 ID。
-- 与完整流水线相比，宿主模式没有逐条情感评分和主题归类；数量来自 `search` 的真实匹配或标明为估计。核验通过只说明引用可追溯，不代表解读正确。消耗的是宿主的额度。
+- 逐条情感、主题归类和商业机会由宿主按 `task.md` 写结果，ugc-lens 用与完整流水线相同的规则、校验和汇总代码处理；未标注或格式错误的条目计入覆盖率，不计入比例。数据很大时可用 `--sample` 抽样，结果注明为样本。
+- 宿主模式不支持监听目录自动分析（需要常驻模型）。核验通过只说明引用可追溯，不代表解读正确。消耗的是宿主的额度。
 
 ## 代码调用
 

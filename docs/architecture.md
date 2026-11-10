@@ -158,12 +158,17 @@ ugc-lens 是一个**分析用户互动内容（评论、弹幕、回复等）的
 | 统计、关键词、弹幕高峰、时间轴 | 代码 | 代码（`facts.md`，`renderFacts`） |
 | 去重、压缩、抽样、分块 | 代码 | 代码，同一 `planChunks`；块内编号换回原 ID |
 | 分块总结、合并、综合 | ugc-lens 模型 | 宿主按 `guide.md`（含当前 playbook 的总结与合并规则）阅读 `chunks/*.md` 写报告 |
+| 逐条情感、主题归类、商业机会 | ugc-lens 模型分批提交 | `host label-export` 导出批次与同一份规则，宿主写 `answers/*.jsonl`，`host label-import` 用同一行格式、校验与汇总函数（`sentimentRow`/`sentimentStats`、`topicRow`/`summarizeTopics`、`businessRow`/`rankOpportunities`） |
+| 核心结论补查 | ugc-lens 模型判断候选 | `host recheck` 复用 `collectRecheckCandidates` 给出未引用候选，宿主判断并在报告中引用 |
+| 分析手册修改 | `playbook_update` 工具 | `host propose` 写待审修改，仍由用户 `playbook --apply` |
+| 监听目录 | 支持 | 不支持：需要常驻模型 |
 | 精确计数、原文回查 | 工具 | `host search` / `host get` |
 | 引用校验 | 代码 | `host verify`：ID 存在，`"摘句" [ID]` 逐字出现在原文或分块显示文本中 |
 
 - 入口为命令行 `ugc-lens host <describe|mapping|prepare|search|get|verify>`，JSON 输出，技能通过 shell 调用；`.ugc-lens/` 以当前目录为准。MCP 服务的数据工具在导入命中内置或缓存规则时同样不需要 key，暂不新增 MCP 工具。
 - 内置规则（`src/ingest/presets.ts`）：缓存未命中后、请模型识别前尝试；要求试转换无错误、无遗漏数组且有导入内容，否则仍走原流程。`useCache: false`（强制重新识别）时跳过内置规则。首个内置规则为 media_crawl 的 B 站 `*_all.json`，路径有 BV 号用 BV 号，否则用目录名末尾的数字。
-- 边界：宿主模式没有逐条情感和主题分类，数量来自 `search` 的真实匹配数或标明为估计；核验只证明引用可追溯，不评价解读。耗用的是宿主额度，数据很大时分块数随 `--chars` 增长，宿主应按清单逐块读完或在报告里写明未读范围。
+- 逐条标注（roadmap 第 17.7 步）：导出时按范围筛选、可用固定种子随机抽样，超长原文跳过不截断；导入时逐行校验，格式错误、批外、重复 ID 和商业摘句不是原文子串都记为错误，重复 ID 的两行都不采用；未标注的条目记为跳过。汇总口径与完整流水线相同，抽样时附 `scope_note`。
+- 边界：数量来自 `search` 的真实匹配、逐条标注的汇总，或标明为估计；核验只证明引用可追溯，不评价解读。耗用的是宿主额度，数据很大时分块数随 `--chars` 增长，宿主应按清单逐块读完或在报告里写明未读范围。
 
 ## 3. Agent 循环
 

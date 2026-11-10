@@ -43,6 +43,29 @@ ugc-lens 负责导入、统计、分块、检索和引用核验，你负责理�
 6. 写 Markdown 报告：核心结论带证据和反例，引用写 `[ID]`，直接引用写 `"逐字摘句" [ID]`；附录放 `facts.md` 的内容。保存到用户同意的位置。
 7. `ugc-lens host verify <文件> <报告.md>`：修正 `invalid_ids` 和 `quote_mismatches`，直到 `ok: true`。最后告诉用户报告路径、分析覆盖范围（`facts.md` 的“分析范围”）和核验结果。
 
+### 逐条情感、主题占比和商业机会
+
+用户要情感分布、主题占比或商业机会时，由你逐条标注，ugc-lens 校验并用与完整流水线相同的代码汇总：
+
+1. 导出：
+   - 情感：`ugc-lens host label-export <文件> sentiment [--target 评价对象] [--kinds comment,reply]`
+   - 主题：先根据分块内容写 `topics.json`（`[{"id":"price","title":"价格","criteria":"纳入标准"}]`，1～20 个），再 `ugc-lens host label-export <文件> topics --topics topics.json`
+   - 商业机会：`ugc-lens host label-export <文件> business [--goal 目标]`
+   - 条数很多时先看返回的 `items`，用 `--kinds`、`--content` 缩小范围，或 `--sample 500` 随机抽样（结果会注明是样本），并告诉用户。
+2. 读输出目录的 `task.md`（规则与每行格式），逐个读取 `batches/*.jsonl`，把结果写到 `answers/` 下同名文件，每行一个 JSON，覆盖该批全部 ID。
+3. `ugc-lens host label-import <文件> <任务目录>`：按 `errors` 修正（越界分数、未定义的主题、不是原文子串的商业摘句、重复或批外 ID），补齐 `missing`，直到 `ok: true`。
+4. 报告中使用返回的 `summary`（分布、比例、`topics[].count/share`、`opportunities`），写明分母、覆盖率和 `scope_note`；比例只描述导入样本，情绪不等于支持或反对立场。完整逐条结果在 `result.json`。
+
+### 补查反例与改进分析规则
+
+- 每条核心结论写完后，运行 `ugc-lens host recheck <文件> --query "关键词1|同义词" [--query ...] --exclude 已引用ID1,ID2`，逐条判断候选是反例、限定、支持还是无关；反例和限定用 `"摘句" [ID]` 写进该结论，写明检索词和核对条数。未发现反例不等于不存在。
+- 用户想调整以后的分析规则时，`ugc-lens host propose summarize add --text="- 新规则"`（章节 common、ask、summarize、merge；修改或删除用 patch/remove 加 `--match="原文"`）。这只写待审修改，告诉用户运行 `ugc-lens playbook --apply <ID>` 后才生效。
+
+### 宿主模式做不到的
+
+- 监听目录自动分析需要常驻模型，宿主模式不支持；可以建议配置 key 后用 `ugc-lens watch`。
+- 几万条以上逐条标注会消耗大量宿主额度，优先抽样或建议配置 key 走完整流水线。
+
 默认优先用中文表格展示情感分布、主题占比、痛点、机会与对比，关键数字加粗；较长解释和行动步骤用列表，用户明确要求优先。
 
 ## 选择工具

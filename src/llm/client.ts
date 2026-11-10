@@ -1,7 +1,7 @@
 import type { LlmConfig } from '../config.ts'
 import { PROVIDERS, type ProviderPreset } from './providers.ts'
 import { DEFAULT_RETRY_POLICY, isRetryableStatus, parseRetryAfter, withRetry, type RetryInfo, type RetryPolicy } from './retry.ts'
-import type { ChatMessage, ChatOptions, ChatResult, RawChatCompletion, RawToolCall, ToolCall } from './types.ts'
+import type { ChatMessage, ChatOptions, ChatResult, RawChatChunk, RawChatCompletion, RawToolCall, ToolCall } from './types.ts'
 
 export class LlmError extends Error {
   override name = 'LlmError'
@@ -58,6 +58,50 @@ function describeNetworkError(error: unknown): string {
   return cause?.code ?? cause?.message ?? (error as Error).message
 }
 
+/** 把 Chat Completions 的 SSE 事件拼回非流式的返回结构，正文片段逐段交给 onDelta */
+async function collectStream(provider: string, body: ReadableStream<Uint8Array>, onDelta: (text: string) => void): Promise<RawChatCompletion> {
+  const decoder = new TextDecoder()
+  let buffer = ''
+  let model = ''
+  let content: string | null = null
+  let finish = ''
+  let usage: RawChatCompletion['usage']
+  const calls: Array<{ id?: string; type?: string; name: string; arguments: string }> = []
+  const handle = (data: string) => {
+    if (!data || data === '[DONE]') return
+    let chunk: RawChatChunk
+    try { chunk = JSON.parse(data) as RawChatChunk } catch { throw new LlmError(`${provider} 返回的流式事件不是 JSON: ${data.slice(0, 200)}`) }
+    if (chunk.error) throw new LlmError(`${provider} 流式响应出错：${typeof chunk.error === 'string' ? chunk.error : chunk.error.message ?? JSON.stringify(chunk.error)}`.slice(0, 500))
+    if (chunk.model) model = chunk.model
+    if (chunk.usage) usage = chunk.usage
+    for (const choice of chunk.choices ?? []) {
+      if (choice.finish_reason) finish = choice.finish_reason
+      const text = choice.delta?.content
+      if (text) { content = (content ?? '') + text; onDelta(text) }
+      for (const part of choice.delta?.tool_calls ?? []) {
+        const index = part.index ?? calls.length
+        const call = calls[index] ??= { name: '', arguments: '' }
+        if (part.id) call.id = part.id
+        if (part.type) call.type = part.type
+        if (part.function?.name) call.name += part.function.name
+        if (part.function?.arguments) call.arguments += part.function.arguments
+      }
+    }
+  }
+  const flush = (block: string) => handle(block.split('\n').filter((line) => line.startsWith('data:')).map((line) => line.slice(5).trim()).join('\n'))
+  for await (const bytes of body) {
+    buffer += decoder.decode(bytes, { stream: true }).replace(/\r\n?/g, '\n')
+    let end: number
+    while ((end = buffer.indexOf('\n\n')) >= 0) { flush(buffer.slice(0, end)); buffer = buffer.slice(end + 2) }
+  }
+  flush(buffer + decoder.decode())
+  return {
+    model,
+    choices: [{ message: { role: 'assistant', content, tool_calls: calls.filter(Boolean).map((call) => ({ id: call.id, type: call.type, function: { name: call.name, arguments: call.arguments } })) }, finish_reason: finish || 'stop' }],
+    usage,
+  }
+}
+
 export function createChatClient(config: LlmConfig, options: ChatClientOptions = {}): ChatClient {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
   if (config.apiKey) headers.Authorization = `Bearer ${config.apiKey}`
@@ -67,18 +111,22 @@ export function createChatClient(config: LlmConfig, options: ChatClientOptions =
     ...options.retry,
   }
 
-  async function requestOnce<T>(path: string, init: RequestInit, signal?: AbortSignal): Promise<T> {
+  async function requestOnce<T>(path: string, init: RequestInit, signal?: AbortSignal, onDelta?: (text: string) => void): Promise<T> {
     const timeout = AbortSignal.timeout(config.timeoutMs)
     let response: Response
-    let text: string
+    let text = ''
     try {
       response = await fetch(`${config.baseUrl}${path}`, {
         ...init,
         headers,
         signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
       })
+      if (onDelta && response.ok && response.body && /event-stream/i.test(response.headers.get('content-type') ?? '')) {
+        return await collectStream(config.provider, response.body, onDelta) as T
+      }
       text = await response.text()
     } catch (error) {
+      if (error instanceof LlmError) throw error
       // 调用方取消或运行总超时：原样抛出，由循环判断停止原因
       if (signal?.aborted) throw error
       if (timeout.aborted) {
@@ -101,8 +149,8 @@ export function createChatClient(config: LlmConfig, options: ChatClientOptions =
     }
   }
 
-  function request<T>(path: string, init: RequestInit, signal?: AbortSignal, onRetry?: (info: RetryInfo) => void): Promise<T> {
-    return withRetry(() => requestOnce<T>(path, init, signal), { policy, signal, onRetry })
+  function request<T>(path: string, init: RequestInit, signal?: AbortSignal, onRetry?: (info: RetryInfo) => void, onDelta?: (text: string) => void): Promise<T> {
+    return withRetry(() => requestOnce<T>(path, init, signal, onDelta), { policy, signal, onRetry })
   }
 
   return {
@@ -120,12 +168,14 @@ export function createChatClient(config: LlmConfig, options: ChatClientOptions =
         tools: hasTools ? options.tools : undefined,
         tool_choice: hasTools ? (options.toolChoice ?? 'auto') : undefined,
         ...(options.disableThinking && config.provider !== 'custom' ? (PROVIDERS[config.provider] as ProviderPreset).thinkingOff : undefined),
+        ...(options.onDelta ? { stream: true, stream_options: { include_usage: true } } : undefined),
       }
       const raw = await request<RawChatCompletion>(
         '/chat/completions',
         { method: 'POST', body: JSON.stringify(body) },
         options.signal,
         options.onRetry,
+        options.onDelta,
       )
       const choice = raw.choices[0]
       if (!choice) throw new LlmError(`${config.provider} 返回的 choices 为空`)

@@ -111,3 +111,10 @@
 .cite { display: inline-flex; align-items: center; margin: 0 2px; padding: 0 6px; border-radius: calc(var(--radius) - 4px); border: 1px solid var(--border); background: var(--background); font-size: 12px; line-height: 18px; font-variant-numeric: tabular-nums; color: var(--foreground); box-shadow: 0 1px 2px rgb(0 0 0 / 0.05); transition: background-color .15s, border-color .15s; }
 .cite:hover:not(:disabled) { background: var(--accent); border-color: var(--ring); }
 .cite.plain { border: 0; box-shadow: none; padding: 0; color: inherit; background: transparent; }
+.prose-chat { font-size: 14.5px; line-height: 1.75; }
+.prose-chat > :first-child { margin-top: 0; }
+.prose-chat h1 { font-size: 20px; margin: 18px 0 8px; }
+.prose-chat h2 { font-size: 17px; margin: 18px 0 8px; padding-bottom: 0; border-bottom: 0; }
+.prose-chat h3 { font-size: 15px; margin: 14px 0 6px; }
+.chat-caret { display: inline-block; width: 7px; height: 1em; margin-left: 2px; vertical-align: -2px; border-radius: 1px; background: var(--foreground); animation: chat-caret 1s steps(2, start) infinite; }
+@keyframes chat-caret { to { visibility: hidden; } }

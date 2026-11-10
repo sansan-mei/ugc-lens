@@ -6,7 +6,7 @@ import { UsageError } from './common.ts'
 
 export const UI_USAGE = `用法：ugc-lens ui [--cwd <目录>] [--port <端口>] [--no-open]
 
-在本机启动图形界面，浏览器查看数据概况、图表、原文和报告。
+在本机启动图形界面，浏览器查看数据概况、图表、原文和报告，并可与数据对话（需要模型配置）。
   --cwd <目录>   可打开的数据和报告所在目录，默认当前目录；只能访问这个目录内的文件
   --port <端口>  监听端口，默认随机空闲端口；只监听 127.0.0.1
   --no-open      不自动打开浏览器，只打印网址
@@ -47,7 +47,7 @@ export async function runUi(argv: readonly string[]): Promise<void> {
   console.log(`ugc-lens 界面已启动：${url}\n目录：${args.cwd}\n按 Ctrl+C 停止。`)
   if (args.open) openBrowser(url)
   await new Promise<void>((done) => {
-    const stop = () => { ui.server.close(() => done()); ui.server.closeAllConnections() }
+    const stop = () => { void ui.close().finally(() => { ui.server.close(() => done()); ui.server.closeAllConnections() }) }
     process.once('SIGINT', stop)
     process.once('SIGTERM', stop)
   })

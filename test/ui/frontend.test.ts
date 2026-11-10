@@ -43,3 +43,50 @@ test('charts：面积路径与环形分段保持统计比例', () => {
   const arcs = donutArcs([{ value: 1 }, { value: 3 }], 100)
   assert.deepEqual(arcs.map((a) => [a.length, a.offset]), [[25, 0], [75, 25]])
 })
+
+test('对话：NDJSON 按任意边界切块也能逐行解析', async () => {
+  const { lineSplitter } = await import('../../web/src/lib/chat.ts')
+  const split = lineSplitter()
+  const text = '{"type":"delta","step":1,"text":"你"}\n{"type":"delta","step":1,"text":"好"}\n{"type":"done","answer":"你好"}\n'
+  const lines: string[] = []
+  for (let i = 0; i < text.length; i += 5) lines.push(...split.push(text.slice(i, i + 5)))
+  lines.push(...split.flush())
+  assert.deepEqual(lines.map((l) => JSON.parse(l).type), ['delta', 'delta', 'done'])
+  assert.deepEqual(split.flush(), [])
+  const tail = lineSplitter()
+  assert.deepEqual(tail.push('{"a":1}\n{"b"'), ['{"a":1}'])
+  assert.deepEqual(tail.flush(), ['{"b"'])
+})
+
+test('对话：事件归并为助手回复，新一步和重试清空中间正文，done 以最终回答为准', async () => {
+  const { applyChatEvent, newAssistantTurn } = await import('../../web/src/lib/chat.ts')
+  let turn = newAssistantTurn()
+  const events = [
+    { type: 'step', step: 1 },
+    { type: 'delta', step: 1, text: '我先查一下' },
+    { type: 'tool', step: 1, call_id: 'c1', name: 'search_feedback', args: '{"query":"价格"}' },
+    { type: 'tool_end', call_id: 'c1', name: 'search_feedback', ok: true },
+    { type: 'step', step: 2 },
+    { type: 'delta', step: 2, text: '半句' },
+    { type: 'retry', attempt: 1, reason: '503' },
+    { type: 'delta', step: 2, text: '价格偏贵 ' },
+    { type: 'delta', step: 2, text: '[c9]' },
+  ] as const
+  for (const e of events) turn = applyChatEvent(turn, e)
+  assert.equal(turn.text, '价格偏贵 [c9]')
+  assert.equal(turn.status, 'streaming')
+  assert.deepEqual(turn.tools, [{ call_id: 'c1', name: 'search_feedback', args: '{"query":"价格"}', ok: true }])
+  turn = applyChatEvent(turn, { type: 'warning', message: '画像学习失败：x' })
+  turn = applyChatEvent(turn, { type: 'done', answer: '价格偏贵 [c9]', stop_reason: 'completed', citations: { valid: [], invalid: ['c9'] }, known_tokens: 120, unknown_calls: 0 })
+  assert.equal(turn.status, 'done')
+  assert.deepEqual(turn.citations, { valid: [], invalid: ['c9'] })
+  assert.deepEqual(turn.warnings, ['画像学习失败：x'])
+  assert.equal(turn.tokens, 120)
+  const failed = applyChatEvent(newAssistantTurn(), { type: 'error', message: '上游 500' })
+  assert.equal(failed.status, 'error')
+  assert.equal(failed.error, '上游 500')
+  // 事件归并不修改原对象，React 状态可直接替换
+  const before = newAssistantTurn()
+  applyChatEvent(before, { type: 'delta', step: 1, text: 'x' })
+  assert.equal(before.text, '')
+})

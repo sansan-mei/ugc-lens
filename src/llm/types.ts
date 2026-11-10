@@ -58,6 +58,8 @@ export interface ChatOptions {
   disableThinking?: boolean
   /** 每次重试前调用，用于显示进度 */
   onRetry?: (info: RetryInfo) => void
+  /** 传入时改用流式请求，每收到一段正文调用一次；重试时会从头再收一遍 */
+  onDelta?: (text: string) => void
 }
 
 export interface Usage {
@@ -84,6 +86,17 @@ export interface RawToolCall {
   id?: string
   type?: string
   function: { name: string; arguments?: unknown }
+}
+
+/** 流式响应的单个事件（只保留目前用到的字段） */
+export interface RawChatChunk {
+  model?: string
+  choices?: Array<{
+    delta?: { content?: string | null; tool_calls?: Array<{ index?: number; id?: string; type?: string; function?: { name?: string; arguments?: string } }> | null }
+    finish_reason?: string | null
+  }>
+  usage?: RawChatCompletion['usage'] | null
+  error?: { message?: string } | string
 }
 
 /** 接口原始返回结构 */

@@ -16,6 +16,8 @@ import { FEEDBACK_KINDS, type Dataset, type FeedbackKind } from '../dataset/type
 import { ImportError, loadDataset } from '../ingest/index.ts'
 import { createChatClient } from '../llm/client.ts'
 import { buildOverview, itemView } from './overview.ts'
+import { createChatHub, type ChatModels } from './chat.ts'
+import { HttpError } from './http.ts'
 import { createNativePicker, type NativePicker, type PickKind } from './picker.ts'
 
 /**
@@ -43,19 +45,20 @@ export interface UiServerOptions {
   picker?: NativePicker
   /** 最近打开记录和浏览器上传的文件保存在 <homeDir>/.ugc-lens/ui/，默认用户主目录 */
   homeDir?: string
+  /** 对话使用的模型；测试注入，默认新建对话时读取 ugc-lens 的模型配置 */
+  chatModels?: () => ChatModels
 }
 
 interface RecentFile { path: string; kind: PickKind; opened_at: string }
 
-export interface UiServer { server: Server; token: string; url: (port: number) => string }
-
-class HttpError extends Error {
-  readonly status: number
-  constructor(status: number, message: string) {
-    super(message)
-    this.status = status
-  }
+export interface UiServer {
+  server: Server
+  token: string
+  url: (port: number) => string
+  /** 关闭所有对话会话（取消进行中的回答和后台监听），不关闭 HTTP 服务 */
+  close: () => Promise<void>
 }
+
 
 function send(res: ServerResponse, status: number, body: string | Buffer, type = 'application/json; charset=utf-8'): void {
   res.writeHead(status, {
@@ -94,6 +97,31 @@ async function allowedPath(cwd: string, path: string, picked: Set<string>): Prom
   const rel = relative(root, target)
   if (rel === '' || rel.startsWith('..') || isAbsolute(rel)) throw new HttpError(403, '只能访问启动目录内的文件，其他位置的文件请用“选择文件”打开')
   return target
+}
+
+/** 对话工具的路径守卫：启动目录及其子目录、用户选中过的文件；与 allowedPath 不同，允许启动目录本身 */
+async function chatPath(cwd: string, path: string, picked: Set<string>): Promise<string> {
+  const root = await realpath(cwd)
+  let target: string
+  try { target = await realpath(path) } catch { throw new HttpError(404, `文件不存在：${path}`) }
+  if (picked.has(target)) return target
+  const rel = relative(root, target)
+  if (rel.startsWith('..') || isAbsolute(rel)) throw new HttpError(403, '只能访问启动目录内的文件，其他位置的文件请先在界面里用“选择文件”打开')
+  return target
+}
+
+function defaultChatModels(cwd: string): ChatModels {
+  let config
+  try { config = loadLlmConfig({}, cwd) } catch (error) {
+    if (error instanceof ConfigError) throw new ConfigError(`${error.message}。对话需要模型，请先运行 ugc-lens init 配置模型`)
+    throw error
+  }
+  const client = createChatClient(config)
+  return {
+    ask: createLlmModel(client, { temperature: 0.2 }),
+    analysis: createLlmModel(client, { temperature: 0, maxTokens: 4_000, disableThinking: true }),
+    name: config.model,
+  }
 }
 
 /** 上传的文件名只保留最后一段，去掉控制字符和路径分隔符 */
@@ -148,6 +176,10 @@ export function createUiServer(options: UiServerOptions): UiServer {
     await writeFile(recentFile, JSON.stringify(recent, null, 2), { mode: 0o600 })
   }
   const resolvePath = async (path: string) => { await loadRecent(); return allowedPath(cwd, path, picked) }
+  const chat = createChatHub({
+    cwd, homeDir: options.homeDir, models: options.chatModels ?? (() => defaultChatModels(cwd)),
+    allowPath: async (path) => { await loadRecent(); return chatPath(cwd, path, picked) },
+  })
   const token = options.token ?? randomBytes(18).toString('base64url')
   const expected = Buffer.from(token)
   const datasets = new Map<string, Dataset>()
@@ -220,6 +252,15 @@ export function createUiServer(options: UiServerOptions): UiServer {
         await remember(path, 'data')
         return json(res, { path })
       } finally { await rm(temp, { force: true }) }
+    }
+    if (parts[0] === 'chat') {
+      if (req.method === 'POST' && parts.length === 1) return json(res, { id: chat.create() })
+      if (req.method === 'POST' && parts[1] && parts[2] === 'messages' && parts.length === 3) {
+        const body = await readBody(req) as { text?: unknown; dataset_id?: unknown }
+        const attached = typeof body.dataset_id === 'string' ? datasets.get(body.dataset_id) : undefined
+        return chat.send(parts[1], { text: body.text, dataset: attached }, req, res)
+      }
+      if (req.method === 'DELETE' && parts[1] && parts.length === 2) { await chat.remove(parts[1]); return json(res, { ok: true }) }
     }
     if (req.method === 'GET' && parts[0] === 'datasets' && parts.length === 1) {
       return json(res, [...datasets.values()].map((d) => ({ id: d.id, file: d.file_path, title: d.contents[0]?.title, items: d.items.length })))
@@ -306,5 +347,5 @@ export function createUiServer(options: UiServerOptions): UiServer {
     const address = server.address()
     if (address && typeof address === 'object') port = address.port
   })
-  return { server, token, url: (p) => `http://127.0.0.1:${p}/#token=${token}` }
+  return { server, token, url: (p) => `http://127.0.0.1:${p}/#token=${token}`, close: () => chat.close() }
 }

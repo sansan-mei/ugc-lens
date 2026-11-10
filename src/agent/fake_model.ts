@@ -11,6 +11,8 @@ export interface FakeToolCall {
 
 export interface FakeReply {
   content?: string
+  /** 请求带 onDelta 时依次回调的正文片段 */
+  deltas?: string[]
   tool_calls?: FakeToolCall[]
 }
 
@@ -63,6 +65,7 @@ export function createFakeModel(script: FakeScript, options: { delayMs?: number 
         }
       }
 
+      for (const text of reply.deltas ?? []) request.onDelta?.(text)
       const toolCalls: ToolCall[] = (reply.tool_calls ?? []).map((item, index) => ({
         id: `call_${call}_${index + 1}`,
         type: 'function',

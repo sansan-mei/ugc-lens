@@ -304,3 +304,30 @@ describe('createFakeModel', () => {
     assert.equal(ok.message.tool_calls?.[0]?.function.name, 'echo')
   })
 })
+
+describe('runAgent 流式输出', () => {
+  test('stream 开启时模型正文片段按步骤发出 model_delta，且不改变最终回答与历史', async () => {
+    const model = createFakeModel([
+      { content: '先查一下', deltas: ['先', '查一下'], tool_calls: [{ name: 'echo', args: { text: 'x' } }] },
+      { content: '结论是 A', deltas: ['结论', '是 A'] },
+    ])
+    const events: RunEvent[] = []
+    const result = await runAgent({ model, messages: initial, tools: [echo], stream: true, onEvent: (e) => events.push(e) })
+    const deltas = events.filter((e) => e.type === 'model_delta').map((e) => [e.step, e.text])
+    assert.deepEqual(deltas, [[1, '先'], [1, '查一下'], [2, '结论'], [2, '是 A']])
+    // 每个片段出现在本步 model_start 之后、model_end 之前
+    const order = events.map((e) => e.type).filter((t) => t.startsWith('model_'))
+    assert.deepEqual(order, ['model_start', 'model_delta', 'model_delta', 'model_end', 'model_start', 'model_delta', 'model_delta', 'model_end'])
+    assert.equal(result.answer, '结论是 A')
+    assertToolPairing(result.messages)
+  })
+
+  test('默认不流式：不向模型传 onDelta', async () => {
+    let received: unknown = 'unset'
+    const model = { complete: async (request: Parameters<ReturnType<typeof createFakeModel>['complete']>[0]) => { received = request.onDelta; return createFakeModel([{ content: 'ok' }]).complete(request) } }
+    const events: RunEvent[] = []
+    await runAgent({ model, messages: initial, onEvent: (e) => events.push(e) })
+    assert.equal(received, undefined)
+    assert.equal(events.some((e) => e.type === 'model_delta'), false)
+  })
+})

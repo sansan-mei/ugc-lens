@@ -68,6 +68,8 @@ export interface RunAgentOptions {
   cwd?: string
   /** 有副作用的工具执行前的确认函数，默认一律拒绝 */
   approve?: Approver
+  /** 流式请求模型，正文片段以 model_delta 事件发出；默认关闭，部分接口不支持流式 */
+  stream?: boolean
 }
 
 const FINALIZE_LABELS: Partial<Record<StopReason, string>> = {
@@ -131,6 +133,7 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentRunResult
       signal,
       onRetry: ({ attempt, delayMs, error }) =>
         emit({ type: 'model_retry', run_id, step, attempt, delay_ms: delayMs, reason: error.message.slice(0, 200) }),
+      ...(options.stream ? { onDelta: (text: string) => emit({ type: 'model_delta', run_id, step, text }) } : {}),
     }, options.stage ?? 'agent', final)
     usage.input_tokens += result.usage.input_tokens
     usage.output_tokens += result.usage.output_tokens

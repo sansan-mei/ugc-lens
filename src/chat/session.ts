@@ -51,10 +51,16 @@ export interface SessionOptions {
   watch?: typeof watchDirectory
   /** 开启联网时传入；整个会话共用，来源编号跨轮延续 */
   web?: WebSession
+  /** 流式请求模型，正文片段经 onEvent 以 model_delta 发出 */
+  stream?: boolean
+  /** 文件和目录访问守卫：传入已按 cwd 解析的绝对路径，返回允许访问的真实路径，不允许时抛错。图形界面用它限制在启动目录和用户选中的文件内 */
+  allowPath?: (path: string) => Promise<string>
 }
 
 export interface ChatSession {
-  ask(question: string, signal?: AbortSignal): Promise<AgentRunResult & { memory_warning?: string; profile_learning?: Awaited<ReturnType<typeof learnProfile>>; web_citations?: WebCitations }>
+  ask(question: string, signal?: AbortSignal): Promise<AgentRunResult & { citations: { valid: string[]; invalid: string[] }; memory_warning?: string; profile_learning?: Awaited<ReturnType<typeof learnProfile>>; web_citations?: WebCitations }>
+  /** 接入已在别处导入的数据集（如界面里打开的文件），之后可直接查询 */
+  attach(dataset: Dataset): void
   close(): Promise<void>
 }
 
@@ -74,8 +80,12 @@ export function createSession(options: SessionOptions): ChatSession {
   let busy: Promise<AgentRunResult> | undefined
   let currentQuestion = ''
 
+  const guard = async (path: string): Promise<string> => {
+    const absolute = resolve(cwd, path)
+    return options.allowPath ? options.allowPath(absolute) : absolute
+  }
   const importFile = async (file: string, signal: AbortSignal): Promise<Dataset> => {
-    const path = resolve(cwd, file)
+    const path = await guard(file)
     const cached = [...datasets.values()].find((dataset) => dataset.file_path === path)
     if (cached) return cached
     const dataset = await load(path, { model, signal, cacheDir: join(cwd, '.ugc-lens', 'mappings') })
@@ -102,7 +112,7 @@ export function createSession(options: SessionOptions): ChatSession {
       description: '列出目录中的文件和子目录（分页），用于寻找用户的数据文件；不读取文件正文。',
       parameters: z.object({ dir: z.string().default('.'), offset: z.number().int().min(0).default(0), limit: z.number().int().min(1).max(100).default(50) }),
       async execute({ dir, offset, limit }) {
-        const path = resolve(cwd, dir)
+        const path = await guard(dir)
         const entries = (await readdir(path, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name))
         return JSON.stringify({ dir: path, total: entries.length, entries: entries.slice(offset, offset + limit).map((entry) => ({ name: entry.name, type: entry.isDirectory() ? 'directory' : 'file' })), next_offset: offset + limit < entries.length ? offset + limit : null })
       },
@@ -134,7 +144,7 @@ export function createSession(options: SessionOptions): ChatSession {
       async execute({ dir, existing, patterns, directions }, ctx) {
         ctx.signal.throwIfAborted()
         if (active) throw new Error(`已在监听 ${active.dir}，需要切换目录时先停止监听`)
-        const path = resolve(cwd, dir)
+        const path = await guard(dir)
         if (!(await stat(path)).isDirectory()) throw new Error(`不是目录：${path}`)
         // 独立存储防止切换目录后恢复其他目录的未完成任务。
         const tasks = await openTaskStore(join(cwd, '.ugc-lens', `watch-${datasetId(path)}.json`))
@@ -186,7 +196,7 @@ export function createSession(options: SessionOptions): ChatSession {
       if (busy) throw new Error('请等待上一轮完成')
       currentQuestion = question
       const roundSignal = signal ? AbortSignal.any([lifetime.signal, signal]) : lifetime.signal
-      busy = runAgent({ model: options.model, messages: [...history, { role: 'user', content: question }], tools, cwd, limits: { maxSteps: 12 }, signal: roundSignal, onEvent: options.onEvent })
+      busy = runAgent({ model: options.model, messages: [...history, { role: 'user', content: question }], tools, cwd, limits: { maxSteps: 12 }, signal: roundSignal, onEvent: options.onEvent, stream: options.stream })
       try {
         const result = await busy
         const priorLength = history.length
@@ -203,9 +213,12 @@ export function createSession(options: SessionOptions): ChatSession {
         }
         const profile_learning = result.stop_reason === 'aborted' || roundSignal.aborted ? undefined : await learnProfile(options.memory, model, question, roundSignal)
         const web_citations = options.web ? findWebCitations(result.answer, options.web.sources) : undefined
-        return { ...result, task_usage: currentTask()!.snapshot(), memory_warning, profile_learning, web_citations }
+        return { ...result, task_usage: currentTask()!.snapshot(), citations, memory_warning, profile_learning, web_citations }
       } finally { busy = undefined; currentQuestion = '' }
       }, options.tokenBudget)
+    },
+    attach(dataset) {
+      datasets.set(dataset.id, dataset)
     },
     async close() {
       lifetime.abort()

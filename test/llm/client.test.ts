@@ -307,4 +307,68 @@ describe('createChatClient 重试', () => {
     )
     assert.equal(server.requests.length, 1)
   })
+
+  test('传入 onDelta 时流式请求：逐段回调正文，拼出工具调用和用量', async () => {
+    const events = [
+      { model: 'mock-model', choices: [{ index: 0, delta: { role: 'assistant', content: '你' } }] },
+      { model: 'mock-model', choices: [{ index: 0, delta: { content: '好，' } }] },
+      { model: 'mock-model', choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: 'call_a', type: 'function', function: { name: 'search', arguments: '' } }] } }] },
+      { model: 'mock-model', choices: [{ index: 0, delta: { tool_calls: [{ index: 0, function: { arguments: '{"q":' } }] } }] },
+      { model: 'mock-model', choices: [{ index: 0, delta: { tool_calls: [{ index: 0, function: { arguments: '"价格"}' } }, { index: 1, id: 'call_b', function: { name: 'stats', arguments: '{}' } }] } }] },
+      { model: 'mock-model', choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }] },
+      { model: 'mock-model', choices: [], usage: { prompt_tokens: 12, completion_tokens: 4, prompt_tokens_details: { cached_tokens: 8 } } },
+    ]
+    const body = events.map((e) => `data: ${JSON.stringify(e)}\n\n`).join('') + 'data: [DONE]\n\n'
+    server = await startMockServer(async (_req, res) => {
+      res.writeHead(200, { 'Content-Type': 'text/event-stream' })
+      // 按任意字节边界切开，验证跨块的行能正确拼接
+      const bytes = Buffer.from(body)
+      for (let i = 0; i < bytes.length; i += 7) { res.write(bytes.subarray(i, i + 7)); await new Promise((r) => setImmediate(r)) }
+      res.end()
+    })
+    const deltas: string[] = []
+    const result = await createChatClient(configFor(server.baseUrl)).chat([{ role: 'user', content: 'hi' }], { onDelta: (text) => deltas.push(text) })
+
+    const request = server.requests[0]!.body as Record<string, unknown>
+    assert.equal(request.stream, true)
+    assert.deepEqual(request.stream_options, { include_usage: true })
+    assert.deepEqual(deltas, ['你', '好，'])
+    assert.equal(result.message.content, '你好，')
+    assert.deepEqual(result.message.tool_calls, [
+      { id: 'call_a', type: 'function', function: { name: 'search', arguments: '{"q":"价格"}' } },
+      { id: 'call_b', type: 'function', function: { name: 'stats', arguments: '{}' } },
+    ])
+    assert.equal(result.finishReason, 'tool_calls')
+    assert.deepEqual(result.usage, { input_tokens: 12, output_tokens: 4, cached_input_tokens: 8 })
+    assert.equal(result.usageReported, true)
+    assert.equal(result.model, 'mock-model')
+  })
+
+  test('流式响应不带用量时标记为未返回，不当成 0', async () => {
+    server = await startMockServer((_req, res) => {
+      res.writeHead(200, { 'Content-Type': 'text/event-stream' })
+      res.end(`data: ${JSON.stringify({ model: 'm', choices: [{ index: 0, delta: { content: 'ok' }, finish_reason: 'stop' }] })}\n\ndata: [DONE]\n\n`)
+    })
+    const result = await createChatClient(configFor(server.baseUrl)).chat([{ role: 'user', content: 'hi' }], { onDelta: () => {} })
+    assert.equal(result.message.content, 'ok')
+    assert.equal(result.usageReported, false)
+  })
+
+  test('流式响应中途返回错误事件时报 LlmError', async () => {
+    server = await startMockServer((_req, res) => {
+      res.writeHead(200, { 'Content-Type': 'text/event-stream' })
+      res.end(`data: ${JSON.stringify({ error: { message: 'upstream overloaded' } })}\n\n`)
+    })
+    await assert.rejects(
+      createChatClient({ ...configFor(server.baseUrl), maxRetries: 0 }).chat([{ role: 'user', content: 'hi' }], { onDelta: () => {} }),
+      (error: unknown) => error instanceof LlmError && /upstream overloaded/.test(error.message),
+    )
+  })
+
+  test('不传 onDelta 时请求体不带 stream 字段', async () => {
+    server = await startMockServer((_req, res) => sendJson(res, 200, completion('ok')))
+    await createChatClient(configFor(server.baseUrl)).chat([{ role: 'user', content: 'hi' }])
+    const request = server.requests[0]!.body as Record<string, unknown>
+    assert.equal('stream' in request, false)
+  })
 })

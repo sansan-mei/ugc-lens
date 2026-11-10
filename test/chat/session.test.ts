@@ -189,3 +189,52 @@ test('对话入口解析 --web，拒绝未知位置参数', () => {
   assert.deepEqual(parseChatArgs(['--web']), { web: true })
   assert.throws(() => parseChatArgs(['data.json']), /未知参数/)
 })
+
+test('界面打开的数据集可直接接入会话，无需重新导入，引用按它核对', async () => {
+  const model = createFakeModel([
+    { tool_calls: [{ name: 'search_feedback', args: { query: '价格' } }] },
+    { content: '价格偏贵 [c1]，另有 [zz9]' },
+  ])
+  const session = createSession({ model, cwd: '/data', load: async () => { throw new Error('不应重新导入') } })
+  try {
+    session.attach(dataset)
+    session.attach(dataset)
+    const result = await session.ask('价格怎么样')
+    assert.match(result.messages.find((m) => m.role === 'tool')?.content ?? '', /价格太贵/)
+    assert.deepEqual(result.citations, { valid: ['c1'], invalid: ['zz9'] })
+  } finally { await session.close() }
+})
+
+test('传入路径守卫时，导入、报告、目录列表和监听的路径都要经过它', async () => {
+  const model = createFakeModel([
+    { tool_calls: [{ name: 'load_dataset', args: { file: '/etc/secret.json' } }, { name: 'list_files', args: { dir: '/etc' } }, { name: 'analyze_dataset', args: { file: '../x.json' } }, { name: 'start_watch', args: { dir: '/tmp' } }] },
+    { content: '这些位置不能访问' },
+  ])
+  const checked: string[] = []
+  let loaded = 0
+  const session = createSession({
+    model, cwd: '/data',
+    allowPath: async (path) => { checked.push(path); throw new Error(`不能访问 ${path}`) },
+    load: async () => { loaded++; return dataset },
+    analyze: async () => { throw new Error('不应运行分析') },
+    watch: async () => { throw new Error('不应启动监听') },
+  })
+  try {
+    const result = await session.ask('读一下系统文件')
+    assert.deepEqual(checked, ['/etc/secret.json', '/etc', '/x.json', '/tmp'])
+    assert.equal(loaded, 0)
+    const tools = result.messages.filter((m) => m.role === 'tool').map((m) => m.content)
+    assert.equal(tools.length, 4)
+    for (const content of tools) assert.match(content, /不能访问/)
+  } finally { await session.close() }
+})
+
+test('stream 开启时会话把模型正文片段作为 model_delta 事件发出', async () => {
+  const model = createFakeModel([{ content: '你好', deltas: ['你', '好'] }])
+  const deltas: string[] = []
+  const session = createSession({ model, cwd: '/data', stream: true, onEvent: (e) => { if (e.type === 'model_delta') deltas.push(e.text) } })
+  try {
+    assert.equal((await session.ask('hi')).answer, '你好')
+    assert.deepEqual(deltas, ['你', '好'])
+  } finally { await session.close() }
+})

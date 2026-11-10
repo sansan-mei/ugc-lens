@@ -106,6 +106,7 @@
 - **token 用量字段**。大多数提供商在返回的 `usage` 里给出 token 数，个别字段名不同，统计时要兼容。
 - **思考模式**。DeepSeek（`deepseek-flash` 等）默认开着思考模式：思考内容按输出 token 计费，而且开着思考时不接受指定工具的 `tool_choice`（返回 400）。分析流水线调用模型时传 `disableThinking`，按预设里的 `thinkingOff` 加上关闭字段：DeepSeek 和智谱是 `thinking: {type: "disabled"}`，通义千问是 `enable_thinking: false`；其他提供商不发送任何字段。
 - **提示词缓存**。DeepSeek 自动缓存请求开头相同的部分，命中数在 `usage.prompt_cache_hit_tokens`；OpenAI 和多数兼容接口在 `usage.prompt_tokens_details.cached_tokens`。客户端统一成 `cached_input_tokens`。
+- **流式输出**。只有图形界面对话使用：请求带 `stream: true` 和 `stream_options: {include_usage: true}`，按 SSE 逐段接收正文，工具调用按 `index` 拼接 `arguments`，用量取最后一个事件的 `usage`。不返回流式用量的接口记为“未返回”。命令行、ask、分析流水线和 MCP 仍用非流式请求。
 
 
 ## 6. 第 18 步缓存兼容规划（可选，待实现）

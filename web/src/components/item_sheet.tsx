@@ -20,7 +20,7 @@ export function ItemSheet({ id, datasetId, close, openItem }: { id: string | nul
       <ItemMeta item={data.item} extra />
       <p className="mt-4 whitespace-pre-wrap break-words text-base leading-[1.8]">{data.item.text}</p>
       <p className="mt-3 break-all text-xs text-muted-foreground">ID {data.item.id}</p>
-      {data.parent && <><h3 className="mb-2 mt-7 text-xs font-medium text-muted-foreground">回复的是</h3><ItemRow className="bg-white/70" item={data.parent} onOpen={openItem} /></>}
+      {data.parent && <><h3 className="mb-2 mt-7 text-xs font-medium text-muted-foreground">回复的是</h3><ItemRow className="border" item={data.parent} onOpen={openItem} /></>}
       {data.replies.length > 0 && <><h3 className="mb-2 mt-7 text-xs font-medium text-muted-foreground">直接回复（{data.replies.length}）</h3><div className="divide-y divide-black/5">{data.replies.map((r) => <ItemRow key={r.id} item={r} onOpen={openItem} />)}</div></>}
     </>}
   </Sheet>

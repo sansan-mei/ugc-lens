@@ -53,7 +53,7 @@ export function OverviewView({ o, ...actions }: { o: Overview } & Actions) {
       node: (
         <Card className="h-full">
           <CardHeader title="IP 属地" sub={`${fmt(o.stats.with_location)} 条带属地，占比按这些条目计算。`} />
-          <BarList tone="violet" items={o.stats.locations.slice(0, 10).map((l) => ({ label: l.name, value: l.count, note: `${fmt(l.count)} · ${pct(l.count / o.stats.with_location)}` }))} />
+          <BarList tone="chart" items={o.stats.locations.slice(0, 10).map((l) => ({ label: l.name, value: l.count, note: `${fmt(l.count)} · ${pct(l.count / o.stats.with_location)}` }))} />
         </Card>
       ),
     })
@@ -92,18 +92,18 @@ export function OverviewView({ o, ...actions }: { o: Overview } & Actions) {
       <Fade inView inViewOnce>
         <section className="flex flex-wrap items-end justify-between gap-6 px-1 pt-2">
           <div className="min-w-0 max-w-3xl">
-            <h1 className="text-[clamp(26px,3.4vw,38px)] font-bold leading-tight tracking-tight">{title}</h1>
+            <h1 className="text-[clamp(26px,3.4vw,38px)] font-semibold leading-tight tracking-tight">{title}</h1>
             <div className="mt-3 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-              <Badge className="text-primary">{o.platform}</Badge>
+              <Badge>{o.platform}</Badge>
               {content?.author && <span>{content.author}</span>}
               {content?.published_at && <span>{content.published_at.slice(0, 10)}</span>}
-              {content?.url && <a href={content.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-primary hover:underline">原链接<ExternalLink className="size-3.5" /></a>}
+              {content?.url && <a href={content.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-foreground underline-offset-4 hover:underline">原链接<ExternalLink className="size-3.5" /></a>}
               <Badge>{o.mapping === 'builtin' ? '内置规则读取' : o.mapping === 'cache' ? '缓存规则读取' : '模型识别结构'}</Badge>
             </div>
           </div>
           <div className="flex gap-3">
             {counts.map(([kind, n], i) => (
-              <motion.div key={kind} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 + i * 0.08, type: 'spring', stiffness: 200, damping: 22 }} className="glass min-w-[104px] rounded-3xl px-5 py-3.5">
+              <motion.div key={kind} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 + i * 0.08, type: 'spring', stiffness: 200, damping: 22 }} className="min-w-[104px] rounded-xl border bg-card px-5 py-3.5 shadow-sm">
                 <CountingNumber number={n} thousandSeparator="," className="block text-[28px] font-semibold tabular-nums tracking-tight" />
                 <span className="text-xs text-muted-foreground">{KIND[kind] ?? kind}</span>
               </motion.div>
@@ -133,7 +133,7 @@ function TermCloud({ label, terms, onPick }: { label: string; terms: Term[]; onP
             whileHover={{ y: -2 }}
             whileTap={{ scale: 0.95 }}
             transition={{ delay: Math.min(i * 0.015, 0.4) }}
-            className="inline-flex items-center gap-1.5 rounded-full bg-white/75 px-3 py-1 text-[13px] ring-1 ring-black/5 transition-colors hover:bg-white hover:text-primary hover:ring-primary/25"
+            className="inline-flex items-center gap-1.5 rounded-md border bg-background px-2.5 py-1 text-[13px] font-medium shadow-xs transition-colors hover:bg-accent"
           >
             {t.word}<span className="text-[11px] tabular-nums text-muted-foreground">{fmt(t.docs)}</span>
           </motion.button>
@@ -146,11 +146,11 @@ function TermCloud({ label, terms, onPick }: { label: string; terms: Term[]; onP
 function PeakDetail({ peak, onOpen }: { peak: NonNullable<Overview['danmaku']>['peaks'][number]; onOpen: (id: string) => void }) {
   return (
     <AnimatePresence mode="wait">
-      <motion.div key={peak.start_sec} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={{ duration: 0.22 }} className="mt-4 rounded-3xl bg-pink/[0.06] p-4 ring-1 ring-pink/15">
+      <motion.div key={peak.start_sec} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={{ duration: 0.22 }} className="mt-4 rounded-lg border bg-muted/40 p-4">
         <h3 className="text-sm font-semibold">{clock(peak.start_sec)}–{clock(peak.end_sec)} · {fmt(peak.count)} 条<span className="ml-2 font-normal text-muted-foreground">平时每段约 {peak.baseline.toFixed(1)} 条</span></h3>
         <div className="mt-2 grid gap-1 sm:grid-cols-3">
           {peak.groups.map((g) => (
-            <button key={g.id} type="button" onClick={() => onOpen(g.id)} className="rounded-2xl bg-white/70 px-3 py-2 text-left transition hover:bg-white">
+            <button key={g.id} type="button" onClick={() => onOpen(g.id)} className="rounded-md border bg-background px-3 py-2 text-left shadow-xs transition-colors hover:bg-accent">
               <div className="text-xs text-muted-foreground">×{fmt(g.count)}{g.first_sec !== undefined && ` · ${clock(g.first_sec)}`}</div>
               <div className="mt-0.5 line-clamp-2 text-sm">{g.text}</div>
             </button>
@@ -210,13 +210,13 @@ function labelCard(label: LabelResult, openItem: (id: string) => void): { span: 
     span: 'lg:col-span-12',
     node: (
       <Card>
-        <CardHeader title={<span className="inline-flex items-center gap-2"><Sparkles className="size-4 text-violet" />商业机会</span>} sub={`每条机会附原文证据；优先级为模型建议，需要验证 · ${coverage}`} />
+        <CardHeader title={<span className="inline-flex items-center gap-2"><Sparkles className="size-4 text-muted-foreground" />商业机会</span>} sub={`每条机会附原文证据；优先级为模型建议，需要验证 · ${coverage}`} />
         {items.length ? (
           <div className="grid gap-3 md:grid-cols-2">
             {items.map((op) => (
-              <div key={op.title} className="rounded-3xl bg-white/65 p-4 ring-1 ring-black/5">
+              <div key={op.title} className="rounded-lg border p-4">
                 <div className="flex items-center gap-2 text-xs">
-                  <span className={cn('rounded-full px-2 py-px font-medium', op.priority === 'high' ? 'bg-pink/15 text-pink' : op.priority === 'medium' ? 'bg-mixed/15 text-[#c27400]' : 'bg-black/5 text-muted-foreground')}>{op.priority === 'high' ? '高' : op.priority === 'medium' ? '中' : '低'}优先</span>
+                  <span className={cn('rounded-md px-2 py-px font-medium', op.priority === 'high' ? 'bg-primary text-primary-foreground' : op.priority === 'medium' ? 'bg-secondary text-secondary-foreground border' : 'border text-muted-foreground')}>{op.priority === 'high' ? '高' : op.priority === 'medium' ? '中' : '低'}优先</span>
                   <span className="text-muted-foreground">{op.effort}</span>
                 </div>
                 <p className="mt-2 text-sm"><strong>{op.title}</strong>：{op.problem}</p>

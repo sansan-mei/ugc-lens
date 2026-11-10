@@ -25,7 +25,7 @@ import { createNativePicker, type NativePicker, type PickKind } from './picker.t
  */
 
 const STATIC_DIR = new URL('../../ui/', import.meta.url)
-const TYPES: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8' }
+const TYPES: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.woff2': 'font/woff2', '.svg': 'image/svg+xml' }
 const DATA_EXTENSIONS = new Set(['.json', '.jsonl', '.ndjson', '.csv', '.tsv', '.txt', '.md', '.markdown', '.log'])
 const SKIP_DIRS = new Set(['node_modules', '.git', '.ugc-lens'])
 const MAX_LIST = 300
@@ -64,7 +64,7 @@ function send(res: ServerResponse, status: number, body: string | Buffer, type =
     'x-content-type-options': 'nosniff',
     'referrer-policy': 'no-referrer',
     'x-frame-options': 'DENY',
-    'content-security-policy': "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
+    'content-security-policy': "default-src 'self'; img-src 'self' data:; font-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
   })
   res.end(body)
 }

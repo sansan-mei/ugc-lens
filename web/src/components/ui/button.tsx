@@ -2,21 +2,22 @@ import { Button as MotionButton, type ButtonProps as MotionButtonProps } from '@
 import { cva, type VariantProps } from 'class-variance-authority'
 import { cn } from '../../lib/utils.ts'
 
+// 样式与 Animate UI / shadcn 的 Button 一致，按压反馈由 Animate UI 的 Button 原语提供
 const buttonVariants = cva(
-  'inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-full font-medium transition-colors outline-none focus-visible:ring-4 focus-visible:ring-ring/40 disabled:opacity-45 disabled:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0',
+  "inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-[color,background-color,box-shadow] outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
   {
     variants: {
       variant: {
-        default: 'bg-primary text-primary-foreground shadow-[0_8px_20px_-8px_rgba(0,113,227,0.7)] hover:bg-[#0077ed]',
-        secondary: 'bg-muted text-foreground hover:bg-black/[0.08]',
-        ghost: 'text-foreground/80 hover:bg-muted hover:text-foreground',
-        outline: 'border border-border bg-white/70 hover:bg-white',
-        link: 'text-primary hover:underline px-0',
+        default: 'bg-primary text-primary-foreground shadow-xs hover:bg-primary/90',
+        secondary: 'bg-secondary text-secondary-foreground shadow-xs hover:bg-secondary/80',
+        ghost: 'hover:bg-accent hover:text-accent-foreground',
+        outline: 'border bg-background shadow-xs hover:bg-accent hover:text-accent-foreground',
+        link: 'text-primary underline-offset-4 hover:underline',
       },
       size: {
-        default: 'h-10 px-5 text-[15px]',
-        sm: 'h-8 px-3.5 text-[13px]',
-        lg: 'h-12 px-7 text-base',
+        default: 'h-9 px-4 py-2 has-[>svg]:px-3',
+        sm: 'h-8 gap-1.5 px-3 has-[>svg]:px-2.5',
+        lg: 'h-10 px-6 has-[>svg]:px-4',
         icon: 'size-9',
       },
     },
@@ -26,6 +27,6 @@ const buttonVariants = cva(
 
 export type ButtonProps = MotionButtonProps & VariantProps<typeof buttonVariants>
 
-export function Button({ className, variant, size, hoverScale = 1.02, tapScale = 0.96, type = 'button', ...props }: ButtonProps) {
-  return <MotionButton type={type} hoverScale={hoverScale} tapScale={tapScale} className={cn(buttonVariants({ variant, size }), className)} {...props} />
+export function Button({ className, variant, size, hoverScale = 1.03, tapScale = 0.95, type = 'button', ...props }: ButtonProps) {
+  return <MotionButton data-slot="button" type={type} hoverScale={hoverScale} tapScale={tapScale} className={cn(buttonVariants({ variant, size }), className)} {...props} />
 }

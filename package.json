@@ -1,6 +1,6 @@
 {
   "name": "ugc-lens",
-  "version": "0.0.16",
+  "version": "0.0.17",
   "description": "面向文本记录、评论、弹幕等内容的轻量分析 Agent",
   "keywords": [
     "ugc",
@@ -72,6 +72,7 @@
   },
   "devDependencies": {
     "@animate-ui/react": "2.4.3",
+    "@fontsource-variable/outfit": "5.3.0",
     "@modelcontextprotocol/client": "2.4.0",
     "@tailwindcss/vite": "4.3.5",
     "@types/node": "22.20.5",

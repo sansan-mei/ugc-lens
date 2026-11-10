@@ -24,6 +24,7 @@ const staticDir = join(root, 'static')
 mkdirSync(join(staticDir, 'assets'), { recursive: true })
 writeFileSync(join(staticDir, 'index.html'), '<script type="module" src="/assets/main-test.js"></script>')
 writeFileSync(join(staticDir, 'assets', 'main-test.js'), 'console.log(1)')
+writeFileSync(join(staticDir, 'assets', 'outfit-latin-wght-normal-x1.woff2'), 'font')
 const home = join(root, 'home')
 let nextPick: string | null | undefined = null
 const picker = { available: true, pick: async () => nextPick }
@@ -67,6 +68,9 @@ test('ui：静态页面无需令牌并带内容安全策略；网址中的令牌
   assert.match(page.text, /<script type="module" src="\/assets\/main-test.js">/)
   assert.match(String(page.headers['content-security-policy']), /script-src 'self'/)
   assert.equal((await call('/assets/main-test.js', { token: null })).status, 200)
+  const font = await call('/assets/outfit-latin-wght-normal-x1.woff2', { token: null })
+  assert.equal(font.status, 200)
+  assert.equal(font.headers['content-type'], 'font/woff2')
   assert.equal((await call('/../package.json', { token: null })).status, 404)
   assert.equal(ui.url(1234), 'http://127.0.0.1:1234/#token=test-token')
 })

@@ -296,7 +296,7 @@ npx skills add sansan-mei/ugc-lens --skill cited-feedback-analysis -a claude-cod
 
 ## 图形界面
 
-界面使用 React + Animate UI，包含动画标签页、文件选择弹窗、原文抽屉和图表过渡；发布包附带编译后的静态资源，不需要自行安装前端开发环境。
+界面使用 React + Animate UI，整体风格与 Animate UI 一致（中性配色、细边框、Outfit 字体），包含动画标签页、文件选择弹窗、原文抽屉和图表过渡；发布包附带编译后的静态资源，不需要自行安装前端开发环境。
 
 ```bash
 ugc-lens ui                      # 在当前目录启动，自动打开浏览器

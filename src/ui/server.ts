@@ -99,17 +99,6 @@ async function allowedPath(cwd: string, path: string, picked: Set<string>): Prom
   return target
 }
 
-/** 对话工具的路径守卫：启动目录及其子目录、用户选中过的文件；与 allowedPath 不同，允许启动目录本身 */
-async function chatPath(cwd: string, path: string, picked: Set<string>): Promise<string> {
-  const root = await realpath(cwd)
-  let target: string
-  try { target = await realpath(path) } catch { throw new HttpError(404, `文件不存在：${path}`) }
-  if (picked.has(target)) return target
-  const rel = relative(root, target)
-  if (rel.startsWith('..') || isAbsolute(rel)) throw new HttpError(403, '只能访问启动目录内的文件，其他位置的文件请先在界面里用“选择文件”打开')
-  return target
-}
-
 function defaultChatModels(cwd: string): ChatModels {
   let config
   try { config = loadLlmConfig({}, cwd) } catch (error) {
@@ -178,7 +167,6 @@ export function createUiServer(options: UiServerOptions): UiServer {
   const resolvePath = async (path: string) => { await loadRecent(); return allowedPath(cwd, path, picked) }
   const chat = createChatHub({
     cwd, homeDir: options.homeDir, models: options.chatModels ?? (() => defaultChatModels(cwd)),
-    allowPath: async (path) => { await loadRecent(); return chatPath(cwd, path, picked) },
   })
   const token = options.token ?? randomBytes(18).toString('base64url')
   const expected = Buffer.from(token)

@@ -9,7 +9,7 @@ import { HttpError } from './http.ts'
 /**
  * 界面里的对话（roadmap 第 19 步第二阶段）。每个会话就是命令行对话的 ChatSession，
  * 一轮回答以 NDJSON 流式返回：正文片段、工具进度，最后一行是 done 或 error。
- * 浏览器断开即取消本轮；文件访问经 allowPath 限制在启动目录和用户选中的文件内。
+ * 浏览器断开即取消本轮。文件访问与命令行对话相同，不限于启动目录。
  */
 
 export interface ChatModels { ask: AgentModel; analysis: AgentModel; name?: string }
@@ -28,7 +28,6 @@ export interface ChatHubOptions {
   cwd: string
   homeDir?: string
   models: () => ChatModels
-  allowPath: (path: string) => Promise<string>
   maxSessions?: number
 }
 
@@ -70,7 +69,6 @@ export function createChatHub(options: ChatHubOptions): ChatHub {
       const entry: Entry = { session: undefined as unknown as ChatSession, busy: false }
       entry.session = createSession({
         model: models.ask, analysisModel: models.analysis, modelName: models.name, cwd: options.cwd, stream: true,
-        allowPath: options.allowPath,
         memory: { cwd: options.cwd, homeDir: options.homeDir, onWarning: (message) => entry.listener?.({ type: 'warning', message }) },
         onEvent: (event) => { const mapped = toStreamEvent(event); if (mapped) entry.listener?.(mapped) },
       })

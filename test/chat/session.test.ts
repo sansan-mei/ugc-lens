@@ -205,30 +205,6 @@ test('界面打开的数据集可直接接入会话，无需重新导入，引�
   } finally { await session.close() }
 })
 
-test('传入路径守卫时，导入、报告、目录列表和监听的路径都要经过它', async () => {
-  const model = createFakeModel([
-    { tool_calls: [{ name: 'load_dataset', args: { file: '/etc/secret.json' } }, { name: 'list_files', args: { dir: '/etc' } }, { name: 'analyze_dataset', args: { file: '../x.json' } }, { name: 'start_watch', args: { dir: '/tmp' } }] },
-    { content: '这些位置不能访问' },
-  ])
-  const checked: string[] = []
-  let loaded = 0
-  const session = createSession({
-    model, cwd: '/data',
-    allowPath: async (path) => { checked.push(path); throw new Error(`不能访问 ${path}`) },
-    load: async () => { loaded++; return dataset },
-    analyze: async () => { throw new Error('不应运行分析') },
-    watch: async () => { throw new Error('不应启动监听') },
-  })
-  try {
-    const result = await session.ask('读一下系统文件')
-    assert.deepEqual(checked, ['/etc/secret.json', '/etc', '/x.json', '/tmp'])
-    assert.equal(loaded, 0)
-    const tools = result.messages.filter((m) => m.role === 'tool').map((m) => m.content)
-    assert.equal(tools.length, 4)
-    for (const content of tools) assert.match(content, /不能访问/)
-  } finally { await session.close() }
-})
-
 test('stream 开启时会话把模型正文片段作为 model_delta 事件发出', async () => {
   const model = createFakeModel([{ content: '你好', deltas: ['你', '好'] }])
   const deltas: string[] = []

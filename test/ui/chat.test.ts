@@ -17,7 +17,7 @@ const outside = join(root, 'outside')
 mkdirSync(join(cwd, 'data'), { recursive: true })
 mkdirSync(outside, { recursive: true })
 copyFileSync(BV_FIXTURE, join(cwd, 'data', 'bilibili_all.json'))
-writeFileSync(join(outside, 'secret.json'), '[{"text":"secret"}]')
+writeFileSync(join(outside, 'notes.txt'), '价格有点贵\n客服回复很慢\n')
 
 // 每个测试换一份剧本；没有剧本时模拟未配置模型
 let script: FakeScript | undefined
@@ -110,19 +110,18 @@ test('ui 对话：接入当前打开的数据集，流式返回正文片段、�
   assert.deepEqual(lastModel!.requests.at(-1)!.messages.filter((m) => m.role === 'user').map((m) => m.content), ['大家怎么评价', '再说说'])
 })
 
-test('ui 对话：模型只能访问启动目录和用户选中的文件', async () => {
+test('ui 对话：与命令行对话一致，可以导入和列出启动目录以外的文件', async () => {
   script = [
-    { tool_calls: [{ name: 'load_dataset', args: { file: join(outside, 'secret.json') } }, { name: 'list_files', args: { dir: '.' } }] },
-    { content: '外部文件无法读取' },
+    { tool_calls: [{ name: 'load_dataset', args: { file: join(outside, 'notes.txt') } }, { name: 'list_files', args: { dir: outside } }] },
+    { content: '已导入' },
   ]
   const sid = (await call('/api/chat', { method: 'POST', body: {} })).json.id
-  const reply = await call(`/api/chat/${sid}/messages`, { method: 'POST', body: { text: '读一下外面的文件' } })
+  const reply = await call(`/api/chat/${sid}/messages`, { method: 'POST', body: { text: '导入外面的文件' } })
   assert.equal(reply.events.at(-1).type, 'done')
   const tools = lastModel!.requests.at(-1)!.messages.filter((m) => m.role === 'tool').map((m) => String(m.content))
-  assert.match(tools[0]!, /只能访问启动目录内的文件/)
-  assert.doesNotMatch(tools[0]!, /secret"/)
-  assert.match(tools[1]!, /"name":"data"/)
-  assert.deepEqual(reply.events.filter((e) => e.type === 'tool_end').map((e) => e.ok), [false, true])
+  assert.match(tools[0]!, /"items":2/)
+  assert.match(tools[1]!, /"name":"notes.txt"/)
+  assert.deepEqual(reply.events.filter((e) => e.type === 'tool_end').map((e) => e.ok), [true, true])
 })
 
 test('ui 对话：参数校验、未知会话、上一轮未完成时拒绝', async () => {

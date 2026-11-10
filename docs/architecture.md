@@ -66,7 +66,7 @@ ugc-lens 是一个**分析用户互动内容（评论、弹幕、回复等）的
   - 接口：`POST /api/chat` 新建对话（此时读取模型配置，缺失返回 422）；`POST /api/chat/<id>/messages` 发送一轮，可带当前打开的 `dataset_id`，会话通过 `attach` 直接接入内存中的数据集，不重新导入；`DELETE /api/chat/<id>` 关闭。最多保留 8 个对话，超出时关闭最早的空闲对话；服务退出时关闭全部对话（取消进行中的回答和后台监听）。
   - 一轮回答以 NDJSON 流式返回：`step`、`delta`（正文片段）、`tool`/`tool_end`、`retry`、`warning`，最后一行是 `done`（最终回答、停止原因、经 `findCitations` 核对的有效与无效 ID、已知 token）或 `error`。同一对话上一轮未完成时返回 409。浏览器断开或点击停止即取消本轮，会话可继续使用。
   - 流式输出：Agent 循环新增 `stream` 选项（默认关闭，命令行、ask、MCP 行为不变），开启后向模型传 `onDelta`，模型客户端改发 `stream: true` 与 `stream_options.include_usage`，把 SSE 事件拼回与非流式相同的结果（正文、按 index 合并的工具调用、用量）；接口不返回用量时按“未返回”记账，不当成 0。重试会从头重新接收，界面在新一步或重试时清空中间正文，以 `done` 的最终回答为准。
-  - 文件边界：会话新增 `allowPath` 守卫，`load_dataset`、`analyze_dataset`、`list_files`、`start_watch` 的路径都经过它。界面传入的守卫只允许启动目录（含其本身和子目录）及用户在界面里选中过的文件，按真实路径判断；被拒绝时作为工具错误交给模型。命令行对话不传守卫，行为不变。
+  - 文件访问：与命令行对话相同，`load_dataset`、`analyze_dataset`、`list_files`、`start_watch` 可以访问任意路径，相对路径按启动目录解析。上文“只读启动目录内的文件和用户主动选中的文件”只约束界面自身的 `/api/open`、`/api/report` 等接口，不约束对话工具。
   - 前端状态放在 App 中，切换标签页时回答继续生成；事件归并与 NDJSON 分行在 `web/src/lib/chat.ts`，不依赖 DOM，Node 测试直接覆盖。联网搜索暂不在界面对话中开放。
 
 ### 2.2 命令行与发布

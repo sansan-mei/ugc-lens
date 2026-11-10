@@ -1,9 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-// @ts-expect-error 前端模块是无类型的浏览器 ES 模块，测试只检查输出字符串
-import { escapeHtml, renderMarkdown } from '../../ui/markdown.js'
-// @ts-expect-error 同上
-import { area, clock, donut, hBars } from '../../ui/charts.js'
+import { escapeHtml, renderMarkdown } from '../../web/src/lib/markdown.ts'
+import { areaPaths, clock, donutArcs } from '../../web/src/lib/format.ts'
 
 test('markdown：所有文本先转义，只允许 http(s) 链接', () => {
   const html: string = renderMarkdown('# 标题 <script>alert(1)</script>\n\n[点我](javascript:alert(1)) [官网](https://example.com) <img src=x onerror=alert(1)>')
@@ -32,12 +30,16 @@ test('markdown：表格、列表、引用块和代码块', () => {
   assert.match(html, /<pre><code>&lt;b&gt;code&lt;\/b&gt;<\/code><\/pre>/)
 })
 
-test('charts：标签转义、空数据提示、零值环形图与时间格式', () => {
-  const svg: string = hBars([{ label: '<b>广东</b>', value: 3 }, { label: '江苏', value: 1 }])
-  assert.match(svg, /&lt;b&gt;广东&lt;\/b&gt;/)
-  assert.doesNotMatch(svg, /style=/)
-  assert.match(hBars([]), /暂无数据/)
-  assert.match(area([], 5), /暂无弹幕/)
-  assert.match(donut([{ label: 'a', value: 0, color: '#000' }]), /<text[^>]*>0<\/text>/)
+test('charts：空数据、零值与时间格式', () => {
+  assert.deepEqual(donutArcs([{ value: 0 }], 100), [])
+  assert.equal(areaPaths([], { width: 100, height: 100, left: 5, right: 5, top: 5, bottom: 5 }).line, '')
   assert.deepEqual([clock(5), clock(65), clock(3725)], ['0:05', '1:05', '1:02:05'])
+})
+
+test('charts：面积路径与环形分段保持统计比例', () => {
+  const box = { width: 100, height: 100, left: 0, right: 0, top: 0, bottom: 0 }
+  const result = areaPaths([0, 10], box)
+  assert.equal(result.line, 'M0.0,100.0 L100.0,0.0')
+  const arcs = donutArcs([{ value: 1 }, { value: 3 }], 100)
+  assert.deepEqual(arcs.map((a) => [a.length, a.offset]), [[25, 0], [75, 25]])
 })

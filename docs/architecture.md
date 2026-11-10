@@ -58,15 +58,15 @@ ugc-lens 是一个**分析用户互动内容（评论、弹幕、回复等）的
 - 为了让界面以后能直接接入，核心从第一版起就要提供两样东西：
   1. **运行事件流**（第 3.5 节）：界面靠它显示进度，命令行也用它打印进度。
   2. **只读的状态与报告接口**：任务列表、报告、数据集统计都能通过代码 API 查询，不需要界面去读内部文件。
-- 第一阶段（已实现）：`src/ui/server.ts` 用 `node:http` 提供接口，`ui/` 下是随包发布的静态前端（原生 ES 模块，无框架、无图表库，图表由 `ui/charts.js` 生成 SVG，Markdown 由 `ui/markdown.js` 先转义再渲染白名单标签）。页面包括概况（数量、弹幕密度与高峰、发布时间、IP 属地、关键词、高赞内容、宿主模式的情感/主题/商业机会结果）、原文检索、报告阅读（`[ID]` 点开原文与回复链）。对话与一键分析属于第二阶段，需要模型配置。
-- 安全边界：只监听 127.0.0.1；接口要求启动时生成的令牌（放在网址 `#` 片段，前端读取后存入 sessionStorage 并移出地址栏），比较用常量时间；检查 Host 为本机端口以防 DNS 重绑定，带 Origin 时必须同源；只读启动目录内的文件和用户主动选中的文件，按真实路径判断，符号链接指向目录外同样拒绝；响应带严格内容安全策略（只允许同源脚本和样式，不用内联脚本和 style 属性）。
+- 第一阶段（已实现）：`src/ui/server.ts` 用 `node:http` 提供接口，`ui/` 下是随包发布的静态前端（React + Animate UI + Tailwind CSS + Motion；源码位于 `web/`，Vite 构建至 `ui/`，前端依赖仅用于开发构建；SVG 图表与白名单 Markdown 渲染保留本地计算）。页面包括概况（数量、弹幕密度与高峰、发布时间、IP 属地、关键词、高赞内容、宿主模式的情感/主题/商业机会结果）、原文检索、报告阅读（`[ID]` 点开原文与回复链）。对话与一键分析属于第二阶段，需要模型配置。
+- 安全边界：只监听 127.0.0.1；接口要求启动时生成的令牌（放在网址 `#` 片段，前端读取后存入 sessionStorage 并移出地址栏），比较用常量时间；检查 Host 为本机端口以防 DNS 重绑定，带 Origin 时必须同源；只读启动目录内的文件和用户主动选中的文件，按真实路径判断，符号链接指向目录外同样拒绝；响应带严格内容安全策略（脚本只允许同源、不允许内联脚本；样式允许内联以支持 Animate UI 的运行时样式与动画）。
 - 选择文件：服务和浏览器在同一台机器上，“选择文件”由服务弹出系统文件对话框（macOS `osascript`、Windows PowerShell `OpenFileDialog`、Linux `zenity`/`kdialog`，`execFile` 不经 shell），拿到真实路径，宿主模式在数据目录或启动目录下的标注结果也能对上。弹不出时（无图形环境、经 SSH 转发访问）返回 501，界面改用浏览器文件选择或拖放，内容上传到 `~/.ugc-lens/ui/uploads/<内容哈希>/`（上限 512 MB，文件名只保留最后一段）。选中过的文件记入全局 `~/.ugc-lens/ui/recent.json`（最多 20 个，权限 600），重启后仍可直接打开；不写入启动目录。
 - 打开文件复用 `loadDataset`：内置或缓存规则命中时不需要模型；否则按需读取模型配置识别结构，配置缺失返回可读错误。数据集只保存在服务进程内存中，页面记住上次打开的文件并在刷新后重新打开。
 
 ### 2.2 命令行与发布
 
 - 命令行：直接运行 `ugc-lens` 进入持续对话（第 11 步），模型根据自然语言选择工具；`ugc-lens init`（交互式初始化：选提供商、列出 /models 选模型、填 key、发一次测试调用，写入全局配置）、`ugc-lens analyze <文件>`（生成报告）、`ugc-lens ask <文件> <问题> [追问...]`（追问，回答带 ID）、`ugc-lens watch <目录>`（监听目录，第 6.7 节）。结果打印到标准输出，进度打印到标准错误，可以直接重定向到文件。
-- 配置从环境变量、当前目录的 `.env` 和 `.ugc-lens/config.json`、全局 `~/.ugc-lens/config.json` 读取（优先级从高到低，见 [providers.md](providers.md) 第 4 节）。任务状态和报告仍写在当前目录的 `.ugc-lens/` 下，只有模型配置进全局目录。
+- 配置从进程环境变量、当前目录的 `.ugc-lens/config.json`（不含密钥）、全局 `~/.ugc-lens/config.json` 读取（优先级从高到低，见 [providers.md](providers.md) 第 4 节）。任务状态和报告仍写在当前目录的 `.ugc-lens/` 下，只有模型配置进全局目录。
 - 代码 API：`src/index.ts` 导出 `loadDataset`、`analyzeDataset`、`askDataset`、`watchDirectory`、`openTaskStore`、模型客户端和配置读取等，命令行和 MCP 复用这些核心能力。
 - 发布：开发时直接运行 `.ts`；发布前用 `tsc -p tsconfig.build.json` 把 `src/` 编译到 `dist/`（含类型声明），因为 Node 不对 `node_modules` 里的 `.ts` 做类型剥离。包里只放 `dist/`、README、LICENSE。
 - CI（GitHub Actions）：`ci.yml` 在每次推送和 PR 时跑类型检查、测试、编译，并把 `npm pack` 的包装到临时目录里运行 `--help`。`release.yml` 在 master 上 `package.json` 的版本号和 npm 上的不同时发布，用 npm Trusted Publishing（OIDC，不存 token），然后打 `v版本号` 标签。

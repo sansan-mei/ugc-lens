@@ -25,9 +25,6 @@ import { createNativePicker, type NativePicker, type PickKind } from './picker.t
  */
 
 const STATIC_DIR = new URL('../../ui/', import.meta.url)
-const STATIC_FILES: Record<string, string> = {
-  '/': 'index.html', '/index.html': 'index.html', '/style.css': 'style.css', '/app.js': 'app.js', '/charts.js': 'charts.js', '/markdown.js': 'markdown.js',
-}
 const TYPES: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8' }
 const DATA_EXTENSIONS = new Set(['.json', '.jsonl', '.ndjson', '.csv', '.tsv', '.txt', '.md', '.markdown', '.log'])
 const SKIP_DIRS = new Set(['node_modules', '.git', '.ugc-lens'])
@@ -38,6 +35,7 @@ const MAX_RECENT = 20
 
 export interface UiServerOptions {
   cwd: string
+  staticDir?: string
   token?: string
   /** 测试注入；默认按需读取 ugc-lens 的模型配置，只在缓存和内置规则都不适用时识别结构 */
   model?: AgentModel
@@ -66,7 +64,7 @@ function send(res: ServerResponse, status: number, body: string | Buffer, type =
     'x-content-type-options': 'nosniff',
     'referrer-policy': 'no-referrer',
     'x-frame-options': 'DENY',
-    'content-security-policy': "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
+    'content-security-policy': "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
   })
   res.end(body)
 }
@@ -291,9 +289,12 @@ export function createUiServer(options: UiServerOptions): UiServer {
         if (origin && origin !== `http://${host}`) throw new HttpError(403, '来源不被允许')
         return await api(req, res, url)
       }
-      const name = req.method === 'GET' ? STATIC_FILES[url.pathname] : undefined
-      if (!name) throw new HttpError(404, '未找到')
-      return send(res, 200, await readFile(new URL(name, STATIC_DIR)), TYPES[extname(name)])
+      const path = decodeURIComponent(url.pathname)
+      const name = path === '/' ? 'index.html' : path.slice(1)
+      if (req.method !== 'GET' || (!['index.html'].includes(name) && !/^assets\/[a-zA-Z0-9_.-]+\.(js|css|svg|woff2)$/.test(name))) throw new HttpError(404, '未找到')
+      let content: Buffer
+      try { content = await readFile(options.staticDir ? join(options.staticDir, name) : new URL(name, STATIC_DIR)) } catch { throw new HttpError(404, '界面文件未构建，请先运行 npm run build') }
+      return send(res, 200, content, TYPES[extname(name)])
     } catch (error) {
       const status = error instanceof HttpError ? error.status : error instanceof ImportError || error instanceof ConfigError ? 422 : 500
       const message = error instanceof Error ? error.message : String(error)

@@ -20,11 +20,15 @@ writeFileSync(join(outside, 'secret.md'), '# secret')
 symlinkSync(join(outside, 'secret.md'), join(cwd, 'link.md'))
 
 // 模型不可用：未知结构只能得到可读错误，测试不访问任何真实模型接口
+const staticDir = join(root, 'static')
+mkdirSync(join(staticDir, 'assets'), { recursive: true })
+writeFileSync(join(staticDir, 'index.html'), '<script type="module" src="/assets/main-test.js"></script>')
+writeFileSync(join(staticDir, 'assets', 'main-test.js'), 'console.log(1)')
 const home = join(root, 'home')
 let nextPick: string | null | undefined = null
 const picker = { available: true, pick: async () => nextPick }
 const noModel = { complete: async () => { throw new ConfigError('没有配置模型') } }
-const ui = createUiServer({ cwd, token: 'test-token', homeDir: home, picker, model: noModel })
+const ui = createUiServer({ cwd, token: 'test-token', homeDir: home, picker, model: noModel, staticDir })
 let port = 0
 before(async () => { await new Promise<void>((done) => ui.server.listen(0, '127.0.0.1', done)); port = (ui.server.address() as AddressInfo).port })
 after(async () => { ui.server.closeAllConnections(); await new Promise((done) => ui.server.close(done)); rmSync(root, { recursive: true, force: true }) })
@@ -60,9 +64,9 @@ test('ui：前端文件随 npm 包发布', async () => {
 test('ui：静态页面无需令牌并带内容安全策略；网址中的令牌放在 # 片段', async () => {
   const page = await call('/', { token: null })
   assert.equal(page.status, 200)
-  assert.match(page.text, /<script type="module" src="\/app.js">/)
+  assert.match(page.text, /<script type="module" src="\/assets\/main-test.js">/)
   assert.match(String(page.headers['content-security-policy']), /script-src 'self'/)
-  assert.equal((await call('/app.js', { token: null })).status, 200)
+  assert.equal((await call('/assets/main-test.js', { token: null })).status, 200)
   assert.equal((await call('/../package.json', { token: null })).status, 404)
   assert.equal(ui.url(1234), 'http://127.0.0.1:1234/#token=test-token')
 })
@@ -141,7 +145,7 @@ test('ui：系统选择框选中的启动目录外文件可以打开，并记入
   assert.ok(!existsSync(join(cwd, '.ugc-lens', 'ui')))
 
   // 服务重启后，最近打开的文件仍可直接打开；没有选过的同目录文件仍被拒绝
-  const again = createUiServer({ cwd, token: 't2', homeDir: home, picker, model: noModel })
+  const again = createUiServer({ cwd, token: 't2', homeDir: home, picker, model: noModel, staticDir })
   await new Promise<void>((done) => again.server.listen(0, '127.0.0.1', done))
   const port2 = (again.server.address() as AddressInfo).port
   const status = (body: unknown) => new Promise<number>((resolve, reject) => {

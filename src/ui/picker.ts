@@ -33,16 +33,38 @@ export function pickerCommand(platform: NodeJS.Platform | string, env: NodeJS.Pr
   }
   if (platform === 'win32') {
     const filter = kind === 'data' ? `数据文件|${PATTERNS.data.join(';')}|所有文件|*.*` : `Markdown|${PATTERNS.report.join(';')}`
+    // 弹框的是后台 PowerShell，Windows 前台锁会让对话框躲在浏览器后面：
+    // 显示一个透明的置顶宿主窗口，并借用前台窗口线程的输入状态把它设为前台。
+    // Win32 声明含双引号，整段脚本用 -EncodedCommand 传入，避开命令行引号转义。
     const script = [
+      '$ProgressPreference = \'SilentlyContinue\'',
       '[Console]::OutputEncoding = [System.Text.Encoding]::UTF8',
       'Add-Type -AssemblyName System.Windows.Forms',
-      '$owner = New-Object System.Windows.Forms.Form -Property @{ TopMost = $true }',
+      `$owner = New-Object System.Windows.Forms.Form -Property @{ TopMost = $true; Text = '${PROMPT[kind]}'; FormBorderStyle = 'None'; StartPosition = 'CenterScreen'; Opacity = 0 }`,
+      '$owner.Show()',
+      'try {',
+      "Add-Type -Namespace UgcLens -Name Win32 -MemberDefinition @'",
+      '[DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();',
+      '[DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, IntPtr processId);',
+      '[DllImport("user32.dll")] public static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool fAttach);',
+      '[DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);',
+      '[DllImport("kernel32.dll")] public static extern uint GetCurrentThreadId();',
+      "'@",
+      '  $current = [UgcLens.Win32]::GetCurrentThreadId()',
+      '  $front = [UgcLens.Win32]::GetWindowThreadProcessId([UgcLens.Win32]::GetForegroundWindow(), [IntPtr]::Zero)',
+      '  $attached = $front -ne 0 -and $front -ne $current -and [UgcLens.Win32]::AttachThreadInput($current, $front, $true)',
+      '  [void][UgcLens.Win32]::SetForegroundWindow($owner.Handle)',
+      '  if ($attached) { [void][UgcLens.Win32]::AttachThreadInput($current, $front, $false) }',
+      '} catch { }',
+      '$owner.Activate()',
       '$dialog = New-Object System.Windows.Forms.OpenFileDialog',
       `$dialog.Title = '${PROMPT[kind]}'`,
       `$dialog.Filter = '${filter}'`,
-      "if ($dialog.ShowDialog($owner) -eq 'OK') { $dialog.FileName } else { exit 1 }",
-    ].join('; ')
-    return { command: 'powershell.exe', args: ['-NoProfile', '-NonInteractive', '-STA', '-Command', script] }
+      '$ok = $dialog.ShowDialog($owner) -eq [System.Windows.Forms.DialogResult]::OK',
+      '$owner.Close()',
+      'if ($ok) { $dialog.FileName } else { exit 1 }',
+    ].join('\n')
+    return { command: 'powershell.exe', args: ['-NoProfile', '-NonInteractive', '-STA', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')] }
   }
   if (!env.DISPLAY && !env.WAYLAND_DISPLAY) return undefined
   if (has('zenity')) return { command: 'zenity', args: ['--file-selection', `--title=${PROMPT[kind]}`, `--file-filter=${PATTERNS[kind].join(' ')}`, '--file-filter=* '] }

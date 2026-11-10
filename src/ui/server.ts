@@ -166,7 +166,7 @@ export function createUiServer(options: UiServerOptions): UiServer {
   }
   const resolvePath = async (path: string) => { await loadRecent(); return allowedPath(cwd, path, picked) }
   const chat = createChatHub({
-    cwd, homeDir: options.homeDir, models: options.chatModels ?? (() => defaultChatModels(cwd)),
+    cwd, homeDir: options.homeDir ?? homedir(), models: options.chatModels ?? (() => defaultChatModels(cwd)),
   })
   const token = options.token ?? randomBytes(18).toString('base64url')
   const expected = Buffer.from(token)
@@ -244,11 +244,15 @@ export function createUiServer(options: UiServerOptions): UiServer {
     if (parts[0] === 'chat') {
       if (req.method === 'POST' && parts.length === 1) return json(res, { id: chat.create() })
       if (req.method === 'POST' && parts[1] && parts[2] === 'messages' && parts.length === 3) {
-        const body = await readBody(req) as { text?: unknown; dataset_id?: unknown }
+        const body = await readBody(req) as { text?: unknown; display?: unknown; dataset_id?: unknown }
         const attached = typeof body.dataset_id === 'string' ? datasets.get(body.dataset_id) : undefined
-        return chat.send(parts[1], { text: body.text, dataset: attached }, req, res)
+        return chat.send(parts[1], { text: body.text, display: body.display, dataset: attached }, req, res)
       }
       if (req.method === 'DELETE' && parts[1] && parts.length === 2) { await chat.remove(parts[1]); return json(res, { ok: true }) }
+    }
+    if (req.method === 'GET' && parts[0] === 'chats') {
+      if (parts.length === 1) return json(res, { chats: await chat.list() })
+      if (parts.length === 2) return json(res, await chat.get(parts[1]!))
     }
     if (req.method === 'GET' && parts[0] === 'datasets' && parts.length === 1) {
       return json(res, [...datasets.values()].map((d) => ({ id: d.id, file: d.file_path, title: d.contents[0]?.title, items: d.items.length })))

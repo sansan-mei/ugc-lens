@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { request } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
@@ -164,4 +164,51 @@ test('ui 对话：模型出错时以 error 事件结束本轮', async () => {
   const reply = await call(`/api/chat/${sid}/messages`, { method: 'POST', body: { text: 'hi' } })
   assert.equal(reply.status, 200)
   assert.deepEqual(reply.events.at(-1), { type: 'error', message: '上游 500' })
+})
+
+test('ui 对话历史：每轮保存到全局目录，可列出、查看，服务重启后继续，删除后消失', async () => {
+  script = [{ tool_calls: [{ name: 'list_files', args: {} }] }, { content: '第一轮回答', deltas: ['第一轮回答'] }]
+  const sid = (await call('/api/chat', { method: 'POST', body: {} })).json.id as string
+  // 新建但还没发消息的对话不出现在历史里
+  assert.equal((await call('/api/chats')).json.chats.some((c: { id: string }) => c.id === sid), false)
+  const first = await call(`/api/chat/${sid}/messages`, { method: 'POST', body: { text: '展开后的提示词', display: '/files' } })
+  assert.equal(first.events.at(-1).type, 'done')
+
+  const list = (await call('/api/chats')).json.chats as Array<{ id: string; title: string; updated_at: string; turns: number }>
+  const entry = list.find((c) => c.id === sid)!
+  assert.equal(entry.title, '/files')
+  assert.equal(entry.turns, 2)
+  const detail = (await call(`/api/chats/${sid}`)).json
+  assert.deepEqual(detail.turns[0], { role: 'user', text: '/files' })
+  assert.equal(detail.turns[1].role, 'assistant')
+  assert.equal(detail.turns[1].text, '第一轮回答')
+  assert.equal(detail.turns[1].status, 'done')
+  assert.deepEqual(detail.turns[1].tools.map((t: { name: string; ok: boolean }) => [t.name, t.ok]), [['list_files', true]])
+  const dir = join(root, 'home', '.ugc-lens', 'ui', 'chats')
+  for (const name of readdirSync(dir)) assert.equal(statSync(join(dir, name)).mode & 0o777, 0o600)
+
+  // 另一个服务实例（模拟重启）用同一目录恢复对话，模型看到之前的历史
+  script = [{ content: '第二轮回答' }]
+  const restarted = createUiServer({ cwd, token: 't', homeDir: join(root, 'home'), picker: { available: false, pick: async () => undefined }, model: noModel, chatModels, staticDir: root })
+  await new Promise<void>((done) => restarted.server.listen(0, '127.0.0.1', done))
+  const savedPort = port
+  port = (restarted.server.address() as AddressInfo).port
+  try {
+    const second = await call(`/api/chat/${sid}/messages`, { method: 'POST', body: { text: '继续' } })
+    assert.equal(second.events.at(-1).answer, '第二轮回答')
+    const sent = lastModel!.requests.at(-1)!.messages
+    assert.equal(sent.filter((m) => m.role === 'system').length, 1)
+    assert.deepEqual(sent.filter((m) => m.role === 'user').map((m) => m.content), ['展开后的提示词', '继续'])
+    assert.ok(sent.some((m) => m.role === 'tool'))
+    assert.equal((await call(`/api/chats/${sid}`)).json.turns.length, 4)
+  } finally {
+    await restarted.close(); restarted.server.closeAllConnections(); await new Promise((done) => restarted.server.close(done))
+    port = savedPort
+  }
+
+  assert.equal((await call(`/api/chat/${sid}`, { method: 'DELETE' })).status, 200)
+  assert.equal((await call('/api/chats')).json.chats.some((c: { id: string }) => c.id === sid), false)
+  assert.equal((await call(`/api/chats/${sid}`)).status, 404)
+  assert.equal((await call(`/api/chat/${sid}/messages`, { method: 'POST', body: { text: 'hi' } })).status, 404)
+  assert.equal((await call('/api/chats/..%2F..%2Fsecret')).status, 404)
 })

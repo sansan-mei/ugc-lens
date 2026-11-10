@@ -31,8 +31,8 @@ export async function upload(file: File): Promise<string> {
 }
 
 /** 发送一轮对话：逐行读取 NDJSON 事件。HTTP 错误（未配置模型、会话失效等）抛 ApiError */
-export async function streamChat(sessionId: string, text: string, datasetId: string | undefined, onEvent: (event: ChatEvent) => void, signal: AbortSignal): Promise<void> {
-  const res = await fetch(`/api/chat/${encodeURIComponent(sessionId)}/messages`, { method: 'POST', signal, body: JSON.stringify({ text, dataset_id: datasetId }), headers: { 'x-ugc-lens-token': token, 'content-type': 'application/json' } })
+export async function streamChat(sessionId: string, text: string, datasetId: string | undefined, onEvent: (event: ChatEvent) => void, signal: AbortSignal, display?: string): Promise<void> {
+  const res = await fetch(`/api/chat/${encodeURIComponent(sessionId)}/messages`, { method: 'POST', signal, body: JSON.stringify({ text, display, dataset_id: datasetId }), headers: { 'x-ugc-lens-token': token, 'content-type': 'application/json' } })
   if (!res.ok || !res.body) {
     const body = await res.json().catch(() => ({})) as { error?: string }
     throw new ApiError(res.status, body.error ?? `请求失败（${res.status}）`)

@@ -67,6 +67,8 @@ ugc-lens 是一个**分析用户互动内容（评论、弹幕、回复等）的
   - 一轮回答以 NDJSON 流式返回：`step`、`delta`（正文片段）、`tool`/`tool_end`、`retry`、`warning`，最后一行是 `done`（最终回答、停止原因、经 `findCitations` 核对的有效与无效 ID、已知 token）或 `error`。同一对话上一轮未完成时返回 409。浏览器断开或点击停止即取消本轮，会话可继续使用。
   - 流式输出：Agent 循环新增 `stream` 选项（默认关闭，命令行、ask、MCP 行为不变），开启后向模型传 `onDelta`，模型客户端改发 `stream: true` 与 `stream_options.include_usage`，把 SSE 事件拼回与非流式相同的结果（正文、按 index 合并的工具调用、用量）；接口不返回用量时按“未返回”记账，不当成 0。重试会从头重新接收，界面在新一步或重试时清空中间正文，以 `done` 的最终回答为准。
   - 文件访问：与命令行对话相同，`load_dataset`、`analyze_dataset`、`list_files`、`start_watch` 可以访问任意路径，相对路径按启动目录解析。上文“只读启动目录内的文件和用户主动选中的文件”只约束界面自身的 `/api/open`、`/api/report` 等接口，不约束对话工具。
+  - 历史对话：每轮结束（完成、出错或停止）后写入 `<主目录>/.ugc-lens/ui/chats/`，`<id>.json` 是界面显示记录（标题、启动目录、时间、每轮的原话、回答、工具进度、引用核对），`<id>.messages.json` 是不含 system 的模型历史；先写临时文件再改名，权限 600，目录 700。先保存再结束响应，浏览器收到结束后立即追问或刷新列表都能看到本轮。`GET /api/chats` 按更新时间列出（最多 200 条），`GET /api/chats/<id>` 读取记录；向不在内存中的对话发消息时，用保存的模型历史新建 `ChatSession`（`history` 选项，接在本次 system prompt 之后），服务重启或会话被回收后都能继续。`DELETE /api/chat/<id>` 关闭会话并删除两个文件；对话 ID 只接受 8～32 位 `[A-Za-z0-9_-]`。新建但还没发消息的对话不保存。界面数据集只在内存中，恢复的对话里模型需要时会重新导入文件。
+  - 斜杠命令（`web/src/lib/commands.ts`，纯函数，Node 测试覆盖）：输入 `/` 时列出命令并按前缀筛选。本地命令（`/new`、`/open`、`/search`）不调用模型；其余展开成提示词，指明对应工具（如 `analyze_dataset` + `scenario`），界面显示原话、模型收到展开后的提示词，消息里分别以 `display` 与 `text` 传给服务端。
   - 前端状态放在 App 中，切换标签页时回答继续生成；事件归并与 NDJSON 分行在 `web/src/lib/chat.ts`，不依赖 DOM，Node 测试直接覆盖。联网搜索暂不在界面对话中开放。
 
 ### 2.2 命令行与发布

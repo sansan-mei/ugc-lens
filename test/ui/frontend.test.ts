@@ -90,3 +90,52 @@ test('对话：事件归并为助手回复，新一步和重试清空中间正�
   applyChatEvent(before, { type: 'delta', step: 1, text: 'x' })
   assert.equal(before.text, '')
 })
+
+test('斜杠命令：输入 / 列出全部命令，按前缀筛选，输入参数后只保留该命令', async () => {
+  const { COMMANDS, matchCommands } = await import('../../web/src/lib/commands.ts')
+  assert.deepEqual(matchCommands('/').map((c) => c.name), COMMANDS.map((c) => c.name))
+  assert.ok(COMMANDS.length >= 8)
+  const s = matchCommands('/s').map((c) => c.name)
+  assert.ok(s.length > 0 && s.every((n) => n.startsWith('s')))
+  assert.deepEqual(matchCommands('/REP').map((c) => c.name), ['report', 'reputation'])
+  assert.deepEqual(matchCommands('/report 价格').map((c) => c.name), ['report'])
+  assert.deepEqual(matchCommands('/nothing'), [])
+  assert.deepEqual(matchCommands('普通问题'), [])
+  assert.deepEqual(matchCommands(' /new'), [])
+  // 每个命令都有说明，名称唯一
+  assert.equal(new Set(COMMANDS.map((c) => c.name)).size, COMMANDS.length)
+  for (const c of COMMANDS) assert.ok(c.description.length > 0)
+})
+
+test('斜杠命令：解析为本地动作或发给模型的提示词，校验必填参数和未知命令', async () => {
+  const { parseCommand } = await import('../../web/src/lib/commands.ts')
+  assert.equal(parseCommand('价格怎么样'), undefined)
+  assert.deepEqual(parseCommand('/new'), { action: 'new' })
+  assert.deepEqual(parseCommand('/open'), { action: 'open' })
+  assert.deepEqual(parseCommand('/search  退款 慢 '), { action: 'search', arg: '退款 慢' })
+  assert.match((parseCommand('/search') as { error: string }).error, /search.*关键词/)
+  assert.match((parseCommand('/foo') as { error: string }).error, /未知命令 \/foo/)
+  const report = parseCommand('/Report 价格 争议') as { prompt: string }
+  assert.match(report.prompt, /analyze_dataset/)
+  assert.match(report.prompt, /价格 争议/)
+  const plain = parseCommand('/report') as { prompt: string }
+  assert.doesNotMatch(plain.prompt, /关注点：/)
+  assert.match((parseCommand('/reputation') as { prompt: string }).prompt, /reputation/)
+  assert.match((parseCommand('/competitor') as { prompt: string }).prompt, /competitor/)
+  assert.match((parseCommand('/sentiment 主播') as { prompt: string }).prompt, /analyze_sentiment[^]*主播/)
+  assert.match((parseCommand('/topics') as { prompt: string }).prompt, /analyze_topics/)
+  assert.match((parseCommand('/business') as { prompt: string }).prompt, /analyze_business/)
+  assert.match((parseCommand('/watch ./data') as { prompt: string }).prompt, /start_watch[^]*\.\/data/)
+  assert.match((parseCommand('/watch') as { error: string }).error, /目录/)
+})
+
+test('对话历史：更新时间显示为相对时间', async () => {
+  const { relativeTime } = await import('../../web/src/lib/chat.ts')
+  const now = new Date('2026-11-10T12:00:00+08:00')
+  assert.equal(relativeTime('2026-11-10T11:59:30+08:00', now), '刚刚')
+  assert.equal(relativeTime('2026-11-10T11:45:00+08:00', now), '15 分钟前')
+  assert.equal(relativeTime('2026-11-10T08:00:00+08:00', now), '4 小时前')
+  assert.equal(relativeTime('2026-11-09T20:00:00+08:00', now), '昨天')
+  assert.equal(relativeTime('2026-10-03T20:00:00+08:00', now), '10月3日')
+  assert.equal(relativeTime('2025-10-03T20:00:00+08:00', now), '2025年10月3日')
+})

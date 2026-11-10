@@ -26,6 +26,9 @@ export interface AssistantTurn {
 }
 
 export interface UserTurn { role: 'user'; text: string }
+
+/** 历史列表里的一条对话 */
+export interface ChatSummary { id: string; title: string; cwd: string; updated_at: string; turns: number }
 export type ChatTurn = UserTurn | AssistantTurn
 
 export function newAssistantTurn(): AssistantTurn {
@@ -70,3 +73,17 @@ const TOOL_LABELS: Record<string, string> = {
   search_learnings: '查找经验', record_learning: '记录经验', playbook_update: '更新手册',
 }
 export const toolLabel = (name: string): string => TOOL_LABELS[name] ?? name
+
+/** 历史列表的更新时间：一小时内按分钟，当天按小时，前一天为“昨天”，更早显示日期 */
+export function relativeTime(iso: string, now: Date = new Date()): string {
+  const then = new Date(iso)
+  const minutes = Math.floor((now.getTime() - then.getTime()) / 60_000)
+  if (minutes < 1) return '刚刚'
+  if (minutes < 60) return `${minutes} 分钟前`
+  const day = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
+  const days = Math.round((day(now) - day(then)) / 86_400_000)
+  if (days === 0) return `${Math.floor(minutes / 60)} 小时前`
+  if (days === 1) return '昨天'
+  const md = `${then.getMonth() + 1}月${then.getDate()}日`
+  return then.getFullYear() === now.getFullYear() ? md : `${then.getFullYear()}年${md}`
+}

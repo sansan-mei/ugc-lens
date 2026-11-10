@@ -53,6 +53,8 @@ export interface SessionOptions {
   web?: WebSession
   /** 流式请求模型，正文片段经 onEvent 以 model_delta 发出 */
   stream?: boolean
+  /** 恢复已保存的对话：不含 system 的历史消息，接在本次的 system prompt 之后 */
+  history?: readonly ChatMessage[]
 }
 
 export interface ChatSession {
@@ -73,7 +75,7 @@ export function createSession(options: SessionOptions): ChatSession {
   const load = options.load ?? loadDataset
   const analyze = options.analyze ?? analyzeDataset
   const model = options.analysisModel ?? options.model
-  let history: ChatMessage[] = [{ role: 'system', content: `${system}\n\n当前工作目录：${JSON.stringify(cwd)}` }]
+  let history: ChatMessage[] = [{ role: 'system', content: `${system}\n\n当前工作目录：${JSON.stringify(cwd)}` }, ...(options.history ?? []).filter((m) => m.role !== 'system')]
   let active: { dir: string; controller: AbortController; done: Promise<void>; store: TaskStore } | undefined
   let busy: Promise<AgentRunResult> | undefined
   let currentQuestion = ''

@@ -214,3 +214,20 @@ test('stream 开启时会话把模型正文片段作为 model_delta 事件发出
     assert.deepEqual(deltas, ['你', '好'])
   } finally { await session.close() }
 })
+
+test('传入历史消息可恢复会话：继续追问时模型看到之前的对话，system prompt 仍只有一条', async () => {
+  const model = createFakeModel([{ content: '接着说' }])
+  const history = [
+    { role: 'user' as const, content: '价格怎么样' },
+    { role: 'assistant' as const, content: '偏贵 [c1]' },
+  ]
+  const session = createSession({ model, cwd: '/data', history })
+  try {
+    const result = await session.ask('还有呢')
+    const sent = model.requests[0]!.messages
+    assert.equal(sent.filter((m) => m.role === 'system').length, 1)
+    assert.equal(sent[0]!.role, 'system')
+    assert.deepEqual(sent.slice(1), [...history, { role: 'user', content: '还有呢' }])
+    assert.deepEqual(result.messages.slice(1, 3), history)
+  } finally { await session.close() }
+})

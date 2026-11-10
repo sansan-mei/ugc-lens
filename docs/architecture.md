@@ -86,6 +86,9 @@ ugc-lens 是一个**分析用户互动内容（评论、弹幕、回复等）的
 - `ask` 返回 conversation_id，后续传回同一 ID 延续上下文；不同会话分开保存，同一会话绑定同一数据集，并发写同一会话时返回可恢复的错误。
 - 参数由现有 Zod 工具及 SDK 校验；业务错误返回 `isError: true` 的工具结果，协议错误由 SDK 处理。请求取消传递到底层 fetch、导入和流水线；断开、EOF 或信号退出时取消未完成请求并清理资源。
 - 仓库内附 `skills/ugc-lens/SKILL.md`，随 npm 包发布，用于指导宿主选择查询或完整流水线；README 提供 Claude Code 与通用 stdio 配置。不会自动修改用户的宿主配置或安装技能。
+- Agent Skills 分发（roadmap 第 17.5 步）：`skills/` 下每个目录是一个符合 agentskills.io 规范的技能，`name` 与目录名一致，可由 `npx skills add sansan-mei/ugc-lens` 从 GitHub 安装到 Claude Code、Codex、Cursor 等宿主，也随 npm 包发布。
+  - `ugc-lens`：使用本包。先判断 MCP 是否已连接；未连接时可用命令行 `analyze`、`ask` 完成任务，注册 MCP 需用户确认；模型配置由用户自行运行 `ugc-lens init`。
+  - `cited-feedback-analysis`：不依赖本包和模型 key 的轻量技能，由宿主模型阅读数据，`scripts/evidence.mjs`（Node 18+、无依赖、单文件）负责建立记录索引、正则计数和引用核验。它是独立副本，不从 `src/` 导入，避免安装技能时还要安装本包；TXT、Markdown、CSV/TSV、JSON 字符串数组的 `line_N` 编号与 `src/ingest/formats.ts` 保持一致，由测试对照。嵌套回复按同一文本字段展开并记录 `parent_id`；核验只证明 ID 存在与摘句逐字出现，不评价解读质量。适用规模为一次会话能读完的几千条短文本，更大数据、弹幕时间线和逐条分类仍引导到 ugc-lens。
 
 ### 2.5 模型接口与缓存优化（roadmap 第 18 步，可选，待实现）
 

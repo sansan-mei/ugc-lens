@@ -1,11 +1,32 @@
 ---
 name: ugc-lens
-description: 使用 ugc-lens MCP 工具分析本地 JSON、JSONL、CSV、TXT 等文件中的文本记录、评论、回复和弹幕，生成带原文证据的报告或连续追问；不负责搜集平台数据。
+description: 使用 ugc-lens（MCP 服务或命令行）分析本地 JSON、JSONL、CSV、TXT、Markdown 等文件中的评论、回复、弹幕、字幕、问卷、工单和访谈记录，生成带原文 ID 引用的报告，支持连续追问、情感与主题统计、商业机会分析和目录监听；不负责搜集平台数据。Use for large comment, danmaku or feedback datasets (especially Chinese social media exports) when the user wants cited reports via the ugc-lens package.
+license: MIT
+compatibility: 需要 Node.js 22.18+ 和 npm 包 ugc-lens；分析调用用户自己用 ugc-lens init 配置的模型 API。
+metadata:
+  author: sansan-mei
+  homepage: https://github.com/sansan-mei/ugc-lens
 ---
 
 # ugc-lens 数据分析
 
 用户提供的是本地结构化数据或文本文件，支持 JSON、JSONL/NDJSON、CSV/TSV、TXT、Markdown、LOG。结构化文件列由 ugc-lens 识别，纯文本使用内置规则，不要自行假设字段名，也不要把整个大文件读进上下文。工具名前缀由宿主决定，以下使用服务内名称。
+
+## 准备
+
+先确认当前可用哪种方式，再开始分析：
+
+1. **MCP 已连接**：工具列表里有 `analyze`、`load_dataset` 等工具时直接使用，跳到“选择工具”。
+2. **未连接但可执行命令**：运行 `ugc-lens --version`（或 `npx -y ugc-lens --version`）确认已安装，需要 Node.js 22.18 或更高版本。可以直接用命令行完成任务：
+   - `ugc-lens analyze <文件> --focus 方向1,方向2`：完整报告打印到标准输出，并保存到当前目录 `.ugc-lens/reports/`；`--scenario reputation|competitor` 切换场景。
+   - `ugc-lens ask <文件> "问题1" "问题2"`：带 `[ID]` 依据的追问。
+   - 运行前确认工作目录，报告、缓存和经验会写到该目录的 `.ugc-lens/`；长任务给出合理超时。
+3. **需要长期接入**：向用户提议注册 MCP，由用户确认后再修改宿主配置。`--cwd` 写数据项目的绝对路径：
+   - Claude Code：`claude mcp add --transport stdio ugc-lens -- npx -y ugc-lens mcp --cwd /绝对路径/数据项目`
+   - Codex：在 `~/.codex/config.toml` 添加 `[mcp_servers.ugc-lens]`，`command = "npx"`，`args = ["-y", "ugc-lens", "mcp", "--cwd", "/绝对路径/数据项目"]`
+   - 其他宿主按 stdio MCP 配置同样的命令和参数；需要固定版本时把 `ugc-lens` 写成 `ugc-lens@版本号`。
+4. **模型配置**：导入识别、`analyze` 和 `ask` 使用 ugc-lens 自己的模型配置，不使用宿主的模型授权。缺少配置时请用户在终端自行运行交互式的 `ugc-lens init`；不要让用户把 key 发进聊天，也不要替用户写入密钥。
+5. **无法安装或配置模型**：数据量不大（几千条以内的短文本）时，改用 `cited-feedback-analysis` 技能，由宿主模型直接分析并用脚本核验引用；需要安装时可执行 `npx skills add sansan-mei/ugc-lens --skill cited-feedback-analysis`。
 
 默认优先用中文表格展示情感分布、主题占比、痛点、机会与对比，关键数字加粗；较长解释和行动步骤用列表，用户明确要求优先。
 

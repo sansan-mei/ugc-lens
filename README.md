@@ -278,7 +278,23 @@ claude mcp add --transport stdio ugc-lens -- node /绝对路径/ugc-lens/src/cli
 
 `analyze`、`ask` 可以传 `file` 自动导入，也可用 `dataset_id`；两者不能同时提供。`ask` 返回 `conversation_id`，继续追问时传回这个 ID 和新 `question`，可省略文件。数据集和对话只在当前服务进程内保留；报告和映射缓存保存在磁盘。MCP 本身不使用宿主的模型授权，识别结构和模型分析仍需要 ugc-lens 的模型配置；握手和工具发现不需要 key。
 
-技能指引位于 [skills/ugc-lens/SKILL.md](skills/ugc-lens/SKILL.md)，随 npm 包提供，可按宿主的技能安装方式添加。代码调用者可从 `ugc-lens/mcp` 导入 `createMcpServer` 创建独立实例。
+技能指引位于 [skills/ugc-lens/SKILL.md](skills/ugc-lens/SKILL.md)，随 npm 包提供，安装方式见下一节。代码调用者可从 `ugc-lens/mcp` 导入 `createMcpServer` 创建独立实例。
+
+## Agent Skills
+
+仓库提供两个符合 [Agent Skills](https://agentskills.io/specification) 规范的技能，可安装到 Claude Code、Codex、Cursor 等支持 `SKILL.md` 的宿主：
+
+| 技能 | 适用 | 依赖 |
+|---|---|---|
+| [`ugc-lens`](skills/ugc-lens/SKILL.md) | 大量评论、回复、弹幕和字幕，完整报告、逐条情感和主题统计、连续追问、监听目录 | 本包和 `ugc-lens init` 配置的模型 |
+| [`cited-feedback-analysis`](skills/cited-feedback-analysis/SKILL.md) | 几千条以内的评价、问卷、工单、访谈和评论，英文说明 | 只需 Node.js 18+，由宿主模型分析，无需 API key |
+
+```bash
+npx skills add sansan-mei/ugc-lens                                   # 交互选择技能和宿主
+npx skills add sansan-mei/ugc-lens --skill cited-feedback-analysis -a claude-code
+```
+
+默认安装到当前项目，加 `-g` 安装到用户目录。`cited-feedback-analysis` 的脚本 `scripts/evidence.mjs` 负责三件事：`index` 把文件转成带 ID 的记录（嵌套回复展开并记录 `parent_id`），`search` 用正则统计匹配记录数，`verify` 核对报告中每个 `[ID]` 存在、每段 `"摘句" [ID]` 逐字出现在对应记录里。核验通过只说明引用可追溯，不代表解读正确。
 
 ## 代码调用
 

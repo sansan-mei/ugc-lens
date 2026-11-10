@@ -1,5 +1,5 @@
 import { homedir } from 'node:os'
-import { ConfigError, loadDotEnv, readConfigSection } from '../config.ts'
+import { ConfigError, readConfigSection, rejectProjectSecret } from '../config.ts'
 
 export type WebProviderId = 'searxng' | 'tavily'
 
@@ -67,11 +67,11 @@ export function webEnabled(overrides: Pick<WebConfigFile, 'enabled'> = {}, _cwd:
 
 /** 读取联网配置。优先级：参数 > 环境变量 > 项目配置 > 全局配置 > 预设；key 与端点的绑定规则同模型配置。 */
 export function loadWebConfig(overrides: WebConfigFile = {}, cwd: string = process.cwd(), homeDir: string = homedir()): WebConfig {
-  const dotenv = loadDotEnv(cwd)
   const file = readConfigSection<WebConfigFile>(cwd, 'web')
+  rejectProjectSecret(file, cwd, 'web')
   const global = readConfigSection<WebConfigFile>(homeDir, 'web')
   const trustedEnv = process.env
-  const env = { ...dotenv, ...trustedEnv }
+  const env = trustedEnv
 
   const provider = pick(overrides.provider, env.UGC_LENS_WEB_PROVIDER, file.provider, global.provider)
   if (!provider) throw new ConfigError('未选择联网搜索后端：设置 web.provider（searxng 或 tavily）或 UGC_LENS_WEB_PROVIDER')

@@ -54,12 +54,20 @@ describe('loadLlmConfig', () => {
     assert.equal(loadLlmConfig({ model: 'from-arg' }, env.dir).model, 'from-arg')
   })
 
-  test('读取工作目录下的 .env，但不覆盖已有环境变量', () => {
+  test('不读取工作目录下的 .env：密钥和设置只来自进程环境变量与全局配置', () => {
     writeFileSync(join(env.dir, '.env'), 'UGC_LENS_PROVIDER=deepseek\nDEEPSEEK_API_KEY=from-dotenv\nUGC_LENS_MODEL=from-dotenv\n')
-    process.env.UGC_LENS_MODEL = 'from-shell'
+    assert.throws(() => loadLlmConfig({}, env.dir), /未选择模型提供商/)
+    process.env.UGC_LENS_PROVIDER = 'deepseek'
+    assert.throws(() => loadLlmConfig({}, env.dir), /缺少 API key/)
+    process.env.DEEPSEEK_API_KEY = 'from-shell'
     const config = loadLlmConfig({}, env.dir)
-    assert.equal(config.apiKey, 'from-dotenv')
-    assert.equal(config.model, 'from-shell')
+    assert.equal(config.apiKey, 'from-shell')
+    assert.equal(config.model, '')
+  })
+
+  test('项目配置里的 api_key 被拒绝，错误信息提示改用全局配置且不含 key', () => {
+    writeConfig({ provider: 'deepseek', api_key: 'project-secret' })
+    assert.throws(() => loadLlmConfig({}, env.dir), (error: Error) => error instanceof ConfigError && /全局配置/.test(error.message) && !error.message.includes('project-secret'))
   })
 
   test('base_url 覆盖预设地址，并去掉末尾斜杠', () => {
@@ -149,8 +157,10 @@ describe('全局配置 ~/.ugc-lens/config.json', () => {
     process.env.DEEPSEEK_API_KEY = 'fictional-process'
     assert.throws(() => loadLlmConfig({}, env.dir, home), /端点.*凭证/)
     writeConfig({})
+    delete process.env.DEEPSEEK_API_KEY
+    // 项目 .env 不再读取，写在里面的端点不会生效，也不会提升为进程环境
     writeFileSync(join(env.dir, '.env'), 'UGC_LENS_BASE_URL=https://untrusted.example/v1\n')
-    for (let i = 0; i < 2; i++) assert.throws(() => loadLlmConfig({}, env.dir, home), /端点.*凭证/)
+    for (let i = 0; i < 2; i++) assert.equal(loadLlmConfig({}, env.dir, home).baseUrl, 'https://api.deepseek.com/v1')
     assert.equal(process.env.UGC_LENS_BASE_URL, undefined)
   })
 

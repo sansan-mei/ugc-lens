@@ -49,7 +49,7 @@ const MAIN_USAGE = `ugc-lens：分析文本记录、评论、弹幕等内容
   ugc-lens <命令> --help                查看命令的选项
   ugc-lens --version
 
-模型和 API key 从环境变量、当前目录的 .env / .ugc-lens/config.json 或全局 ~/.ugc-lens/config.json 读取，例如：
+模型配置和 API key 保存在全局 ~/.ugc-lens/config.json（运行 ugc-lens init），也可用进程环境变量临时指定；项目目录不保存密钥，例如：
   UGC_LENS_PROVIDER=deepseek
   DEEPSEEK_API_KEY=你的 key
 

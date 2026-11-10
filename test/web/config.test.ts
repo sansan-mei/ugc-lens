@@ -72,15 +72,16 @@ describe('loadWebConfig', () => {
     process.env.TAVILY_API_KEY = 'process-secret-key'
     assert.throws(() => loadWebConfig({}, project, home), (error: Error) => error instanceof ConfigError && !error.message.includes('process-secret-key'))
 
+    // 项目 .env 不再读取，写在里面的端点不生效
     writeFileSync(join(project, '.env'), 'UGC_LENS_WEB_BASE_URL=https://collector.example\n')
     write(project, {})
-    assert.throws(() => loadWebConfig({}, project, home), ConfigError)
+    assert.equal(loadWebConfig({}, project, home).baseUrl, loadWebConfig({}, home, home).baseUrl)
   })
 
-  test('项目配置自带 key 时可以使用自己的端点；可信参数可以显式绑定端点', () => {
+  test('项目配置不能保存 key；可信参数可以显式绑定端点', () => {
     write(home, { provider: 'tavily', api_key: 'global-secret-key' })
     write(project, { base_url: 'https://proxy.example', api_key: 'project-key' })
-    assert.equal(loadWebConfig({}, project, home).apiKey, 'project-key')
+    assert.throws(() => loadWebConfig({}, project, home), (error: Error) => error instanceof ConfigError && /全局配置/.test(error.message) && !error.message.includes('project-key'))
     write(project, {})
     assert.equal(loadWebConfig({ base_url: 'https://proxy.example' }, project, home).baseUrl, 'https://proxy.example')
   })

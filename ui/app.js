@@ -14,12 +14,16 @@ if (hashToken) {
 }
 const token = sessionStorage.getItem('ugc-lens-token') ?? ''
 
-const state = { tab: 'overview', overview: null, items: { query: '', kinds: [], sort: 'likes', offset: 0, list: [], total: 0 }, reports: null, report: null, peak: 0 }
+const state = { tab: 'overview', overview: null, items: { query: '', kinds: [], sort: 'likes', offset: 0, list: [], total: 0 }, reports: null, report: null, peak: 0, picker: undefined, recent: [], files: [], cwd: '' }
+const DATA_EXT = ['.json', '.jsonl', '.ndjson', '.csv', '.tsv', '.txt', '.md', '.markdown', '.log']
+const REPORT_EXT = ['.md', '.markdown']
+const baseName = (path) => path.split(/[\\/]/).pop()
+const dirName = (path) => path.slice(0, path.length - baseName(path).length).replace(/[\\/]$/, '')
 
 async function api(path, options = {}) {
   const res = await fetch(`/api/${path}`, { ...options, headers: { 'x-ugc-lens-token': token, 'content-type': 'application/json', ...(options.headers ?? {}) } })
   const body = await res.json().catch(() => ({}))
-  if (!res.ok) throw new Error(body.error ?? `请求失败（${res.status}）`)
+  if (!res.ok) throw Object.assign(new Error(body.error ?? `请求失败（${res.status}）`), { status: res.status })
   return body
 }
 
@@ -56,9 +60,42 @@ function render() {
 function renderEmpty(view) {
   view.innerHTML = `<section class="empty-state">
     <h1>打开一份数据</h1>
-    <p>评论、弹幕、问卷或工单文件都可以。media_crawl 导出的 B 站 <code>*_all.json</code>、TXT、Markdown、CSV/JSONL 中已识别过结构的文件无需模型即可打开。</p>
-    <button type="button" class="btn btn-primary" data-action="pick">选择文件</button>
+    <p>评论、弹幕、问卷或工单文件都可以，位置不限。media_crawl 导出的 B 站 <code>*_all.json</code>、TXT、Markdown、CSV/JSONL 中已识别过结构的文件无需模型即可打开。</p>
+    <div class="empty-actions"><button type="button" class="btn btn-primary" data-action="choose">选择文件…</button><span class="muted small">或把文件拖到页面上</span></div>
+    <div class="file-list card" id="empty-files" hidden></div>
   </section>`
+  refreshFiles().then(() => {
+    const el = $('#empty-files')
+    if (!el) return
+    const html = fileListHtml('')
+    el.hidden = !html
+    el.innerHTML = html
+  })
+}
+
+/** 最近打开（全局记录）和启动目录里的文件；顺便得知能否弹出系统选择框 */
+async function refreshFiles() {
+  try {
+    const { cwd, files, recent, picker } = await api('files')
+    Object.assign(state, { cwd, files, recent, picker })
+  } catch (error) { toast(error.message) }
+}
+
+function fileRow(f, label, showDir = true) {
+  const uploaded = /[\\/]\.ugc-lens[\\/]ui[\\/]uploads[\\/]/.test(f.path)
+  const note = [f.kind === 'report' ? '报告' : '', uploaded ? '浏览器上传的副本' : showDir ? dirName(f.path) : ''].filter(Boolean).join(' · ')
+  return `<button type="button" class="file" data-path="${h(f.path)}" data-kind="${h(f.kind ?? 'data')}"><span>${h(label)}${note ? `<em>${h(note)}</em>` : ''}</span><small>${(f.size / 1024).toFixed(f.size > 102400 ? 0 : 1)} KB · ${h(f.mtime.slice(0, 10))}</small></button>`
+}
+
+function fileListHtml(filter) {
+  const match = (path) => !filter || path.toLowerCase().includes(filter)
+  const recent = state.recent.filter((f) => match(f.path)).slice(0, 8)
+  const seen = new Set(recent.map((f) => f.path))
+  const local = state.files.map((f) => ({ ...f, path: `${state.cwd}/${f.path}`, rel: f.path })).filter((f) => !seen.has(f.path) && match(f.rel))
+  let html = ''
+  if (recent.length) html += `<p class="file-group">最近打开</p>${recent.map((f) => fileRow(f, baseName(f.path))).join('')}`
+  if (local.length) html += `<p class="file-group">启动目录 ${h(state.cwd)}</p>${local.slice(0, 100).map((f) => fileRow(f, f.rel, false)).join('')}`
+  return html
 }
 
 async function openPicker() {
@@ -66,19 +103,66 @@ async function openPicker() {
   $('#picker-scrim').hidden = false
   $('#picker-filter').value = ''
   $('#file-list').innerHTML = '<p class="loading">正在列出文件…</p>'
-  try {
-    const { cwd, files } = await api('files')
-    $('#picker-cwd').textContent = `目录：${cwd}`
-    state.files = files
-    renderFiles()
-    $('#picker-filter').focus()
-  } catch (error) { $('#file-list').innerHTML = `<p class="empty">${h(error.message)}</p>` }
+  await refreshFiles()
+  renderFiles()
 }
 
 function renderFiles() {
-  const filter = $('#picker-filter').value.trim().toLowerCase()
-  const files = (state.files ?? []).filter((f) => !filter || f.path.toLowerCase().includes(filter))
-  $('#file-list').innerHTML = files.length ? files.map((f) => `<button type="button" class="file" data-path="${h(f.path)}"><span>${h(f.path)}</span><small>${(f.size / 1024).toFixed(f.size > 102400 ? 0 : 1)} KB · ${h(f.mtime.slice(0, 10))}</small></button>`).join('') : '<p class="empty">没有找到支持的数据文件</p>'
+  const html = fileListHtml($('#picker-filter').value.trim().toLowerCase())
+  $('#file-list').innerHTML = html || '<p class="empty">还没有打开过文件，启动目录里也没有支持的数据文件</p>'
+}
+
+/**
+ * 选择文件：优先由本地服务弹出系统选择框（能拿到真实路径，宿主模式的标注结果也能对上）；
+ * 弹不出来时（如通过 SSH 转发访问）改用浏览器选择，文件内容上传到本机服务。
+ * 必须在点击事件里同步调用，浏览器才允许打开文件选择。
+ */
+async function chooseFile(kind = 'data') {
+  closePicker()
+  if (state.picker === false) return browserPick(kind)
+  toast('已打开系统文件选择框，如果没看到，请检查是否被浏览器窗口挡住')
+  try {
+    const result = await api('pick', { method: 'POST', body: JSON.stringify({ kind }) })
+    $('#toast').hidden = true
+    if (result.cancelled) return
+    if (kind === 'report') { state.tab = 'reports'; state.report = result.path; return setTab('reports') }
+    return openFile(result.path)
+  } catch (error) {
+    if (error.status !== 501) return toast(error.message)
+    state.picker = false
+    toast('这台机器无法弹出系统选择框，已改用浏览器选择文件')
+    browserPick(kind)
+  }
+}
+
+function browserPick(kind) {
+  const input = $('#file-input')
+  input.accept = (kind === 'report' ? REPORT_EXT : DATA_EXT).join(',')
+  input.dataset.kind = kind
+  input.value = ''
+  input.click()
+}
+
+async function handleFile(file, kind) {
+  if (!file) return
+  const ext = `.${file.name.split('.').pop().toLowerCase()}`
+  if (kind === 'report') {
+    if (!REPORT_EXT.includes(ext)) return toast('请选择 Markdown 报告')
+    // 报告只在浏览器里渲染，不需要上传
+    state.report = { name: file.name, text: await file.text() }
+    return setTab('reports')
+  }
+  if (!DATA_EXT.includes(ext)) return toast(`不支持的文件类型：${file.name}`)
+  $('#view').innerHTML = `<p class="loading">正在读取 ${h(file.name)}（${fmt(Math.round(file.size / 1024))} KB）…</p>`
+  try {
+    const res = await fetch(`/api/upload?name=${encodeURIComponent(file.name)}`, { method: 'POST', body: file, headers: { 'x-ugc-lens-token': token, 'content-type': 'application/octet-stream' } })
+    const body = await res.json().catch(() => ({}))
+    if (!res.ok) throw new Error(body.error ?? `上传失败（${res.status}）`)
+    return openFile(body.path)
+  } catch (error) {
+    toast(error.message)
+    render()
+  }
 }
 
 function closePicker() { $('#picker').hidden = true; $('#picker-scrim').hidden = true }
@@ -235,22 +319,26 @@ async function loadItems(reset) {
 // ---------- 报告 ----------
 
 async function renderReports(view) {
-  view.innerHTML = '<div class="reports"><nav class="card report-list" id="report-list"><p class="loading">读取报告列表…</p></nav><article class="card prose" id="report-body"><p class="muted">选择左侧的报告。完整流水线生成的报告在 .ugc-lens/reports/，Agent 写的报告只要保存在启动目录内也会列出。</p></article></div>'
+  view.innerHTML = '<div class="reports"><nav class="card report-list"><button type="button" class="btn btn-ghost btn-sm" data-action="choose-report">打开其他报告…</button><div id="report-list"><p class="loading">读取报告列表…</p></div></nav><article class="card prose" id="report-body"><p class="muted">选择左侧的报告，或打开任意位置的 Markdown 报告。完整流水线生成的报告在 .ugc-lens/reports/，启动目录内的 Markdown 也会列出。</p></article></div>'
   try {
-    const { reports } = await api('reports')
-    state.reports = reports
-    $('#report-list').innerHTML = reports.length ? reports.map((r) => `<button type="button" class="report-link" data-report="${h(r.path)}" aria-current="${state.report === r.path}">${h(r.path.split('/').pop())}<small>${h(r.path)} · ${h(r.mtime.slice(0, 16).replace('T', ' '))}</small></button>`).join('') : '<p class="empty">启动目录内没有 Markdown 报告</p>'
-    if (state.report) showReport(state.report)
+    const [{ reports }] = await Promise.all([api('reports'), refreshFiles()])
+    const local = reports.map((r) => ({ ...r, label: r.path }))
+    const recent = state.recent.filter((r) => r.kind === 'report').map((r) => ({ ...r, label: r.path }))
+    const all = [...recent, ...local]
+    state.reports = all
+    $('#report-list').innerHTML = all.length ? all.map((r) => `<button type="button" class="report-link" data-report="${h(r.path)}" aria-current="${state.report === r.path}">${h(baseName(r.path))}<small>${h(r.label)} · ${h(r.mtime.slice(0, 16).replace('T', ' '))}</small></button>`).join('') : '<p class="empty">启动目录内没有 Markdown 报告</p>'
   } catch (error) { $('#report-list').innerHTML = `<p class="empty">${h(error.message)}</p>` }
+  if (state.report) showReport(state.report)
 }
 
-async function showReport(path) {
-  state.report = path
+async function showReport(report) {
+  state.report = report
+  const path = typeof report === 'string' ? report : undefined
   for (const link of document.querySelectorAll('.report-link')) link.setAttribute('aria-current', String(link.dataset.report === path))
   const body = $('#report-body')
   body.innerHTML = '<p class="loading">读取中…</p>'
   try {
-    const { text } = await api(`report?path=${encodeURIComponent(path)}`)
+    const text = path ? (await api(`report?path=${encodeURIComponent(path)}`)).text : report.text
     body.innerHTML = renderMarkdown(text)
     await markCitations(body)
   } catch (error) { body.innerHTML = `<p class="empty">${h(error.message)}</p>` }
@@ -307,9 +395,14 @@ document.addEventListener('click', (event) => {
   if (!target) return
   if (target.id === 'brand') { event.preventDefault(); return setTab('overview') }
   if (target.matches('.tab')) return setTab(target.dataset.tab)
-  if (target.id === 'open-file' || target.dataset.action === 'pick') return openPicker()
+  if (target.id === 'open-file' || target.dataset.action === 'choose') return chooseFile('data')
+  if (target.dataset.action === 'choose-report') return chooseFile('report')
+  if (target.id === 'show-recent') return openPicker()
   if (target.id === 'picker-close') return closePicker()
-  if (target.matches('.file')) return openFile(target.dataset.path)
+  if (target.matches('.file')) {
+    if (target.dataset.kind === 'report') { closePicker(); state.report = target.dataset.path; return setTab('reports') }
+    return openFile(target.dataset.path)
+  }
   if (target.id === 'drawer-close') return closeDrawer()
   if (target.matches('.peak-band')) return showPeak(Number(target.dataset.peak))
   if (target.matches('.term')) {
@@ -343,11 +436,29 @@ document.addEventListener('submit', (event) => {
 $('#scrim').addEventListener('click', closeDrawer)
 $('#picker-scrim').addEventListener('click', closePicker)
 $('#picker-filter').addEventListener('input', renderFiles)
+$('#file-input').addEventListener('change', (event) => handleFile(event.target.files[0], event.target.dataset.kind))
+
+// 拖放：Markdown 在报告页按报告打开，其他情况按数据打开
+let dragDepth = 0
+document.addEventListener('dragenter', (event) => { if (event.dataTransfer?.types.includes('Files')) { dragDepth++; $('#drop-overlay').hidden = false } })
+document.addEventListener('dragleave', () => { if (--dragDepth <= 0) { dragDepth = 0; $('#drop-overlay').hidden = true } })
+document.addEventListener('dragover', (event) => { if (event.dataTransfer?.types.includes('Files')) event.preventDefault() })
+document.addEventListener('drop', (event) => {
+  event.preventDefault()
+  dragDepth = 0
+  $('#drop-overlay').hidden = true
+  const file = event.dataTransfer?.files[0]
+  if (!file) return
+  closePicker()
+  const isReport = state.tab === 'reports' && /\.(md|markdown)$/i.test(file.name)
+  handleFile(file, isReport ? 'report' : 'data')
+})
 
 if (!token) {
   $('#view').innerHTML = '<section class="empty-state"><h1>缺少访问令牌</h1><p>请使用 ugc-lens ui 启动时打印的完整网址打开本页面。</p></section>'
 } else {
   setTab('overview')
+  refreshFiles()
   const last = localStorage.getItem('ugc-lens-last-file')
   if (last) openFile(last)
 }

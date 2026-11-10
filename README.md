@@ -46,15 +46,13 @@ ugc-lens init
 
 交互式地选提供商、从 `/models` 列表里选模型、填 API key 并发一次测试调用，写入全局配置 `~/.ugc-lens/config.json`（权限 600），所有目录下都能用。
 
-也可以手动配置：在运行命令的目录里放一个 `.env`（或设置同名环境变量），选一个提供商并填它的 API key：
+**密钥只保存在全局配置**，不写进任何项目目录：ugc-lens 不读取当前目录的 `.env`，项目的 `.ugc-lens/config.json` 里写 `api_key` 会报错。临时换一个 key 可以设置进程环境变量：
 
-```
-UGC_LENS_PROVIDER=deepseek
-UGC_LENS_MODEL=deepseek-flash
-DEEPSEEK_API_KEY=你的 key
+```bash
+UGC_LENS_PROVIDER=deepseek UGC_LENS_MODEL=deepseek-flash DEEPSEEK_API_KEY=你的key ugc-lens analyze data.json
 ```
 
-支持 DeepSeek、通义千问、Kimi、智谱、MiniMax、OpenAI、Claude、Gemini、Grok、OpenRouter 和本地模型，变量名和差异见 [模型提供商](docs/providers.md)。优先级：环境变量 > 当前目录的 `.env` / `.ugc-lens/config.json` > 全局配置。
+支持 DeepSeek、通义千问、Kimi、智谱、MiniMax、OpenAI、Claude、Gemini、Grok、OpenRouter 和本地模型，变量名和差异见 [模型提供商](docs/providers.md)。优先级：进程环境变量 > 项目 `.ugc-lens/config.json`（只能改提供商、模型等非密钥设置）> 全局配置。
 
 ## 使用
 
@@ -214,7 +212,7 @@ ugc-lens ask data.json '这个梗是什么意思' --web   # 单次追问
 ugc-lens mcp --cwd /数据项目 --web                 # 仅供服务内部的 ask 使用
 ```
 
-也可以在全局配置写 `"enabled": true` 或设置 `UGC_LENS_WEB=1` 默认开启。项目目录里的配置和 `.env` 不能替你开启联网，也不能把全局或环境中的 key 带到其他搜索端点。
+也可以在全局配置写 `"enabled": true` 或设置 `UGC_LENS_WEB=1` 默认开启。项目目录里的配置不能替你开启联网，不能保存搜索 key，也不能把全局或环境中的 key 带到其他搜索端点。
 
 | 选项（`web` 字段） | 默认 | 说明 |
 |---|---|---|

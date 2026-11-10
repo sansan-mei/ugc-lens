@@ -1,7 +1,11 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
-import { randomBytes, timingSafeEqual } from 'node:crypto'
-import { readdir, readFile, realpath, stat } from 'node:fs/promises'
-import { extname, isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
+import { createWriteStream } from 'node:fs'
+import { mkdir, readdir, readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { homedir } from 'node:os'
+import { basename, extname, isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { pipeline } from 'node:stream/promises'
+import { Transform } from 'node:stream'
 import { contentTimeline } from '../analysis/content_timeline.ts'
 import { createLlmModel } from '../agent/llm_model.ts'
 import type { AgentModel } from '../agent/model.ts'
@@ -12,10 +16,12 @@ import { FEEDBACK_KINDS, type Dataset, type FeedbackKind } from '../dataset/type
 import { ImportError, loadDataset } from '../ingest/index.ts'
 import { createChatClient } from '../llm/client.ts'
 import { buildOverview, itemView } from './overview.ts'
+import { createNativePicker, type NativePicker, type PickKind } from './picker.ts'
 
 /**
  * 本地图形界面（roadmap 第 19 步）。只监听 127.0.0.1；接口要求启动时生成的令牌，并检查 Host，
- * 防止其他网页借浏览器调用本地接口。只读取 cwd 内的文件。设计见 docs/architecture.md 第 2.1 节。
+ * 防止其他网页借浏览器调用本地接口。只读取启动目录内的文件和用户在选择框里选中（或上传）的文件。
+ * 设计见 docs/architecture.md 第 2.1 节。
  */
 
 const STATIC_DIR = new URL('../../ui/', import.meta.url)
@@ -27,13 +33,21 @@ const DATA_EXTENSIONS = new Set(['.json', '.jsonl', '.ndjson', '.csv', '.tsv', '
 const SKIP_DIRS = new Set(['node_modules', '.git', '.ugc-lens'])
 const MAX_LIST = 300
 const MAX_REPORT_BYTES = 2 * 1024 * 1024
+const MAX_UPLOAD_BYTES = 512 * 1024 * 1024
+const MAX_RECENT = 20
 
 export interface UiServerOptions {
   cwd: string
   token?: string
   /** 测试注入；默认按需读取 ugc-lens 的模型配置，只在缓存和内置规则都不适用时识别结构 */
   model?: AgentModel
+  /** 原生文件选择框；测试注入 */
+  picker?: NativePicker
+  /** 最近打开记录和浏览器上传的文件保存在 <homeDir>/.ugc-lens/ui/，默认用户主目录 */
+  homeDir?: string
 }
+
+interface RecentFile { path: string; kind: PickKind; opened_at: string }
 
 export interface UiServer { server: Server; token: string; url: (port: number) => string }
 
@@ -70,14 +84,25 @@ async function readBody(req: IncomingMessage): Promise<unknown> {
   try { return JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}') } catch { throw new HttpError(400, '请求体不是 JSON') }
 }
 
-/** 解析为 cwd 内的真实路径；符号链接指向 cwd 外同样拒绝 */
-async function insideCwd(cwd: string, path: string): Promise<string> {
+/**
+ * 解析为真实路径：启动目录内的文件可以直接读；目录外只允许用户在选择框里选中过的文件
+ * （按真实路径记录，符号链接指向目录外同样拒绝）
+ */
+async function allowedPath(cwd: string, path: string, picked: Set<string>): Promise<string> {
   const root = await realpath(cwd)
   let target: string
   try { target = await realpath(isAbsolute(path) ? path : join(root, path)) } catch { throw new HttpError(404, `文件不存在：${path}`) }
+  if (picked.has(target)) return target
   const rel = relative(root, target)
-  if (rel === '' || rel.startsWith('..') || isAbsolute(rel)) throw new HttpError(403, '只能访问启动目录内的文件')
+  if (rel === '' || rel.startsWith('..') || isAbsolute(rel)) throw new HttpError(403, '只能访问启动目录内的文件，其他位置的文件请用“选择文件”打开')
   return target
+}
+
+/** 上传的文件名只保留最后一段，去掉控制字符和路径分隔符 */
+function safeName(name: string): string {
+  // eslint-disable-next-line no-control-regex
+  const cleaned = basename(name.replace(/\\/g, '/')).replace(/[\u0000-\u001f<>:"/\\|?*]/g, '_').trim().slice(0, 120)
+  return cleaned && cleaned !== '.' && cleaned !== '..' ? cleaned : 'upload.json'
 }
 
 async function listFiles(cwd: string, accept: (name: string) => boolean, maxDepth: number): Promise<Array<{ path: string; size: number; mtime: string }>> {
@@ -103,6 +128,28 @@ async function listFiles(cwd: string, accept: (name: string) => boolean, maxDept
 
 export function createUiServer(options: UiServerOptions): UiServer {
   const cwd = resolve(options.cwd)
+  const uiDir = join(options.homeDir ?? homedir(), '.ugc-lens', 'ui')
+  const recentFile = join(uiDir, 'recent.json')
+  const picker = options.picker ?? createNativePicker()
+  const picked = new Set<string>()
+  let recent: RecentFile[] | undefined
+  const loadRecent = async (): Promise<RecentFile[]> => {
+    if (recent) return recent
+    try {
+      const parsed = JSON.parse(await readFile(recentFile, 'utf8')) as unknown
+      recent = Array.isArray(parsed) ? parsed.filter((r): r is RecentFile => typeof r?.path === 'string' && (r.kind === 'data' || r.kind === 'report')).slice(0, MAX_RECENT) : []
+    } catch { recent = [] }
+    for (const r of recent) picked.add(r.path)
+    return recent
+  }
+  const remember = async (path: string, kind: PickKind): Promise<void> => {
+    const list = await loadRecent()
+    picked.add(path)
+    recent = [{ path, kind, opened_at: new Date().toISOString() }, ...list.filter((r) => r.path !== path)].slice(0, MAX_RECENT)
+    await mkdir(uiDir, { recursive: true, mode: 0o700 })
+    await writeFile(recentFile, JSON.stringify(recent, null, 2), { mode: 0o600 })
+  }
+  const resolvePath = async (path: string) => { await loadRecent(); return allowedPath(cwd, path, picked) }
   const token = options.token ?? randomBytes(18).toString('base64url')
   const expected = Buffer.from(token)
   const datasets = new Map<string, Dataset>()
@@ -128,15 +175,61 @@ export function createUiServer(options: UiServerOptions): UiServer {
     const parts = url.pathname.split('/').filter(Boolean).slice(1).map(decodeURIComponent)
     const q = url.searchParams
     if (req.method === 'GET' && parts[0] === 'files') {
-      return json(res, { cwd, files: await listFiles(cwd, (name) => DATA_EXTENSIONS.has(extname(name).toLowerCase()) && !name.endsWith('.records.jsonl'), 4) })
+      const recentFiles = []
+      for (const r of await loadRecent()) {
+        const info = await stat(r.path).catch(() => undefined)
+        if (info?.isFile()) recentFiles.push({ path: r.path, kind: r.kind, size: info.size, mtime: info.mtime.toISOString(), opened_at: r.opened_at })
+      }
+      return json(res, { cwd, picker: picker.available, recent: recentFiles, files: await listFiles(cwd, (name) => DATA_EXTENSIONS.has(extname(name).toLowerCase()) && !name.endsWith('.records.jsonl'), 4) })
+    }
+    if (req.method === 'POST' && parts[0] === 'pick') {
+      const body = await readBody(req) as { kind?: unknown }
+      const kind: PickKind = body.kind === 'report' ? 'report' : 'data'
+      const chosen = await picker.pick(kind)
+      if (chosen === undefined) throw new HttpError(501, '无法弹出系统文件选择框，请在浏览器里选择文件')
+      if (chosen === null) return json(res, { cancelled: true })
+      let path: string
+      try { path = await realpath(chosen) } catch { throw new HttpError(404, `文件不存在：${chosen}`) }
+      if (!(await stat(path)).isFile()) throw new HttpError(400, '请选择文件')
+      await remember(path, kind)
+      return json(res, { path })
+    }
+    if (req.method === 'POST' && parts[0] === 'upload') {
+      // 浏览器选择的文件只有内容没有路径：保存到用户目录下按内容哈希区分的位置，再像普通文件一样打开
+      const name = safeName(q.get('name') ?? '')
+      if (!DATA_EXTENSIONS.has(extname(name).toLowerCase())) throw new HttpError(400, `不支持的文件类型：${name}`)
+      const declared = Number(req.headers['content-length'])
+      if (declared > MAX_UPLOAD_BYTES) throw new HttpError(413, '文件超过 512 MB')
+      await mkdir(uiDir, { recursive: true, mode: 0o700 })
+      const temp = join(uiDir, `.upload-${randomBytes(6).toString('hex')}`)
+      const hash = createHash('sha256')
+      let size = 0
+      const meter = new Transform({
+        transform(chunk: Buffer, _enc, done) {
+          size += chunk.length
+          if (size > MAX_UPLOAD_BYTES) return done(new HttpError(413, '文件超过 512 MB'))
+          hash.update(chunk)
+          done(null, chunk)
+        },
+      })
+      try {
+        await pipeline(req, meter, createWriteStream(temp, { mode: 0o600 }))
+        const dir = join(uiDir, 'uploads', hash.digest('hex').slice(0, 16))
+        await mkdir(dir, { recursive: true, mode: 0o700 })
+        const target = join(dir, name)
+        await rename(temp, target)
+        const path = await realpath(target)
+        await remember(path, 'data')
+        return json(res, { path })
+      } finally { await rm(temp, { force: true }) }
     }
     if (req.method === 'GET' && parts[0] === 'datasets' && parts.length === 1) {
-      return json(res, [...datasets.values()].map((d) => ({ id: d.id, file: relative(cwd, d.file_path), title: d.contents[0]?.title, items: d.items.length })))
+      return json(res, [...datasets.values()].map((d) => ({ id: d.id, file: d.file_path, title: d.contents[0]?.title, items: d.items.length })))
     }
     if (req.method === 'POST' && parts[0] === 'open') {
       const body = await readBody(req) as { path?: unknown }
       if (typeof body.path !== 'string' || !body.path) throw new HttpError(400, '需要 path')
-      const file = await insideCwd(cwd, body.path)
+      const file = await resolvePath(body.path)
       const loaded = await loadDataset(file, { cacheDir: join(cwd, '.ugc-lens', 'mappings'), model: lazyModel })
       datasets.set(loaded.id, loaded)
       return json(res, await buildOverview(loaded, cwd))
@@ -179,7 +272,7 @@ export function createUiServer(options: UiServerOptions): UiServer {
     if (req.method === 'GET' && parts[0] === 'report') {
       const path = q.get('path')
       if (!path || !/\.(md|markdown)$/i.test(path)) throw new HttpError(400, '只能打开 Markdown 报告')
-      const file = await insideCwd(cwd, path)
+      const file = await resolvePath(path)
       if ((await stat(file)).size > MAX_REPORT_BYTES) throw new HttpError(413, '报告超过 2 MB')
       return json(res, { path, text: await readFile(file, 'utf8') })
     }

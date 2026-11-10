@@ -24,7 +24,10 @@
       <button type="button" data-tab="reports" class="tab">报告</button>
       <button type="button" data-tab="chat" class="tab">对话</button>
     </nav>
-    <button type="button" class="btn btn-primary" id="open-file">打开数据</button>
+    <div class="top-actions">
+      <button type="button" class="btn btn-ghost" id="show-recent" title="最近打开和启动目录里的文件">最近</button>
+      <button type="button" class="btn btn-primary" id="open-file">打开数据</button>
+    </div>
   </header>
 
   <main id="view" class="view" aria-live="polite"></main>
@@ -44,11 +47,16 @@
       <strong>打开数据文件</strong>
       <button type="button" class="btn btn-ghost btn-sm" id="picker-close">关闭</button>
     </div>
-    <p class="muted small" id="picker-cwd"></p>
-    <input type="search" class="input" id="picker-filter" placeholder="筛选文件名">
+    <div class="drop-zone" id="drop-zone">
+      <button type="button" class="btn btn-primary" data-action="choose">选择文件…</button>
+      <span class="muted small">也可以把文件拖到页面上</span>
+    </div>
+    <input type="search" class="input" id="picker-filter" placeholder="筛选最近打开和启动目录里的文件">
     <div class="file-list" id="file-list"></div>
   </section>
 
+  <input type="file" id="file-input" hidden>
+  <div class="drop-overlay" id="drop-overlay" hidden><div class="glass">松开即可打开文件</div></div>
   <div class="toast" id="toast" role="status" hidden></div>
   <script type="module" src="/app.js"></script>
 </body>

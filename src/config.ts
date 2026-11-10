@@ -1,6 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { parseEnv } from 'node:util'
 import { join } from 'node:path'
 import {
   PROVIDERS,
@@ -41,10 +40,11 @@ export class ConfigError extends Error {
 
 const CONFIG_DIR = '.ugc-lens'
 
-/** 独立解析项目 .env，不将项目值提升为进程级可信配置。 */
-export function loadDotEnv(cwd: string): Record<string, string | undefined> {
-  const file = join(cwd, '.env')
-  return existsSync(file) ? parseEnv(readFileSync(file, 'utf8')) : {}
+/** 项目目录里的配置可以提交到 git、被别人共享，因此不能保存密钥；密钥只来自进程环境变量或全局配置 */
+export function rejectProjectSecret(file: { api_key?: string | null }, dir: string, section: string): void {
+  if (file.api_key) {
+    throw new ConfigError(`${join(dir, CONFIG_DIR, 'config.json')} 的 ${section}.api_key 不再生效：密钥只能放在全局配置 ~/.ugc-lens/config.json（运行 ugc-lens init）或进程环境变量中，请把它从项目目录删除`)
+  }
 }
 
 export function globalConfigPath(homeDir: string = homedir()): string {
@@ -102,18 +102,19 @@ function pick(...values: Array<string | null | undefined>): string | undefined {
 }
 
 /**
- * 读取模型配置。每一项的优先级：参数 overrides > 环境变量 > 项目配置（cwd/.ugc-lens）> 全局配置（~/.ugc-lens）> 提供商预设。
+ * 读取模型配置。每一项的优先级：参数 overrides > 进程环境变量 > 项目配置（cwd/.ugc-lens，不含密钥）> 全局配置（~/.ugc-lens）> 提供商预设。
  */
 export function loadLlmConfig(
   overrides: LlmConfigFile = {},
   cwd: string = process.cwd(),
   homeDir: string = homedir(),
 ): LlmConfig {
-  const dotenv = loadDotEnv(cwd)
   const file = readConfigFile(cwd)
+  rejectProjectSecret(file, cwd, 'llm')
   const global = existsSync(globalConfigPath(homeDir)) ? readConfigFile(homeDir) : {}
+  // 项目目录的 .env 不读取：密钥不放在项目目录，配置也不能由项目文件悄悄改变
   const trustedEnv = process.env
-  const env = { ...dotenv, ...trustedEnv }
+  const env = trustedEnv
 
   const provider = pick(overrides.provider, env.UGC_LENS_PROVIDER, file.provider, global.provider)
   if (!provider) {

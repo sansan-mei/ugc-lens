@@ -1,6 +1,6 @@
 import { initPlaybook } from '../memory/playbook.ts'
 import { createInterface } from 'node:readline/promises'
-import { loadDotEnv, loadLlmConfig, readGlobalConfig, writeGlobalConfig, type LlmConfigFile } from '../config.ts'
+import { loadLlmConfig, readGlobalConfig, writeGlobalConfig, type LlmConfigFile } from '../config.ts'
 import { isProviderId, PROVIDERS, resolveBaseUrl, type ProviderId, type ProviderPreset, type Region } from '../llm/providers.ts'
 import { createChatClient } from '../llm/client.ts'
 import { createLlmModel } from '../agent/llm_model.ts'
@@ -10,7 +10,7 @@ export const INIT_USAGE = `用法：ugc-lens init
 
 交互式初始化：选择提供商和模型、填 API key、发一次测试调用，
 写入全局配置 ~/.ugc-lens/config.json（权限 600），所有目录下生效。
-项目目录的 .env 或 .ugc-lens/config.json 仍然可以覆盖它。`
+密钥只保存在全局配置；项目目录的 .ugc-lens/config.json 只能覆盖提供商、模型等非密钥设置。`
 
 /** 交互的输入输出，测试时换成假的 */
 export interface InitIo {
@@ -21,7 +21,7 @@ export interface InitIo {
 export interface InitDeps {
   io: InitIo
   homeDir: string
-  /** 同时读取这个目录的 .env，默认当前目录：init 也能发现项目里已有的 key */
+  /** 当前目录，只用于创建项目分析手册；不从这里读取密钥 */
   cwd?: string
   /** 列出提供商的模型；默认真的请求 GET {baseUrl}/models */
   fetchModels?: (config: { baseUrl: string; apiKey?: string }) => Promise<string[]>
@@ -82,7 +82,7 @@ function pickProviderId(input: string): ProviderId | undefined {
 /** 交互式初始化流程；返回写入的配置，用户取消时返回 undefined */
 export async function runInitFlow(deps: InitDeps): Promise<LlmConfigFile | undefined> {
   const { io } = deps
-  const initEnv = { ...loadDotEnv(deps.cwd ?? process.cwd()), ...process.env }
+  const initEnv = process.env
   const existing = readGlobalConfig(deps.homeDir)
   const fetchModels = deps.fetchModels ?? fetchModelsReal
   const verifyModel = deps.verifyModel ?? verifyModelReal
@@ -175,7 +175,7 @@ export async function runInitFlow(deps: InitDeps): Promise<LlmConfigFile | undef
 
   const path = writeGlobalConfig(file, deps.homeDir)
   initPlaybook({ cwd: deps.cwd ?? process.cwd(), homeDir: deps.homeDir }, true)
-  io.print(`已写入 ${path}（权限 600）。某个项目要用别的配置时，在该目录放 .env 或 .ugc-lens/config.json 即可覆盖。`)
+  io.print(`已写入 ${path}（权限 600），所有目录下生效。密钥不会写入项目目录。`)
   return file
 }
 

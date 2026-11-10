@@ -1,5 +1,5 @@
 import { readdir, readFile, stat } from 'node:fs/promises'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { summarizeDanmaku } from '../analysis/danmaku.ts'
 import { countTerms, createTokenizerFor, topTerms } from '../analysis/keywords.ts'
 import { searchFeedback } from '../dataset/query.ts'
@@ -64,6 +64,9 @@ export async function buildOverview(dataset: Dataset, cwd: string) {
       peaks: danmaku.peaks.map((p) => ({ start_sec: p.start_sec, end_sec: p.end_sec, count: p.count, baseline: p.baseline, groups: p.groups.slice(0, 3), terms: p.terms.slice(0, 5) })),
     },
     top: top.map(itemView),
-    labels: await labelSummaries(cwd, dataset.id),
+    // 宿主模式结果在运行 host 命令的目录下：启动目录和数据文件所在目录都找
+    labels: [...new Set([cwd, dirname(dataset.file_path)])].length === 1
+      ? await labelSummaries(cwd, dataset.id)
+      : [...await labelSummaries(cwd, dataset.id), ...await labelSummaries(dirname(dataset.file_path), dataset.id)],
   }
 }

@@ -1,8 +1,8 @@
 ---
 name: ugc-lens
-description: 使用 ugc-lens（MCP 服务或命令行）分析本地 JSON、JSONL、CSV、TXT、Markdown 等文件中的评论、回复、弹幕、字幕、问卷、工单和访谈记录，生成带原文 ID 引用的报告，支持连续追问、情感与主题统计、商业机会分析和目录监听；不负责搜集平台数据。Use for large comment, danmaku or feedback datasets (especially Chinese social media exports) when the user wants cited reports via the ugc-lens package.
+description: 使用 ugc-lens（MCP 服务、命令行，或不需要 API key 的宿主模型模式）分析本地 JSON、JSONL、CSV、TXT、Markdown 等文件中的评论、回复、弹幕、字幕、问卷、工单和访谈记录，生成带原文 ID 引用的报告，支持连续追问、情感与主题统计、商业机会分析和目录监听；不负责搜集平台数据。Use for large comment, danmaku or feedback datasets (especially Chinese social media exports) when the user wants cited reports via the ugc-lens package.
 license: MIT
-compatibility: 需要 Node.js 22.18+ 和 npm 包 ugc-lens；分析调用用户自己用 ugc-lens init 配置的模型 API。
+compatibility: 需要 Node.js 22.18+ 和 npm 包 ugc-lens（可用 npx 临时运行）。完整流水线调用用户用 ugc-lens init 配置的模型；宿主模型模式不需要 key。
 metadata:
   author: sansan-mei
   homepage: https://github.com/sansan-mei/ugc-lens
@@ -26,7 +26,22 @@ metadata:
    - Codex：在 `~/.codex/config.toml` 添加 `[mcp_servers.ugc-lens]`，`command = "npx"`，`args = ["-y", "ugc-lens", "mcp", "--cwd", "/绝对路径/数据项目"]`
    - 其他宿主按 stdio MCP 配置同样的命令和参数；需要固定版本时把 `ugc-lens` 写成 `ugc-lens@版本号`。
 4. **模型配置**：导入识别、`analyze` 和 `ask` 使用 ugc-lens 自己的模型配置，不使用宿主的模型授权。缺少配置时请用户在终端自行运行交互式的 `ugc-lens init`；不要让用户把 key 发进聊天，也不要替用户写入密钥。
-5. **无法安装或配置模型**：数据量不大（几千条以内的短文本）时，改用 `cited-feedback-analysis` 技能，由宿主模型直接分析并用脚本核验引用；需要安装时可执行 `npx skills add sansan-mei/ugc-lens --skill cited-feedback-analysis`。
+5. **没有配置模型 key**：不要卡在配置上，直接用下面的“宿主模型模式”，由你自己的模型完成分析；需要逐条情感、主题统计或想省宿主额度时，再建议用户配置 key。
+6. **无法安装 ugc-lens**：数据量不大（几千条以内的短文本）时，改用 `cited-feedback-analysis` 技能；安装方式 `npx skills add sansan-mei/ugc-lens --skill cited-feedback-analysis`。
+
+## 宿主模型模式（不需要 key）
+
+ugc-lens 负责导入、统计、分块、检索和引用核验，你负责理解内容和写报告。命令都输出 JSON；在数据项目目录运行（`.ugc-lens/` 写在当前目录），未全局安装时把 `ugc-lens` 换成 `npx -y ugc-lens`。
+
+1. `ugc-lens host describe <文件>`：`mapped: true` 时跳到第 3 步。media_crawl 的 B 站 `*_all.json`、TXT、Markdown、JSONL 字符串、JSON 字符串数组都内置支持。
+2. `mapped: false` 时，根据返回的 `shape`（每行一个路径、类型和示例）写映射规则 JSON，保存到临时文件后运行 `ugc-lens host mapping <文件> <规则.json>`；按返回的错误修改，直到 `ok: true`。规则格式：
+   - `{"platform": "unknown", "content": {...可选}, "collections": [{"kind": "comment", "path": "$.posts", "fields": {"text": "body", "id": "pid", "likes": "like", "created_at": "time", "author_location": "city"}, "children": [{"kind": "reply", "path": "replies", "recursive": true}]}]}`
+   - `kind` 取 comment、reply、danmaku、answer、record；`path` 以 `$` 开头指向数组本身；字段只用摘要里出现的路径，没有就不写。CSV/TSV 的集合路径是 `$.rows`，字段用 `column_1` 等键，没有 ID 列时 `id` 写 `source_id`。弹幕的时间点写 `video_time`，扁平回复写 `parent_id`；字幕写在 `content.transcript`（`path`、`start`、`end`、`text`）。
+3. `ugc-lens host prepare <文件> [--focus 方向1,方向2] [--scenario reputation|competitor]`：输出目录里有 `facts.md`（代码算出的概况、属地、关键词、弹幕高峰、字幕时间轴）、`guide.md`（分块格式、分析方向、当前分析手册规则、写报告要求）、`chunks/*.md` 和 `manifest.json`。先读 `guide.md` 并照做。
+4. 按 `manifest.json` 的顺序逐块阅读，记录候选观点和原文 ID。块很多时分批读并保留笔记；没读完的块要在报告“局限”里写明。
+5. 需要精确数量用 `ugc-lens host search <文件> "词1|词2"`（空格表示都要出现，`--kinds comment,reply` 可限定类型），报告 `total` 并写明检索词；需要全文或回复链用 `ugc-lens host get <文件> <ID>`。
+6. 写 Markdown 报告：核心结论带证据和反例，引用写 `[ID]`，直接引用写 `"逐字摘句" [ID]`；附录放 `facts.md` 的内容。保存到用户同意的位置。
+7. `ugc-lens host verify <文件> <报告.md>`：修正 `invalid_ids` 和 `quote_mismatches`，直到 `ok: true`。最后告诉用户报告路径、分析覆盖范围（`facts.md` 的“分析范围”）和核验结果。
 
 默认优先用中文表格展示情感分布、主题占比、痛点、机会与对比，关键数字加粗；较长解释和行动步骤用列表，用户明确要求优先。
 

@@ -286,7 +286,7 @@ claude mcp add --transport stdio ugc-lens -- node /绝对路径/ugc-lens/src/cli
 
 | 技能 | 适用 | 依赖 |
 |---|---|---|
-| [`ugc-lens`](skills/ugc-lens/SKILL.md) | 大量评论、回复、弹幕和字幕，完整报告、逐条情感和主题统计、连续追问、监听目录 | 本包和 `ugc-lens init` 配置的模型 |
+| [`ugc-lens`](skills/ugc-lens/SKILL.md) | 大量评论、回复、弹幕和字幕，完整报告、连续追问、监听目录；没有 key 时走宿主模型模式 | 本包；逐条情感和主题统计需要 `ugc-lens init` 配置的模型 |
 | [`cited-feedback-analysis`](skills/cited-feedback-analysis/SKILL.md) | 几千条以内的评价、问卷、工单、访谈和评论，英文说明 | 只需 Node.js 18+，由宿主模型分析，无需 API key |
 
 ```bash
@@ -295,6 +295,24 @@ npx skills add sansan-mei/ugc-lens --skill cited-feedback-analysis -a claude-cod
 ```
 
 默认安装到当前项目，加 `-g` 安装到用户目录。`cited-feedback-analysis` 的脚本 `scripts/evidence.mjs` 负责三件事：`index` 把文件转成带 ID 的记录（嵌套回复展开并记录 `parent_id`），`search` 用正则统计匹配记录数，`verify` 核对报告中每个 `[ID]` 存在、每段 `"摘句" [ID]` 逐字出现在对应记录里。核验通过只说明引用可追溯，不代表解读正确。
+
+## 宿主模型模式（不需要 API key）
+
+在 Claude Code、Codex 等 Agent 里使用时，可以不配置 ugc-lens 的模型：结构识别、阅读分块和写报告由宿主自己的模型完成，ugc-lens 只做导入、统计、分块、检索和引用核验，不调用任何模型接口。安装 `ugc-lens` 技能后，宿主会按技能里的步骤自动运行这些命令。
+
+```bash
+ugc-lens host describe video_all.json             # 能否直接导入；不能时给出结构摘要
+ugc-lens host mapping data.json rule.json         # 宿主写的映射规则，校验后写入 .ugc-lens/mappings/
+ugc-lens host prepare video_all.json --focus 价格,售后
+#   → .ugc-lens/host/<ID>/facts.md、guide.md、chunks/*.md、manifest.json
+ugc-lens host search video_all.json "退款|退钱"     # 真实匹配总数和原文
+ugc-lens host get video_all.json <ID>             # 全文、上级和直接回复
+ugc-lens host verify video_all.json report.md     # [ID] 存在、"摘句" [ID] 逐字出现；有问题退出码 1
+```
+
+- media_crawl 导出的 B 站 `*_all.json` 有内置规则，配置 key 的完整流水线也不再需要模型识别它的结构。
+- `facts.md` 与完整报告的统计部分相同（概况、属地、关键词、弹幕高峰、字幕时间轴）；分块沿用同样的去重、压缩和抽样，块内直接显示原 ID。
+- 与完整流水线相比，宿主模式没有逐条情感评分和主题归类；数量来自 `search` 的真实匹配或标明为估计。核验通过只说明引用可追溯，不代表解读正确。消耗的是宿主的额度。
 
 ## 代码调用
 

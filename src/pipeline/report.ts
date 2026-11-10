@@ -93,7 +93,7 @@ function topRefs(theme: Theme, dataset: Dataset, limit: number): Theme['refs'] {
     .slice(0, limit)
 }
 
-function overview(input: ReportInput): string[] {
+function overview(input: Pick<ReportInput, 'stats' | 'coverage' | 'danmaku'>): string[] {
   const { stats, coverage: c, danmaku } = input
   const lines = ['## 概况', '']
   const kinds = [
@@ -216,27 +216,48 @@ function recheckLines(recheck: RecheckResult | undefined, index: number, dataset
   return lines
 }
 
-export function renderReport(input: ReportInput): string {
+function headerLines(input: Pick<ReportInput, 'dataset' | 'scenario' | 'directions'>, title = reportTitle(input.dataset)): string[] {
   const { dataset } = input
-  const header = [`# ${reportTitle(dataset)}`, '']
+  const header = [`# ${title}`, '']
   const content = dataset.contents.length === 1 ? dataset.contents[0] : undefined
   const meta = [dataset.platform, content?.author, content?.published_at?.slice(0, 10), content?.url].filter(Boolean)
   if (meta.length > 0) header.push(meta.join(' · '), '')
   if (input.scenario) header.push(`分析场景：${input.scenario.title}（场景手册 ${input.scenario.id}，指纹 ${input.scenario.hash}）`, '')
   if (input.directions.length) header.push(`分析方向：${input.directions.join('、')}`, '')
-  const ledger = input.ledger ? ['## 处理覆盖记录', '', '| 类型 | 导入 | 重复正文信号 | 成功块内 | 失败块内 | 跳过块内 | 未选择 |', '|---|---:|---:|---:|---:|---:|---:|', ...input.ledger.kinds.map((r) => `| ${r.kind} | ${r.imported} | ${r.duplicate_texts} | ${r.processed} | ${r.failed} | ${r.skipped} | ${r.not_selected} |`), '', '成功块内表示原文进入已完成的总结块，不代表已逐条分类；重复计数不参与总数相加。导入路径跳过数：' + input.ledger.collections.reduce((s, r) => s + r.skipped, 0), ''] : []
-  if (input.ledger) ledger.push('### 正文字幕覆盖', '', '| 内容 | 源/转换状态 | 源段数 | 转换失败 | 已导入 | 已提交模型 | 成功块内 | 失败块内 | 跳过 | 未选择 |', '|---|---|---:|---:|---:|---:|---:|---:|---:|---:|',
-    ...input.ledger.transcripts.map((r) => `| ${cell(r.content_id)} | ${r.source_status} | ${r.source_elements ?? '未知'} | ${r.conversion_failed ?? '未知'} | ${r.imported} | ${r.submitted} | ${r.processed} | ${r.failed} | ${r.skipped} | ${r.not_selected} |`), '', '未配置字幕映射且无导入片段时，源状态为未知，不能据此声称源中没有字幕。', '')
-  const timeline = contentTimeline(input.dataset, { limit: 12, selection: 'key' })
+  return header
+}
+
+function timelineSections(dataset: Dataset): { timelineLines: string[]; fullTimeline: string[] } {
+  const timeline = contentTimeline(dataset, { limit: 12, selection: 'key' })
   const timelineRow = (row: (typeof timeline.rows)[number]) => `| ${cell(row.title ?? row.content_id)} | ${row.start_sec}–${row.end_sec}${row.peak ? '（高峰）' : ''} | ${row.count} | ${row.transcript.length ? row.transcript.map((t) => `${cell(t.text)} [${cell(t.ref)}]`).join('；') : '未提供对应字幕，不猜测内容'} | ${row.feedback.map((f) => `${cell(f.text)} [${cell(f.id)}]`).join('；')} |`
   const table = ['| 内容 | 视频秒数 | 弹幕数 | 字幕原文及位置 | 观众反应及 ID |', '|---|---|---:|---|---|']
   const timelineLines = timeline.rows.length ? ['## 字幕与观众反应时间轴', '', '优先选择高峰和弹幕较多的关键窗口，再按内容和时间展示；时间对齐不代表因果关系，也不代表已观看视频画面。', '', ...table, ...timeline.rows.map(timelineRow), '', '每窗最多摘录 10 段字幕与 5 条弹幕，每条最多 500 字；未在此展示的窗口见完整时间轴附录，原文可按 ID 查询。', ''] : []
   const fullTimeline: string[] = []
   if (timeline.next_offset !== null) {
     fullTimeline.push('## 附录：完整时间轴', '', '全部窗口按内容和时间排列；每窗证据仍为摘录。', '', ...table)
-    fullTimeline.push(...contentTimelineRows(input.dataset).map(timelineRow))
+    fullTimeline.push(...contentTimelineRows(dataset).map(timelineRow))
     fullTimeline.push('')
   }
+  return { timelineLines, fullTimeline }
+}
+
+export type FactsInput = Pick<ReportInput, 'dataset' | 'stats' | 'coverage' | 'keywords' | 'danmaku' | 'directions' | 'scenario'>
+
+/** 宿主模型模式的“事实”部分：只含代码算出的统计、关键词、弹幕高峰和时间轴，不含任何模型结论 */
+export function renderFacts(input: FactsInput): string {
+  const { timelineLines, fullTimeline } = timelineSections(input.dataset)
+  const content = input.dataset.contents.map((c) => [c.title ? `- 标题：${c.title}（${c.id}）` : `- 内容 ${c.id}`, c.description ? `  - 简介：${inline(c.description, 300, false)}` : '', c.summary ? `  - 平台摘要：${inline(c.summary, 500, false)}` : ''].filter(Boolean)).flat()
+  const sections = [content.length ? ['## 内容信息', '', ...content] : [], overview(input), keywordSection(input.keywords, input.danmaku, (input.stats.items.record ?? 0) > 0), peakSection(input.danmaku), timelineLines, fullTimeline]
+  return [...headerLines(input, `${reportTitle(input.dataset).replace(/分析报告$/, '')}数据概况`), ...sections.filter((s) => s.length > 0).flatMap((s) => [...s, ''])].join('\n').replace(/\n{3,}/g, '\n\n').trimEnd() + '\n'
+}
+
+export function renderReport(input: ReportInput): string {
+  const { dataset } = input
+  const header = headerLines(input)
+  const ledger = input.ledger ? ['## 处理覆盖记录', '', '| 类型 | 导入 | 重复正文信号 | 成功块内 | 失败块内 | 跳过块内 | 未选择 |', '|---|---:|---:|---:|---:|---:|---:|', ...input.ledger.kinds.map((r) => `| ${r.kind} | ${r.imported} | ${r.duplicate_texts} | ${r.processed} | ${r.failed} | ${r.skipped} | ${r.not_selected} |`), '', '成功块内表示原文进入已完成的总结块，不代表已逐条分类；重复计数不参与总数相加。导入路径跳过数：' + input.ledger.collections.reduce((s, r) => s + r.skipped, 0), ''] : []
+  if (input.ledger) ledger.push('### 正文字幕覆盖', '', '| 内容 | 源/转换状态 | 源段数 | 转换失败 | 已导入 | 已提交模型 | 成功块内 | 失败块内 | 跳过 | 未选择 |', '|---|---|---:|---:|---:|---:|---:|---:|---:|---:|',
+    ...input.ledger.transcripts.map((r) => `| ${cell(r.content_id)} | ${r.source_status} | ${r.source_elements ?? '未知'} | ${r.conversion_failed ?? '未知'} | ${r.imported} | ${r.submitted} | ${r.processed} | ${r.failed} | ${r.skipped} | ${r.not_selected} |`), '', '未配置字幕映射且无导入片段时，源状态为未知，不能据此声称源中没有字幕。', '')
+  const { timelineLines, fullTimeline } = timelineSections(dataset)
   const conclusions = ['## 核心结论', '']
   const insights = input.insights?.insights ?? []
   if (!insights.length) conclusions.push('本次未形成通过引用校验的核心发现；附录保留分块主题，尚未完成综合核对。', '')

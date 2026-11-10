@@ -11,6 +11,7 @@ import type { Mapping } from './mapping.ts'
 import { describeShape, type Shape } from './shape.ts'
 import { ImportError } from './errors.ts'
 import { readInput } from './formats.ts'
+import { PRESET_MAPPINGS } from './presets.ts'
 
 export { ImportError, MAX_FILE_BYTES, type ImportErrorCode } from './errors.ts'
 export type { InputFormat } from './formats.ts'
@@ -20,8 +21,10 @@ export interface LoadDatasetOptions {
   model?: AgentModel
   /** 默认 <cwd>/.ugc-lens/mappings */
   cacheDir?: string
-  /** false：不读缓存，总是重新推断（仍会写入缓存） */
+  /** false：不读缓存，总是重新推断（仍会写入缓存）；同时跳过内置规则 */
   useCache?: boolean
+  /** false：不试内置的已知格式规则，默认 true */
+  usePresets?: boolean
   signal?: AbortSignal
   onEvent?: RunEventListener
 }
@@ -107,6 +110,15 @@ export async function loadDataset(filePath: string, options: LoadDatasetOptions 
     }
     const found = await findCachedMapping(data, absolute, shape, cacheDir, exact, tabular)
     if (found) return build(found.result, found.mapping.platform, true)
+  }
+  if (!tabular && options.usePresets !== false && options.useCache !== false) {
+    for (const mapping of PRESET_MAPPINGS) {
+      const result = applyMapping(data, mapping, { file_path: absolute, arrays: shape.arrays, lenient: true })
+      if (result.report.errors.length || result.report.unmapped.length || result.items.length === 0) continue
+      const dataset = build(result, mapping.platform, false)
+      dataset.mapping.builtin = true
+      return dataset
+    }
   }
   if (!options.model) {
     throw new ImportError('no_model', `缓存里没有适用于 ${basename(absolute)} 的映射规则，需要提供模型来识别文件结构`)

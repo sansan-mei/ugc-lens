@@ -43,7 +43,8 @@
   "files": [
     "dist",
     "skills",
-    "playbook"
+    "playbook",
+    "ui"
   ],
   "engines": {
     "node": ">=22.18"

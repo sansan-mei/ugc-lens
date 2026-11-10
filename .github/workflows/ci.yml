@@ -38,6 +38,8 @@ jobs:
           npx ugc-lens --help
           npx ugc-lens playbook
           npx ugc-lens playbook --init
+          npx ugc-lens ui --help
+          test -f node_modules/ugc-lens/ui/app.js
           node --input-type=module -e "import { createMcpServer } from 'ugc-lens/mcp'; await createMcpServer().close()"
           node --input-type=module -e "import { readFile } from 'node:fs/promises'; await readFile(new URL('./skills/ugc-lens/SKILL.md', import.meta.resolve('ugc-lens/package.json')), 'utf8')"
           UGC_LENS_TEST_CLI="$RUNNER_TEMP/node_modules/ugc-lens/dist/cli/index.js" node --test "$GITHUB_WORKSPACE/test/cli/mcp.test.ts" "$GITHUB_WORKSPACE/test/cli/formats.test.ts"

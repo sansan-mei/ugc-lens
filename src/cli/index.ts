@@ -15,6 +15,7 @@ import { INIT_USAGE, runInit } from './init.ts'
 import { runWatch, WATCH_USAGE } from './watch.ts'
 import { MCP_USAGE, runMcp } from './mcp.ts'
 import { HOST_USAGE, runHost } from './host.ts'
+import { runUi, UI_USAGE } from './ui.ts'
 
 import { PLAYBOOK_USAGE, runPlaybook } from './playbook.ts'
 import { PROFILE_USAGE, runProfile } from './profile.ts'
@@ -25,6 +26,7 @@ const COMMANDS = {
   init: { run: runInit, usage: INIT_USAGE },
   mcp: { run: runMcp, usage: MCP_USAGE },
   host: { run: runHost, usage: HOST_USAGE },
+  ui: { run: runUi, usage: UI_USAGE },
   analyze: { run: runAnalyze, usage: ANALYZE_USAGE },
   ask: { run: runAsk, usage: ASK_USAGE },
   watch: { run: runWatch, usage: WATCH_USAGE },
@@ -43,6 +45,7 @@ const MAIN_USAGE = `ugc-lens：分析文本记录、评论、弹幕等内容
   ugc-lens watch <目录>                 监听目录，新的 *_all.json 写完后自动分析
   ugc-lens mcp [--cwd <目录>]           通过 stdio 向宿主提供 MCP 工具
   ugc-lens host <操作> <文件>           宿主模型模式：不用 API key，导入、分块、检索和核验引用
+  ugc-lens ui [--cwd <目录>]            在浏览器中查看数据概况、图表、原文和报告
   ugc-lens <命令> --help                查看命令的选项
   ugc-lens --version
 

@@ -25,6 +25,16 @@ test('内置规则：路径只有 av 号时用目录名末尾的数字作内容 
   assert.equal(dataset.contents[0]!.id, '100000002')
 })
 
+test('内置规则：文件被移到没有视频号的路径时，内容 ID 退回文件名', async () => {
+  const { copyFileSync, mkdirSync } = await import('node:fs')
+  mkdirSync(join(cacheDir, 'moved'), { recursive: true })
+  const file = join(cacheDir, 'moved', 'bilibili_all.json')
+  copyFileSync(AV_FIXTURE, file)
+  const dataset = await loadDataset(file, { cacheDir })
+  assert.equal(dataset.mapping.builtin, true)
+  assert.equal(dataset.contents[0]!.id, 'bilibili_all')
+})
+
 test('内置规则：结构不符的 JSON 仍需要模型识别', async () => {
   const { writeFileSync } = await import('node:fs')
   const file = join(cacheDir, 'other.json')

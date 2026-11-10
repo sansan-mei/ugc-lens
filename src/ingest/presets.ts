@@ -10,8 +10,8 @@ const RAW_PRESETS = [
     platform: 'bilibili',
     content: {
       path: '$.video_info',
-      // 路径里有 BV 号时用 BV 号，否则用目录名末尾的 av 号
-      id_from_path: '(BV[0-9A-Za-z]{10}|\\d{5,}(?=[/\\\\][^/\\\\]+\\.json$))',
+      // 路径里有 BV 号时用 BV 号，否则用目录名末尾的 av 号；文件被移动或改名后退回文件名，保证内置规则仍可用
+      id_from_path: '(BV[0-9A-Za-z]{10}|\\d{5,}(?=[/\\\\][^/\\\\]+\\.json$)|[^/\\\\]+(?=\\.json$))',
       fields: { title: 'title', author: 'owner', description: 'description', published_at: 'pubdate', summary: '$.video_ai_summary.summary' },
       stats: { views: 'view', likes: 'like', coins: 'coin', favorites: 'favorite', shares: 'share', comments: 'reply', danmaku: 'danmaku', duration_sec: 'duration' },
       transcript: { path: '$.video_zimu', start: 'from', end: 'to', text: 'content' },

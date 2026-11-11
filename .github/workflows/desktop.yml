@@ -1,6 +1,6 @@
 name: Desktop prototype
 
-# 桌面单文件包原型（roadmap 第 19.1 步）：Node 26 SEA + 虚拟文件系统，产出 macOS dmg 和 Windows zip。
+# 桌面单文件包原型（roadmap 第 19.1 步）：Node 26 SEA + 虚拟文件系统，产出 macOS dmg 和 Windows 安装包。
 # 只做构建和冒烟检查，产物作为 Actions artifact 保存，不发布、不签名公证。
 on:
   workflow_dispatch:
@@ -87,7 +87,12 @@ jobs:
         shell: pwsh
         run: |
           $version = node -p "require('./package.json').version"
-          Compress-Archive -Path build/sea/ugc-lens.exe -DestinationPath "build/ugc-lens-$version-${{ matrix.target }}.zip" -CompressionLevel Optimal
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) {
+            choco install innosetup -y --no-progress
+          }
+          & $iscc /Qp "/DAppVersion=$version" "/DSourceExe=$PWD\build\sea\ugc-lens.exe" "/DOutDir=$PWD\build" scripts\desktop\ugc-lens.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Sizes
         run: |
@@ -97,7 +102,7 @@ jobs:
             echo '|---|---|'
             EXE=build/sea/ugc-lens
             [ "$RUNNER_OS" = Windows ] && EXE=build/sea/ugc-lens.exe
-            for f in build/sea/app.zip "$EXE" build/*.dmg build/*.zip; do
+            for f in build/sea/app.zip "$EXE" build/*.dmg build/*-setup.exe; do
               [ -f "$f" ] && echo "| $(basename "$f") | $(node -p "(require('fs').statSync('$f').size/1048576).toFixed(1)") MB |"
             done
           } >> "$GITHUB_STEP_SUMMARY"
@@ -108,5 +113,5 @@ jobs:
           name: ugc-lens-${{ matrix.target }}
           path: |
             build/*.dmg
-            build/*.zip
+            build/*-setup.exe
           if-no-files-found: error

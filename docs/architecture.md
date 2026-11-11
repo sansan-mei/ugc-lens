@@ -826,6 +826,7 @@ ugc-lens/
 | 文件监听 | Node 自带 `fs.watch`（递归）+ 定时扫描 | 不多一个依赖；写完判定用文件大小连续不变（第 6.7 节） |
 | MCP | 官方 TypeScript SDK | |
 | 发布 | `tsc` 编译到 `dist/`，GitHub Actions + npm Trusted Publishing | 不额外引入打包工具；不存 npm token（第 2.2 节） |
+| 桌面包（原型） | Node 26 SEA + 虚拟文件系统，入口 `scripts/desktop_entry.mjs`，构建脚本 `scripts/sea.ts` | 不引入 Electron；运行的就是 npm 版的编译产物，双击启动等同 `ugc-lens ui --cwd ~/ugc-lens`（roadmap 第 19.1 步） |
 | 依赖版本 | 全部固定精确版本，不使用 `^`、`~` | 避免不同时间安装得到不同版本；由 `bunfig.toml`（`exact = true`）和 `.npmrc`（`save-exact=true`）强制 |
 
 ## 11. 待定问题

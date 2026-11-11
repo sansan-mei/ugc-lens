@@ -80,7 +80,7 @@ jobs:
           EOF
           codesign --sign - --force --deep "$APP"
           ln -s /Applications build/dmg/Applications
-          hdiutil create -volname ugc-lens -srcfolder build/dmg -format ULFO "build/ugc-lens-${VERSION}-${{ matrix.target }}.dmg"
+          hdiutil create -volname ugc-lens -srcfolder build/dmg -format ULMO "build/ugc-lens-${VERSION}-${{ matrix.target }}.dmg"
 
       - name: Package Windows
         if: runner.os == 'Windows'
@@ -95,7 +95,9 @@ jobs:
             echo "### ${{ matrix.target }}"
             echo '| 文件 | 大小 |'
             echo '|---|---|'
-            for f in build/sea/app.zip build/sea/ugc-lens build/sea/ugc-lens.exe build/*.dmg build/*.zip; do
+            EXE=build/sea/ugc-lens
+            [ "$RUNNER_OS" = Windows ] && EXE=build/sea/ugc-lens.exe
+            for f in build/sea/app.zip "$EXE" build/*.dmg build/*.zip; do
               [ -f "$f" ] && echo "| $(basename "$f") | $(node -p "(require('fs').statSync('$f').size/1048576).toFixed(1)") MB |"
             done
           } >> "$GITHUB_STEP_SUMMARY"

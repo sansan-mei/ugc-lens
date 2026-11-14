@@ -47,6 +47,8 @@ export interface SessionOptions {
   onEvent?: RunEventListener
   onWatchEvent?: (event: WatchEvent) => void
   load?: typeof loadDataset
+  /** 跨项目共用的结构规则缓存目录（入口层传 ~/.ugc-lens/mappings）；不传只用项目缓存 */
+  sharedCacheDir?: string
   analyze?: (options: AnalyzeOptions) => Promise<Pick<AnalyzeResult, 'markdown' | 'path' | 'calls' | 'usage' | 'memory_warning'>>
   watch?: typeof watchDirectory
   /** 开启联网时传入；整个会话共用，来源编号跨轮延续 */
@@ -84,7 +86,7 @@ export function createSession(options: SessionOptions): ChatSession {
     const path = resolve(cwd, file)
     const cached = [...datasets.values()].find((dataset) => dataset.file_path === path)
     if (cached) return cached
-    const dataset = await load(path, { model, signal, cacheDir: join(cwd, '.ugc-lens', 'mappings') })
+    const dataset = await load(path, { model, signal, cacheDir: join(cwd, '.ugc-lens', 'mappings'), sharedCacheDir: options.sharedCacheDir })
     signal.throwIfAborted()
     datasets.set(dataset.id, dataset)
     return dataset
@@ -159,7 +161,7 @@ export function createSession(options: SessionOptions): ChatSession {
           },
           analyze: async (file, taskSignal) => withTask(async () => {
             // 监听每次重新导入，避免使用对话里旧的文件快照。
-            const dataset = await load(file, { model, signal: taskSignal, cacheDir: join(cwd, '.ugc-lens', 'mappings') })
+            const dataset = await load(file, { model, signal: taskSignal, cacheDir: join(cwd, '.ugc-lens', 'mappings'), sharedCacheDir: options.sharedCacheDir })
             const result = await analyze({ dataset, model, directions, cwd, memory: options.memory, modelName: options.modelName, signal: taskSignal })
             datasets.set(dataset.id, dataset)
             return { task_usage: currentTask()!.snapshot(), report: result.path, calls: result.calls, usage: result.usage }

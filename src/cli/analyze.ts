@@ -2,7 +2,7 @@ import { currentTask, withTask } from '../agent/usage.ts'
 import { writeFile } from 'node:fs/promises'
 import { parseArgs } from 'node:util'
 import { scenarioIds } from '../analysis/scenarios.ts'
-import { loadLlmConfig } from '../config.ts'
+import { loadLlmConfig, sharedMappingsDir } from '../config.ts'
 import { loadDataset } from '../ingest/index.ts'
 import { analyzeDataset } from '../pipeline/analyze.ts'
 import { mappingSource, abortOnInterrupt, analysisModel, formatAnalyzeProgress, positiveNumber, splitList, UsageError } from './common.ts'
@@ -67,7 +67,7 @@ export async function runAnalyze(argv: readonly string[]): Promise<void> {
   const model = analysisModel(config)
   const { signal } = abortOnInterrupt('正在取消')
 
-  const dataset = await loadDataset(args.file, { model, signal })
+  const dataset = await loadDataset(args.file, { sharedCacheDir: sharedMappingsDir(), model, signal })
   console.error(`已导入 ${dataset.items.length} 条（文件结构${mappingSource(dataset.mapping)}）`)
   const result = await analyzeDataset({
     memory: { cwd: process.cwd(), onWarning: (message) => console.error(message) },

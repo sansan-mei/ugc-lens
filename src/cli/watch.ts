@@ -1,7 +1,7 @@
 import { currentTask, withTask } from '../agent/usage.ts'
 import { relative } from 'node:path'
 import { parseArgs } from 'node:util'
-import { loadLlmConfig } from '../config.ts'
+import { loadLlmConfig, sharedMappingsDir } from '../config.ts'
 import { loadDataset } from '../ingest/index.ts'
 import { analyzeDataset } from '../pipeline/analyze.ts'
 import { openTaskStore } from '../store/tasks.ts'
@@ -108,7 +108,7 @@ export async function runWatch(argv: readonly string[]): Promise<void> {
     settleMs: args.settleMs,
     onEvent: (event) => console.log(formatWatchEvent(event, args.dir)),
     analyze: async (file, taskSignal) => withTask(async () => {
-      const dataset = await loadDataset(file, { model, signal: taskSignal })
+      const dataset = await loadDataset(file, { sharedCacheDir: sharedMappingsDir(), model, signal: taskSignal })
       const result = await analyzeDataset({
         memory: { cwd: process.cwd(), onWarning: (message) => console.error(message) },
         model,

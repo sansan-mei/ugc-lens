@@ -47,6 +47,11 @@ export function rejectProjectSecret(file: { api_key?: string | null }, dir: stri
   }
 }
 
+/** 跨项目共用的结构规则缓存：同样结构的文件换一个启动目录打开也不必再请模型识别 */
+export function sharedMappingsDir(homeDir: string = homedir()): string {
+  return join(homeDir, CONFIG_DIR, 'mappings')
+}
+
 export function globalConfigPath(homeDir: string = homedir()): string {
   return join(homeDir, CONFIG_DIR, 'config.json')
 }
@@ -58,13 +63,18 @@ export function readGlobalConfig(homeDir: string = homedir()): LlmConfigFile {
 
 /** 写入全局配置：替换 llm 字段，其他顶层字段保留；权限 600，因为里面有 key */
 export function writeGlobalConfig(llm: LlmConfigFile, homeDir: string = homedir()): string {
+  return writeGlobalSection('llm', llm, homeDir)
+}
+
+/** 替换全局配置的一个顶层字段（llm、web、ui 等），其他字段保留；权限 600 */
+export function writeGlobalSection(section: string, value: unknown, homeDir: string = homedir()): string {
   const path = globalConfigPath(homeDir)
   let rest: Record<string, unknown> = {}
   if (existsSync(path)) {
     try {
       const parsed: unknown = JSON.parse(readFileSync(path, 'utf8'))
       if (parsed && typeof parsed === 'object') {
-        const { llm: _old, ...others } = parsed as Record<string, unknown>
+        const { [section]: _old, ...others } = parsed as Record<string, unknown>
         rest = others
       }
     } catch (error) {
@@ -72,7 +82,7 @@ export function writeGlobalConfig(llm: LlmConfigFile, homeDir: string = homedir(
     }
   }
   mkdirSync(join(homeDir, CONFIG_DIR), { recursive: true })
-  writeFileSync(path, `${JSON.stringify({ ...rest, llm }, null, 2)}\n`, { mode: 0o600 })
+  writeFileSync(path, `${JSON.stringify({ ...rest, [section]: value }, null, 2)}\n`, { mode: 0o600 })
   // mode 只在新建文件时生效，已有文件（例如手动创建的）也要收紧权限
   chmodSync(path, 0o600)
   return path

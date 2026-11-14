@@ -1,3 +1,4 @@
+import { sharedMappingsDir } from '../config.ts'
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { parseArgs } from 'node:util'
@@ -55,7 +56,7 @@ export interface HostIo { cwd?: string; write?: (text: string) => void }
 
 async function load(file: string, cacheDir: string) {
   try {
-    return await loadDataset(file, { cacheDir })
+    return await loadDataset(file, { cacheDir, sharedCacheDir: sharedMappingsDir() })
   } catch (error) {
     if (error instanceof ImportError && error.code === 'no_model') {
       throw new ImportError('no_model', `${error.message}。宿主模型模式下先运行 ugc-lens host describe ${file} 查看结构，再用 ugc-lens host mapping ${file} <规则.json> 提交规则`)

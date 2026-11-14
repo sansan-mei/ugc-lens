@@ -35,6 +35,8 @@ export interface McpServerOptions {
   analyze?: (options: AnalyzeOptions) => Promise<Pick<AnalyzeResult, 'markdown' | 'path' | 'calls' | 'usage' | 'memory_warning'>>
   /** 开启联网时为每段 ask 对话创建会话；只在服务内部的 ask 使用，不向宿主暴露联网工具 */
   web?: () => WebSession
+  /** 跨项目共用的结构规则缓存目录；不传只用项目缓存 */
+  sharedCacheDir?: string
 }
 
 interface AskConversation {
@@ -81,7 +83,7 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
     const cached = store.list().find((dataset) => dataset.file_path === path)
     if (cached) return cached
     const dataset = await (options.load ?? loadDataset)(path, {
-      model: { complete: (request) => getModels().analysis.complete(request) }, signal, cacheDir: join(cwd, '.ugc-lens', 'mappings'),
+      model: { complete: (request) => getModels().analysis.complete(request) }, signal, cacheDir: join(cwd, '.ugc-lens', 'mappings'), sharedCacheDir: options.sharedCacheDir,
     })
     signal.throwIfAborted()
     datasets.set(dataset.id, dataset)

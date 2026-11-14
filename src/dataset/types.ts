@@ -92,4 +92,6 @@ export interface Dataset {
   source?: { format: string }
   mapping: { fingerprint: string; from_cache: boolean; builtin?: boolean }
   report: ImportReport
+  /** 文件内容摘要（解析后的数据，与路径和排版无关）；内容相同的文件不管放在哪都共用分析结果 */
+  content_digest?: string
 }

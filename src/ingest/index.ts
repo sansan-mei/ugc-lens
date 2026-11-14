@@ -21,6 +21,11 @@ export interface LoadDatasetOptions {
   model?: AgentModel
   /** 默认 <cwd>/.ugc-lens/mappings */
   cacheDir?: string
+  /**
+   * 跨项目共用的规则缓存（通常是 ~/.ugc-lens/mappings）：先查项目缓存，再查这里；新规则两边都写。
+   * 换一个启动目录打开同样结构的文件时不必再请模型识别。不传时只用项目缓存。
+   */
+  sharedCacheDir?: string
   /** false：不读缓存，总是重新推断（仍会写入缓存）；同时跳过内置规则 */
   useCache?: boolean
   /** false：不试内置的已知格式规则，默认 true */
@@ -78,8 +83,11 @@ export async function loadDataset(filePath: string, options: LoadDatasetOptions 
   const tabular = input.format === 'csv' || input.format === 'tsv'
   // 表头名称影响列语义，不能仅凭列数相同复用另一个表格的规则。
   if (tabular) shape = { ...shape, fingerprint: createHash('sha256').update(shape.fingerprint + JSON.stringify((data as { columns: unknown }).columns)).digest('hex').slice(0, 16) }
-  const sourceDigest = createHash('sha256').update(absolute).update('\0').update(JSON.stringify(data)).digest('hex')
+  const serialized = JSON.stringify(data)
+  const sourceDigest = createHash('sha256').update(absolute).update('\0').update(serialized).digest('hex')
+  const contentDigest = createHash('sha256').update(input.format).update('\0').update(serialized).digest('hex').slice(0, 24)
   const cacheDir = options.cacheDir ?? defaultCacheDir()
+  const cacheDirs = [...new Set([cacheDir, options.sharedCacheDir].filter((d): d is string => !!d))]
 
   const build = (result: ApplyResult, platform: string, fromCache: boolean): Dataset => ({
     task_usage: currentTask()!.snapshot(),
@@ -92,6 +100,7 @@ export async function loadDataset(filePath: string, options: LoadDatasetOptions 
     imported_at: new Date().toISOString(),
     mapping: { fingerprint: shape.fingerprint, from_cache: fromCache },
     report: result.report,
+    content_digest: contentDigest,
   })
 
   if (input.builtin) {
@@ -103,13 +112,16 @@ export async function loadDataset(filePath: string, options: LoadDatasetOptions 
   }
 
   if (options.useCache !== false) {
-    const exact = await readCache(cacheDir, shape.fingerprint)
-    const rejected = exact?.rules.find((rule) => rule.outcome.type === 'rejected' && rule.source_digest === sourceDigest)
-    if (rejected?.outcome.type === 'rejected') {
-      throw new ImportError('not_feedback', `${basename(absolute)} 没有可分析文本：${rejected.outcome.reason}`)
+    // 项目缓存优先，其次共享缓存
+    for (const dir of cacheDirs) {
+      const exact = await readCache(dir, shape.fingerprint)
+      const rejected = exact?.rules.find((rule) => rule.outcome.type === 'rejected' && rule.source_digest === sourceDigest)
+      if (rejected?.outcome.type === 'rejected') {
+        throw new ImportError('not_feedback', `${basename(absolute)} 没有可分析文本：${rejected.outcome.reason}`)
+      }
+      const found = await findCachedMapping(data, absolute, shape, dir, exact, tabular)
+      if (found) return build(found.result, found.mapping.platform, true)
     }
-    const found = await findCachedMapping(data, absolute, shape, cacheDir, exact, tabular)
-    if (found) return build(found.result, found.mapping.platform, true)
   }
   if (!tabular && options.usePresets !== false && options.useCache !== false) {
     for (const mapping of PRESET_MAPPINGS) {
@@ -141,12 +153,13 @@ export async function loadDataset(filePath: string, options: LoadDatasetOptions 
     )
   }
 
-  await addCacheRule(cacheDir, shape.fingerprint, {
+  const rule = {
     created_at: new Date().toISOString(),
     file_name: basename(absolute),
     source_digest: outcome.type === 'rejected' ? sourceDigest : undefined,
-    outcome: outcome.type === 'mapping' ? { type: 'mapping', mapping: outcome.mapping } : outcome,
-  })
+    outcome: outcome.type === 'mapping' ? { type: 'mapping' as const, mapping: outcome.mapping } : outcome,
+  }
+  for (const dir of cacheDirs) await addCacheRule(dir, shape.fingerprint, rule)
 
   if (outcome.type === 'rejected') {
     throw new ImportError('not_feedback', `${basename(absolute)} 没有可分析文本：${outcome.reason}`)

@@ -257,7 +257,7 @@ async function executeToolCall(
   }
 
   const duration_ms = Date.now() - startedAt
-  emit({ type: 'tool_end', run_id: ctx.run_id, step, call_id: call.id, name, ok, duration_ms })
+  emit({ type: 'tool_end', run_id: ctx.run_id, step, call_id: call.id, name, ok, duration_ms, result })
   return { call_id: call.id, name, args, ok, result, duration_ms }
 }
 

@@ -17,6 +17,8 @@ export type RunEvent =
       name: string
       ok: boolean
       duration_ms: number
+      /** 交给模型的工具结果（界面可点开查看） */
+      result: string
     }
   | { type: 'pipeline_stage'; run_id: string; stage: string; progress?: number }
   | { type: 'run_end'; run_id: string; stop_reason: string; usage: Usage; duration_ms: number }

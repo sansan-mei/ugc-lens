@@ -7,3 +7,6 @@ dist/
 
 # Vite UI bundle (included in npm package, not source control)
 /ui/
+
+# 桌面单文件包产物（scripts/sea.ts）
+/build/

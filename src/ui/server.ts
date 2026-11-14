@@ -49,6 +49,8 @@ export interface UiServerOptions {
   homeDir?: string
   /** 对话使用的模型；测试注入，默认新建对话时读取 ugc-lens 的模型配置 */
   chatModels?: () => ChatModels
+  /** 网页上的“退出”按钮调用；不提供时 /api/quit 返回 501 */
+  onQuit?: () => void
 }
 
 interface RecentFile { path: string; kind: PickKind; opened_at: string }
@@ -59,6 +61,8 @@ export interface UiServer {
   url: (port: number) => string
   /** 关闭所有对话会话（取消进行中的回答和后台监听），不关闭 HTTP 服务 */
   close: () => Promise<void>
+  /** 进行中的请求数和最近一次请求结束（或开始）的时间，桌面版据此判断页面是否已关闭 */
+  activity: () => { inflight: number; last: number }
 }
 
 
@@ -195,6 +199,13 @@ export function createUiServer(options: UiServerOptions): UiServer {
   async function api(req: IncomingMessage, res: ServerResponse, url: URL): Promise<void> {
     const parts = url.pathname.split('/').filter(Boolean).slice(1).map(decodeURIComponent)
     const q = url.searchParams
+    if (req.method === 'GET' && parts[0] === 'ping' && parts.length === 1) return json(res, { ok: true, cwd })
+    if (req.method === 'POST' && parts[0] === 'quit' && parts.length === 1) {
+      const onQuit = options.onQuit
+      if (!onQuit) throw new HttpError(501, '这个界面由命令行启动，请在终端按 Ctrl+C 停止')
+      res.once('finish', () => onQuit())
+      return json(res, { ok: true })
+    }
     if (req.method === 'GET' && parts[0] === 'files') {
       const recentFiles = []
       for (const r of await loadRecent()) {
@@ -335,7 +346,12 @@ export function createUiServer(options: UiServerOptions): UiServer {
     throw new HttpError(404, '未知接口')
   }
 
+  let inflight = 0
+  let last = Date.now()
   const server = createServer(async (req, res) => {
+    inflight++
+    last = Date.now()
+    res.once('close', () => { inflight--; last = Date.now() })
     try {
       const host = req.headers.host ?? ''
       if (host !== `127.0.0.1:${port}` && host !== `localhost:${port}`) throw new HttpError(421, 'Host 不被允许')
@@ -364,5 +380,5 @@ export function createUiServer(options: UiServerOptions): UiServer {
     const address = server.address()
     if (address && typeof address === 'object') port = address.port
   })
-  return { server, token, url: (p) => `http://127.0.0.1:${p}/#token=${token}`, close: () => chat.close() }
+  return { server, token, url: (p) => `http://127.0.0.1:${p}/#token=${token}`, close: () => chat.close(), activity: () => ({ inflight, last }) }
 }

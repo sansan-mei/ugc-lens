@@ -71,6 +71,10 @@ ugc-lens 是一个**分析用户互动内容（评论、弹幕、回复等）的
   - 斜杠命令（`web/src/lib/commands.ts`，纯函数，Node 测试覆盖）：输入 `/` 时列出命令并按前缀筛选。本地命令（`/new`、`/open`、`/search`）不调用模型；其余展开成提示词，指明对应工具（如 `analyze_dataset` + `scenario`），界面显示原话、模型收到展开后的提示词，消息里分别以 `display` 与 `text` 传给服务端。
   - 模型设置（`src/ui/settings.ts`、`web/src/components/settings_dialog.tsx`）：与 `ugc-lens init` 写同一份全局配置，复用 `src/llm/setup.ts` 的模型列表与测试调用。`GET /api/settings` 返回提供商列表、已保存的设置（只有 `has_key`，不返回 key）、当前实际生效的配置或错误，以及会覆盖全局配置的环境变量与项目配置项；`POST /api/settings/models` 列出模型；`POST /api/settings/test` 用表单内容发一次强制工具调用（不重试、30 秒超时）；`PUT /api/settings` 保存，保留其他顶层字段与超时、重试设置，文件权限收紧为 600。key 留空时，已保存的 key 只在规范化后的接口地址不变时沿用，环境变量 key 只用于对应预设地址，与第 4.1 节端点绑定一致；换地址必须重新填写，避免把 key 发往新的服务。保存后重置结构识别模型，空闲对话关闭（已保存的从磁盘恢复，未发过消息的按新配置重建），下一条消息使用新模型；进行中的回答不受影响。
   - 前端状态放在 App 中，切换标签页时回答继续生成；事件归并与 NDJSON 分行在 `web/src/lib/chat.ts`，不依赖 DOM，Node 测试直接覆盖。联网搜索暂不在界面对话中开放。
+- 退出与桌面单实例（roadmap 第 19.1 步）：
+  - `GET /api/ping` 返回 `{ ok, cwd }`，页面每 60 秒调用一次作为心跳，失败时提示服务已退出；`POST /api/quit` 先返回再停止服务，界面右上角“退出”按钮调用它。两个接口与其他接口一样要求令牌。
+  - `ugc-lens ui --desktop`（桌面版使用，命令行一般不用）：启动后把 `{ pid, port, token, cwd }` 写入 `~/.ugc-lens/ui/instance.json`（权限 600，退出时只删除自己写的那份）；没有进行中的请求且超过 10 分钟没有任何接口请求（页面关闭、心跳停止）时自动退出。不带 `--desktop` 时行为不变。
+  - 桌面版双击（没有参数）不直接起服务，而是一个很快退出的启动器（`src/cli/desktop.ts` 的 `launchDesktop`）：读 `instance.json`，用其中的令牌请求 `/api/ping`，目录一致就直接打开已有页面；否则以 `ui --cwd ~/ugc-lens --desktop` 后台启动自身（`detached`，输出追加到 `~/.ugc-lens/ui/desktop.log`）。原因是 macOS 对已在运行的应用再次双击只会激活它、不会再启动进程，而单文件 Node 程序收不到“重新打开”事件；启动器每次都会退出，所以每次双击都能重新打开页面。端口被别的程序占用或令牌不符时 `ping` 不通过，按没有实例处理。
 
 ### 2.2 命令行与发布
 
@@ -827,6 +831,7 @@ ugc-lens/
 | 文件监听 | Node 自带 `fs.watch`（递归）+ 定时扫描 | 不多一个依赖；写完判定用文件大小连续不变（第 6.7 节） |
 | MCP | 官方 TypeScript SDK | |
 | 发布 | `tsc` 编译到 `dist/`，GitHub Actions + npm Trusted Publishing | 不额外引入打包工具；不存 npm token（第 2.2 节） |
+| 桌面包 | Node 26 SEA + 虚拟文件系统，入口 `scripts/desktop_entry.mjs`，构建脚本 `scripts/sea.ts`；macOS arm64 dmg、Windows x64 Inno Setup 安装包，与 npm 包同版本发布 | 不引入 Electron；运行的就是 npm 版的编译产物，双击启动等同 `ugc-lens ui --cwd ~/ugc-lens`（roadmap 第 19.1 步） |
 | 依赖版本 | 全部固定精确版本，不使用 `^`、`~` | 避免不同时间安装得到不同版本；由 `bunfig.toml`（`exact = true`）和 `.npmrc`（`save-exact=true`）强制 |
 
 ## 11. 待定问题

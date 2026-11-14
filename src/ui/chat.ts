@@ -62,6 +62,8 @@ export interface ChatHub {
   get(id: string): Promise<StoredChat>
   /** 关闭会话并删除保存的历史 */
   remove(id: string): Promise<void>
+  /** 关闭空闲会话（历史已保存），下一条消息按当前模型配置恢复；进行中的回答不受影响 */
+  releaseIdle(): Promise<void>
   close(): Promise<void>
 }
 
@@ -218,6 +220,16 @@ export function createChatHub(options: ChatHubOptions): ChatHub {
       await entry?.session.close()
       await rm(recordFile(id), { force: true })
       await rm(messagesFile(id), { force: true })
+    },
+
+    async releaseIdle() {
+      const idle = [...sessions].filter(([, entry]) => !entry.busy)
+      for (const [id, entry] of idle) {
+        sessions.delete(id)
+        // 还没发过消息的对话没有保存，不能靠磁盘恢复，直接按新配置重建
+        if (!entry.record) open(id)
+      }
+      await Promise.all(idle.map(([, entry]) => entry.session.close()))
     },
 
     async close() {

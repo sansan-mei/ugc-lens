@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -73,6 +73,8 @@ export function writeGlobalConfig(llm: LlmConfigFile, homeDir: string = homedir(
   }
   mkdirSync(join(homeDir, CONFIG_DIR), { recursive: true })
   writeFileSync(path, `${JSON.stringify({ ...rest, llm }, null, 2)}\n`, { mode: 0o600 })
+  // mode 只在新建文件时生效，已有文件（例如手动创建的）也要收紧权限
+  chmodSync(path, 0o600)
   return path
 }
 

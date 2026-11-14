@@ -40,3 +40,13 @@ export interface Overview {
 export interface FileEntry { path: string; size: number; mtime: string; kind?: 'data' | 'report'; opened_at?: string }
 
 export interface FilesResponse { cwd: string; picker: boolean; recent: FileEntry[]; files: FileEntry[] }
+
+export interface ProviderInfo { id: string; name: string; regions: boolean; key: 'required' | 'optional' | 'none'; key_env?: string; base_url?: string | Record<'cn' | 'global', string> }
+
+export interface SettingsView {
+  path: string
+  providers: ProviderInfo[]
+  saved: { provider?: string; region: 'cn' | 'global'; base_url?: string; model?: string; has_key: boolean; endpoint?: string } | null
+  effective: { ok: true; provider: string; model: string; base_url: string; has_key: boolean } | { ok: false; error: string }
+  overrides: string[]
+}

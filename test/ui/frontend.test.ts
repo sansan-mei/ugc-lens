@@ -139,3 +139,24 @@ test('对话历史：更新时间显示为相对时间', async () => {
   assert.equal(relativeTime('2026-10-03T20:00:00+08:00', now), '10月3日')
   assert.equal(relativeTime('2025-10-03T20:00:00+08:00', now), '2025年10月3日')
 })
+
+test('模型设置：已保存的 key 只在接口地址不变时沿用，空 key 不发送', async () => {
+  const { formBody, formEndpoint, initialForm, keepsSavedKey, keyPlaceholder } = await import('../../web/src/lib/settings.ts')
+  const providers = [
+    { id: 'qwen', name: '通义千问', regions: true, key: 'required' as const, key_env: 'DASHSCOPE_API_KEY', base_url: { cn: 'https://cn.example/v1', global: 'https://intl.example/v1' } },
+    { id: 'custom', name: '自定义', regions: false, key: 'optional' as const },
+  ]
+  const view = { path: '/h/.ugc-lens/config.json', providers, overrides: [], effective: { ok: false as const, error: 'x' }, saved: { provider: 'qwen', region: 'cn' as const, model: 'qwen-plus', has_key: true, endpoint: 'https://cn.example/v1' } }
+  const form = initialForm(view)
+  assert.deepEqual(form, { provider: 'qwen', region: 'cn', base_url: '', model: 'qwen-plus', api_key: '' })
+  assert.equal(formEndpoint(form, providers), 'https://cn.example/v1')
+  assert.equal(keepsSavedKey(form, view), true)
+  assert.match(keyPlaceholder(form, view), /留空保持/)
+  assert.equal(keepsSavedKey({ ...form, base_url: 'https://cn.example/v1/' }, view), true)
+  const moved = { ...form, region: 'global' as const }
+  assert.equal(keepsSavedKey(moved, view), false)
+  assert.match(keyPlaceholder(moved, view), /重新填写/)
+  assert.match(keyPlaceholder(form, { ...view, saved: null }), /DASHSCOPE_API_KEY/)
+  assert.deepEqual(formBody({ ...form, api_key: '  ' }), { provider: 'qwen', region: 'cn', model: 'qwen-plus' })
+  assert.equal(formBody({ ...form, api_key: ' sk-1 ' }).api_key, 'sk-1')
+})

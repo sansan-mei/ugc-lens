@@ -5,13 +5,13 @@ import * as z from 'zod'
 import type { AgentModel } from '../../agent/model.ts'
 import { analysisCoverage } from '../../analysis/coverage.ts'
 import { contentTimeline } from '../../analysis/content_timeline.ts'
-import { classifyTopics, topicSchema } from '../../analysis/topics.ts'
+import { topicSchema } from '../../analysis/topics.ts'
 import { analyzeBusiness } from '../../analysis/business.ts'
 import type { DatasetStore } from '../../dataset/store.ts'
 import { FEEDBACK_KINDS } from '../../dataset/types.ts'
 import { visibleProfile } from '../../memory/profile.ts'
 import { loadPlaybook, type MemoryOptions } from '../../memory/playbook.ts'
-import { analyzeDataset } from '../../pipeline/analyze.ts'
+import { discoverAndClassifyTopics } from '../../pipeline/topics.ts'
 import { defineTool } from '../define.ts'
 import { datasetIdParam, resolveDataset } from './shared.ts'
 
@@ -32,20 +32,12 @@ export function createDeepAnalysisTools(store: DatasetStore, model?: AgentModel,
   return [...query,
     defineTool({ name: 'analyze_topics', description: '先发现主题和纳入标准（或提供 topics），再分批逐条多标签归类，由代码计算准确样本内占比。返回分母、覆盖率和完整逐条结果路径；发现阶段用量单独返回。用表格展示，不用模型估计主题比例。', parameters: z.object({ ...selection, topics: z.array(topicSchema).min(1).max(20).optional() }), async execute({ dataset_id, topics, kinds, content_id, token_budget }, ctx) {
       const dataset = resolveDataset(store, dataset_id)
-      let definitions = topics
-      let discovery: { calls: number; usage: unknown; coverage: unknown } | undefined
-      if (!definitions) {
-        const scoped = { ...dataset, items: dataset.items.filter((i) => (!kinds || kinds.includes(i.kind)) && (!content_id || i.content_id === content_id)) }
-        const found = await analyzeDataset({ dataset: scoped, model, playbook: loadPlaybook(memory), outDir: false, minSupport: 1, tokenBudget: Math.min(token_budget, 15_000), signal: ctx.signal })
-        definitions = found.themes.slice(0, 20).map((t, i) => ({ id: `T${i + 1}`, title: t.title.slice(0, 100), criteria: [...new Set(t.sources.map((s) => found.summary.findings[s]?.criteria).filter(Boolean))].join('；').slice(0, 300) || t.title.slice(0, 300) }))
-        discovery = { calls: found.calls, usage: found.usage, coverage: found.coverage }
-        if (!definitions.length) return JSON.stringify({ dataset_id: dataset.id, discovery, topics: [], note: '发现阶段没有得到可核验的主题，未执行逐条归类；可显式提供 topics。' })
-      }
-      const result = await classifyTopics({ dataset, model, topics: definitions, kinds, contentId: content_id, tokenBudget: token_budget, signal: ctx.signal })
+      const run = await discoverAndClassifyTopics({ dataset, model, playbook: loadPlaybook(memory), topics, kinds, contentId: content_id, tokenBudget: token_budget, signal: ctx.signal })
+      if (!run.result) return JSON.stringify({ dataset_id: dataset.id, discovery: run.discovery, topics: [], note: run.note })
       ctx.signal.throwIfAborted()
-      const path = await persist(ctx.cwd, 'topics', { ...result, discovery })
-      const { records, ...summary } = result
-      return JSON.stringify({ ...summary, discovery, path, issues: records.filter((r) => r.status !== 'processed').slice(0, 3) })
+      const path = await persist(ctx.cwd, 'topics', { ...run.result, discovery: run.discovery })
+      const { records, ...summary } = run.result
+      return JSON.stringify({ ...summary, discovery: run.discovery, path, issues: records.filter((r) => r.status !== 'processed').slice(0, 3) })
     } }),
     defineTool({ name: 'analyze_business', description: '可选商业分析：从实际原文识别痛点、购买意愿、价格、竞品和转化阻力，附摘句、假设、最小验证动作、投入及优先级。不凑数，不编 ROI。可参考已开启的本地画像；优先用表格呈现。', parameters: z.object({ ...selection, goal: z.string().max(300).optional() }), async execute({ dataset_id, kinds, content_id, token_budget, goal }, ctx) {
       const background = memory ? visibleProfile(memory) : undefined

@@ -19,6 +19,8 @@ import { buildOverview, itemView } from './overview.ts'
 import { createChatHub, type ChatModels } from './chat.ts'
 import { HttpError } from './http.ts'
 import { createNativePicker, type NativePicker, type PickKind } from './picker.ts'
+import { describeSettings, draftConfig, parseDraft, resolveDraft, saveSettings } from './settings.ts'
+import { fetchModelIds, verifyLlm } from '../llm/setup.ts'
 
 /**
  * 本地图形界面（roadmap 第 19 步）。只监听 127.0.0.1；接口要求启动时生成的令牌，并检查 Host，
@@ -99,10 +101,10 @@ async function allowedPath(cwd: string, path: string, picked: Set<string>): Prom
   return target
 }
 
-function defaultChatModels(cwd: string): ChatModels {
+function defaultChatModels(cwd: string, homeDir: string): ChatModels {
   let config
-  try { config = loadLlmConfig({}, cwd) } catch (error) {
-    if (error instanceof ConfigError) throw new ConfigError(`${error.message}。对话需要模型，请先运行 ugc-lens init 配置模型`)
+  try { config = loadLlmConfig({}, cwd, homeDir) } catch (error) {
+    if (error instanceof ConfigError) throw new ConfigError(`${error.message}。对话需要模型，请在右上角“模型设置”里配置，或运行 ugc-lens init`)
     throw error
   }
   const client = createChatClient(config)
@@ -143,7 +145,8 @@ async function listFiles(cwd: string, accept: (name: string) => boolean, maxDept
 
 export function createUiServer(options: UiServerOptions): UiServer {
   const cwd = resolve(options.cwd)
-  const uiDir = join(options.homeDir ?? homedir(), '.ugc-lens', 'ui')
+  const home = options.homeDir ?? homedir()
+  const uiDir = join(home, '.ugc-lens', 'ui')
   const recentFile = join(uiDir, 'recent.json')
   const picker = options.picker ?? createNativePicker()
   const picked = new Set<string>()
@@ -166,7 +169,7 @@ export function createUiServer(options: UiServerOptions): UiServer {
   }
   const resolvePath = async (path: string) => { await loadRecent(); return allowedPath(cwd, path, picked) }
   const chat = createChatHub({
-    cwd, homeDir: options.homeDir ?? homedir(), models: options.chatModels ?? (() => defaultChatModels(cwd)),
+    cwd, homeDir: home, models: options.chatModels ?? (() => defaultChatModels(cwd, home)),
   })
   const token = options.token ?? randomBytes(18).toString('base64url')
   const expected = Buffer.from(token)
@@ -175,7 +178,7 @@ export function createUiServer(options: UiServerOptions): UiServer {
   const lazyModel: AgentModel = {
     complete: (request) => {
       if (!model) {
-        const config = loadLlmConfig({}, cwd)
+        const config = loadLlmConfig({}, cwd, home)
         model = createLlmModel(createChatClient(config), { temperature: 0, maxTokens: 4_000, disableThinking: true })
       }
       return model.complete(request)
@@ -240,6 +243,28 @@ export function createUiServer(options: UiServerOptions): UiServer {
         await remember(path, 'data')
         return json(res, { path })
       } finally { await rm(temp, { force: true }) }
+    }
+    if (parts[0] === 'settings') {
+      if (req.method === 'GET' && parts.length === 1) return json(res, describeSettings(cwd, home))
+      if (req.method === 'PUT' && parts.length === 1) {
+        saveSettings(parseDraft(await readBody(req)), home)
+        // 识别结构的模型和空闲对话都按新配置重新建立
+        model = options.model
+        await chat.releaseIdle()
+        return json(res, describeSettings(cwd, home))
+      }
+      if (req.method === 'POST' && parts[1] === 'models' && parts.length === 2) {
+        const draft = resolveDraft(parseDraft(await readBody(req)), home)
+        try { return json(res, { models: await fetchModelIds({ baseUrl: draft.endpoint, apiKey: draft.apiKey }) }) } catch (error) {
+          throw new HttpError(502, `获取模型列表失败：${(error as Error).message}，可以直接填写模型名`)
+        }
+      }
+      if (req.method === 'POST' && parts[1] === 'test' && parts.length === 2) {
+        const draft = parseDraft(await readBody(req))
+        if (!draft.model) throw new HttpError(400, '请先选择或填写模型')
+        const problem = await verifyLlm(draftConfig(resolveDraft(draft, home)))
+        return json(res, problem ? { ok: false, error: problem } : { ok: true })
+      }
     }
     if (parts[0] === 'chat') {
       if (req.method === 'POST' && parts.length === 1) return json(res, { id: chat.create() })

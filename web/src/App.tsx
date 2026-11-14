@@ -1,6 +1,6 @@
 import { AnimateUIProvider } from '@animate-ui/react/provider'
 import { Fade } from '@animate-ui/react/primitives/effects/fade'
-import { BarChart3, FileText, FolderOpen, History, MessageCircle, Search, Upload, Aperture } from 'lucide-react'
+import { BarChart3, FileText, FolderOpen, History, MessageCircle, Search, Settings, Upload, Aperture } from 'lucide-react'
 import { AnimatePresence, MotionConfig, motion } from 'motion/react'
 import { useEffect, useRef, useState } from 'react'
 import { Button } from './components/ui/button.tsx'
@@ -8,9 +8,10 @@ import { Card, Empty, inputClass, Notice, Spinner } from './components/ui/card.t
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from './components/ui/dialog.tsx'
 import { Tabs, TabsList, TabsTrigger } from './components/ui/tabs.tsx'
 import { ItemSheet } from './components/item_sheet.tsx'
+import { SettingsDialog } from './components/settings_dialog.tsx'
 import { api, ApiError, token, upload } from './lib/api.ts'
 import { baseName, dirName, isUpload, kb } from './lib/format.ts'
-import type { FileEntry, FilesResponse, Overview } from './lib/types.ts'
+import type { FileEntry, FilesResponse, Overview, SettingsView } from './lib/types.ts'
 import { ItemsView, type SearchState } from './views/items.tsx'
 import { OverviewView } from './views/overview.tsx'
 import { ReportsView, type ReportSelection } from './views/reports.tsx'
@@ -31,6 +32,9 @@ export default function App() {
   const [report, setReport] = useState<ReportSelection>(null)
   const [search, setSearch] = useState<SearchState>(initialSearch)
   const [dragging, setDragging] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  // null 表示还没读到；只用于提示，读取失败时不打扰
+  const [modelReady, setModelReady] = useState<boolean | null>(null)
   const input = useRef<HTMLInputElement>(null)
   const pickKind = useRef<'data' | 'report'>('data')
   const dragDepth = useRef(0)
@@ -40,6 +44,7 @@ export default function App() {
   useEffect(() => {
     if (!token) return
     void refresh()
+    api<SettingsView>('settings').then((v) => setModelReady(v.effective.ok)).catch(() => {})
     const last = localStorage.getItem('ugc-lens-last-file')
     if (last) void openFile(last)
   }, [])
@@ -102,16 +107,17 @@ export default function App() {
           <div className="mx-auto flex max-w-[1360px] items-center justify-between gap-3 px-4 py-3 sm:px-8">
             <button type="button" className="flex items-center gap-2.5" onClick={() => setTab('overview')}><span className="grid size-8 place-items-center rounded-lg bg-primary text-primary-foreground"><Aperture className="size-[18px]" /></span><span className="hidden text-lg font-semibold tracking-tight sm:block">ugc-lens</span></button>
             <TabsList className="min-w-0" aria-label="视图">{[['overview', '概况', BarChart3], ['items', '原文', Search], ['reports', '报告', FileText], ['chat', '对话', MessageCircle]].map(([id, label, Icon]) => { const I = Icon as typeof BarChart3; return <TabsTrigger key={String(id)} value={String(id)} className="px-2.5 sm:px-3"><I className="hidden sm:block" /><span>{String(label)}</span></TabsTrigger> })}</TabsList>
-            <div className="flex gap-1.5"><Button variant="ghost" size="icon" aria-label="最近打开" onClick={() => { setRecentOpen(true); void refresh() }}><History /></Button><Button id="open-file" className="px-3 sm:px-5" onClick={() => choose()}><FolderOpen /><span className="hidden sm:inline">打开数据</span><span className="sm:hidden">打开</span></Button></div>
+            <div className="flex gap-1.5"><Button variant="ghost" size="icon" aria-label="模型设置" title={modelReady === false ? '还没有配置模型' : '模型设置'} className="relative" onClick={() => setSettingsOpen(true)}><Settings />{modelReady === false && <span className="absolute right-1.5 top-1.5 size-2 rounded-full bg-destructive" />}</Button><Button variant="ghost" size="icon" aria-label="最近打开" onClick={() => { setRecentOpen(true); void refresh() }}><History /></Button><Button id="open-file" className="px-3 sm:px-5" onClick={() => choose()}><FolderOpen /><span className="hidden sm:inline">打开数据</span><span className="sm:hidden">打开</span></Button></div>
           </div>
         </header>
         <main className="mx-auto max-w-[1360px] px-4 pt-7 sm:px-8">
           {!token ? <Card><Empty>缺少访问令牌，请使用 ugc-lens ui 启动时打印的完整网址。</Empty></Card> : busy ? <Card><Spinner label={busy} /></Card> : <AnimatePresence mode="wait"><motion.div key={tab + (o?.id ?? '')} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -5 }} transition={{ duration: 0.18 }}>
-            {(tab === 'overview' || tab === 'items') && !o ? <Fade><section className="mx-auto max-w-[740px] py-[8vh]"><div className="mb-5 inline-flex items-center gap-2 rounded-md border px-2.5 py-1 text-xs font-medium text-muted-foreground shadow-xs">本地查看 · 模型分析按配置调用</div><h1 className="text-4xl font-semibold leading-tight tracking-tight sm:text-5xl">从原文里，<br /><span className="text-muted-foreground">看清真实反馈。</span></h1><p className="mb-7 mt-5 max-w-lg text-base leading-relaxed text-muted-foreground">打开评论、弹幕、问卷或工单，查看分布与趋势，沿着引用回到每一条原文。</p><div className="flex items-center gap-4"><Button size="lg" data-action="choose" onClick={() => choose()}><FolderOpen />选择文件…</Button><span className="text-sm text-muted-foreground">或把文件拖到这里</span></div>{(recent.length > 0 || local.length > 0) && <Card className="mt-9 p-2"><p className="px-3 py-2 text-xs font-medium text-muted-foreground">{recent.length ? '最近打开' : '启动目录里的文件'}</p>{(recent.length ? recent : local.map((f) => ({ ...f, path: `${files.cwd}/${f.path}` }))).slice(0, 5).map(entry)}</Card>}</section></Fade> : tab === 'overview' && o ? <OverviewView o={o} openItem={openItem} search={keywordSearch} /> : tab === 'items' && o ? <ItemsView o={o} search={search} onSearch={setSearch} openItem={openItem} /> : tab === 'reports' ? <ReportsView report={report} setReport={setReport} recent={files.recent} choose={() => choose('report')} o={o} openItem={openItem} /> : <ChatView chat={chat} o={o} openItem={openItem} actions={{ open: () => void choose(), search: (q) => keywordSearch(q) }} />}
+            {(tab === 'overview' || tab === 'items') && !o ? <Fade><section className="mx-auto max-w-[740px] py-[8vh]"><div className="mb-5 inline-flex items-center gap-2 rounded-md border px-2.5 py-1 text-xs font-medium text-muted-foreground shadow-xs">本地查看 · 模型分析按配置调用</div><h1 className="text-4xl font-semibold leading-tight tracking-tight sm:text-5xl">从原文里，<br /><span className="text-muted-foreground">看清真实反馈。</span></h1><p className="mb-7 mt-5 max-w-lg text-base leading-relaxed text-muted-foreground">打开评论、弹幕、问卷或工单，查看分布与趋势，沿着引用回到每一条原文。</p><div className="flex items-center gap-4"><Button size="lg" data-action="choose" onClick={() => choose()}><FolderOpen />选择文件…</Button><span className="text-sm text-muted-foreground">或把文件拖到这里</span></div>{(recent.length > 0 || local.length > 0) && <Card className="mt-9 p-2"><p className="px-3 py-2 text-xs font-medium text-muted-foreground">{recent.length ? '最近打开' : '启动目录里的文件'}</p>{(recent.length ? recent : local.map((f) => ({ ...f, path: `${files.cwd}/${f.path}` }))).slice(0, 5).map(entry)}</Card>}</section></Fade> : tab === 'overview' && o ? <OverviewView o={o} openItem={openItem} search={keywordSearch} /> : tab === 'items' && o ? <ItemsView o={o} search={search} onSearch={setSearch} openItem={openItem} /> : tab === 'reports' ? <ReportsView report={report} setReport={setReport} recent={files.recent} choose={() => choose('report')} o={o} openItem={openItem} /> : <ChatView chat={chat} o={o} openItem={openItem} actions={{ open: () => void choose(), search: (q) => keywordSearch(q), settings: () => setSettingsOpen(true) }} modelReady={modelReady} />}
           </motion.div></AnimatePresence>}
         </main>
       </Tabs.Root>
       <Dialog.Root open={recentOpen} onOpenChange={setRecentOpen}><DialogContent><DialogTitle className="text-lg font-semibold leading-none">打开数据文件</DialogTitle><DialogDescription className="-mt-2 text-sm text-muted-foreground">选择任意位置的文件，或从最近打开中继续。</DialogDescription><div className="flex flex-wrap items-center justify-center gap-3 rounded-lg border border-dashed bg-muted/40 p-6"><Button onClick={() => choose()}><FolderOpen />选择文件…</Button><span className="text-xs text-muted-foreground">支持拖放</span></div><input aria-label="筛选文件" value={filter} onChange={(e) => setFilter(e.target.value)} className={inputClass} placeholder="筛选文件名" /><div className="min-h-0 overflow-auto">{recent.length > 0 && <><p className="px-3 py-2 text-xs text-muted-foreground">最近打开</p>{recent.map(entry)}</>}{local.length > 0 && <><p className="px-3 py-2 text-xs text-muted-foreground">启动目录</p>{local.map((f) => entry({ ...f, path: `${files.cwd}/${f.path}` }))}</>}{!recent.length && !local.length && <Empty>没有匹配文件</Empty>}</div></DialogContent></Dialog.Root>
+      <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} onSaved={(v) => setModelReady(v.effective.ok)} />
       <ItemSheet id={itemId} datasetId={o?.id} close={() => setItemId(null)} openItem={openItem} />
       <input type="file" id="file-input" hidden ref={input} onChange={(e) => { void handleFile(e.target.files?.[0], pickKind.current) }} />
       <AnimatePresence>{toast && <motion.div role="status" initial={{ opacity: 0, y: 20, scale: 0.96 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 10 }} className="fixed bottom-6 right-6 z-[70] max-w-[min(380px,calc(100vw-3rem))] rounded-lg border bg-popover px-4 py-3 text-sm text-popover-foreground shadow-lg">{toast}</motion.div>}</AnimatePresence>

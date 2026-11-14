@@ -1,4 +1,4 @@
-import { ArrowUp, Check, History, LoaderCircle, MessageCircle, Plus, Square, Trash2, X } from 'lucide-react'
+import { ArrowUp, Check, History, LoaderCircle, MessageCircle, Plus, Settings, Square, Trash2, X } from 'lucide-react'
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { Badge, Card, Empty, Notice } from '../components/ui/card.tsx'
 import { Button } from '../components/ui/button.tsx'
@@ -117,7 +117,7 @@ const withCaret = (html: string) => {
 const SUGGESTIONS_WITH_DATA = ['大家主要在讨论什么？', '负面评价集中在哪些方面？', '点赞最多的评论说了什么？']
 const SUGGESTIONS_WITHOUT_DATA = ['看看启动目录里有哪些数据', '帮我导入最新的数据文件并概括评论']
 
-function AssistantMessage({ turn, openItem }: { turn: AssistantTurn; openItem: (id: string) => void }) {
+function AssistantMessage({ turn, openItem, settings }: { turn: AssistantTurn; openItem: (id: string) => void; settings: () => void }) {
   const body = useRef<HTMLDivElement>(null)
   const invalid = new Set(turn.citations?.invalid ?? [])
   useEffect(() => {
@@ -133,7 +133,7 @@ function AssistantMessage({ turn, openItem }: { turn: AssistantTurn; openItem: (
     </Badge>)}</div>}
     {turn.text ? <div ref={body} className="prose-report prose-chat" onClick={(e) => { const b = (e.target as HTMLElement).closest<HTMLButtonElement>('.cite'); if (b && !b.disabled && b.dataset.id) openItem(b.dataset.id) }} dangerouslySetInnerHTML={{ __html: streaming ? withCaret(renderMarkdown(turn.text)) : renderMarkdown(turn.text) }} />
       : streaming && <p className="flex items-center gap-2 text-sm text-muted-foreground"><LoaderCircle className="size-4 animate-spin" />{turn.tools.some((t) => t.ok === undefined) ? '正在调用工具…' : '思考中…'}</p>}
-    {turn.status === 'error' && <Notice className="border-destructive/30 text-destructive">{turn.error}</Notice>}
+    {turn.status === 'error' && <Notice className="border-destructive/30 text-destructive">{turn.error}{/模型设置/.test(turn.error ?? '') && <Button size="sm" variant="outline" className="mt-2 flex text-foreground" onClick={settings}><Settings />打开模型设置</Button>}</Notice>}
     {turn.status === 'stopped' && <p className="text-xs text-muted-foreground">已停止</p>}
     {turn.warnings.map((w) => <p key={w} className="text-xs text-muted-foreground">{w}</p>)}
     {turn.status === 'done' && <p className="text-xs text-muted-foreground">
@@ -174,9 +174,9 @@ function CommandMenu({ commands, active, onPick }: { commands: ChatCommand[]; ac
   </div>
 }
 
-export interface ChatActions { open: () => void; search: (query: string) => void }
+export interface ChatActions { open: () => void; search: (query: string) => void; settings: () => void }
 
-export function ChatView({ chat, o, openItem, actions }: { chat: ChatState; o: Overview | null; openItem: (id: string) => void; actions: ChatActions }) {
+export function ChatView({ chat, o, openItem, actions, modelReady }: { chat: ChatState; o: Overview | null; openItem: (id: string) => void; actions: ChatActions; modelReady: boolean | null }) {
   const [draft, setDraft] = useState('')
   const [hint, setHint] = useState('')
   const [active, setActive] = useState(0)
@@ -241,11 +241,12 @@ export function ChatView({ chat, o, openItem, actions }: { chat: ChatState; o: O
             <span className="mb-4 grid size-10 place-items-center rounded-lg border shadow-xs"><MessageCircle className="size-5" /></span>
             <h2 className="text-lg font-semibold">用自然语言追问数据</h2>
             <p className="mt-2 text-sm leading-relaxed text-muted-foreground">回答会引用原文 ID，点击即可查看原文。输入 <code className="rounded-sm bg-muted px-1.5 py-0.5 font-mono text-foreground">/</code> 查看快捷命令。对话使用 ugc-lens 配置的模型，会产生调用费用。</p>
+            {modelReady === false && <Notice className="mt-5 flex flex-wrap items-center justify-center gap-3 text-left">还没有配置模型，对话需要先填写 API key 和模型。<Button size="sm" onClick={actions.settings}><Settings />配置模型</Button></Notice>}
             <div className="mt-6 flex flex-wrap justify-center gap-2">{suggestions.map((s) => <Button key={s} variant="outline" size="sm" className="font-normal" onClick={() => submit(s)}>{s}</Button>)}</div>
           </div> : <div className="mx-auto max-w-3xl space-y-6">
             {chat.turns.map((turn, i) => turn.role === 'user'
               ? <div key={i} className="flex justify-end"><p className="max-w-[85%] whitespace-pre-wrap break-words rounded-lg bg-primary px-4 py-2.5 text-sm leading-relaxed text-primary-foreground">{turn.text}</p></div>
-              : <AssistantMessage key={i} turn={turn} openItem={openItem} />)}
+              : <AssistantMessage key={i} turn={turn} openItem={openItem} settings={actions.settings} />)}
           </div>}
       </div>
       <form className="border-t p-3 sm:p-4" onSubmit={(e) => { e.preventDefault(); submit() }}>

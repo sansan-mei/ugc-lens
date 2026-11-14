@@ -69,6 +69,7 @@ ugc-lens 是一个**分析用户互动内容（评论、弹幕、回复等）的
   - 文件访问：与命令行对话相同，`load_dataset`、`analyze_dataset`、`list_files`、`start_watch` 可以访问任意路径，相对路径按启动目录解析。上文“只读启动目录内的文件和用户主动选中的文件”只约束界面自身的 `/api/open`、`/api/report` 等接口，不约束对话工具。
   - 历史对话：每轮结束（完成、出错或停止）后写入 `<主目录>/.ugc-lens/ui/chats/`，`<id>.json` 是界面显示记录（标题、启动目录、时间、每轮的原话、回答、工具进度、引用核对），`<id>.messages.json` 是不含 system 的模型历史；先写临时文件再改名，权限 600，目录 700。先保存再结束响应，浏览器收到结束后立即追问或刷新列表都能看到本轮。`GET /api/chats` 按更新时间列出（最多 200 条），`GET /api/chats/<id>` 读取记录；向不在内存中的对话发消息时，用保存的模型历史新建 `ChatSession`（`history` 选项，接在本次 system prompt 之后），服务重启或会话被回收后都能继续。`DELETE /api/chat/<id>` 关闭会话并删除两个文件；对话 ID 只接受 8～32 位 `[A-Za-z0-9_-]`。新建但还没发消息的对话不保存。界面数据集只在内存中，恢复的对话里模型需要时会重新导入文件。
   - 斜杠命令（`web/src/lib/commands.ts`，纯函数，Node 测试覆盖）：输入 `/` 时列出命令并按前缀筛选。本地命令（`/new`、`/open`、`/search`）不调用模型；其余展开成提示词，指明对应工具（如 `analyze_dataset` + `scenario`），界面显示原话、模型收到展开后的提示词，消息里分别以 `display` 与 `text` 传给服务端。
+  - 模型设置（`src/ui/settings.ts`、`web/src/components/settings_dialog.tsx`）：与 `ugc-lens init` 写同一份全局配置，复用 `src/llm/setup.ts` 的模型列表与测试调用。`GET /api/settings` 返回提供商列表、已保存的设置（只有 `has_key`，不返回 key）、当前实际生效的配置或错误，以及会覆盖全局配置的环境变量与项目配置项；`POST /api/settings/models` 列出模型；`POST /api/settings/test` 用表单内容发一次强制工具调用（不重试、30 秒超时）；`PUT /api/settings` 保存，保留其他顶层字段与超时、重试设置，文件权限收紧为 600。key 留空时，已保存的 key 只在规范化后的接口地址不变时沿用，环境变量 key 只用于对应预设地址，与第 4.1 节端点绑定一致；换地址必须重新填写，避免把 key 发往新的服务。保存后重置结构识别模型，空闲对话关闭（已保存的从磁盘恢复，未发过消息的按新配置重建），下一条消息使用新模型；进行中的回答不受影响。
   - 前端状态放在 App 中，切换标签页时回答继续生成；事件归并与 NDJSON 分行在 `web/src/lib/chat.ts`，不依赖 DOM，Node 测试直接覆盖。联网搜索暂不在界面对话中开放。
 
 ### 2.2 命令行与发布

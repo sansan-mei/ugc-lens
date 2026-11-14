@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { request } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
@@ -9,7 +9,8 @@ import { ConfigError } from '../../src/config.ts'
 import { createUiServer } from '../../src/ui/server.ts'
 import { BV_FIXTURE } from '../helpers/fixtures.ts'
 
-const root = mkdtempSync(join(tmpdir(), 'ugc-lens-ui-'))
+// macOS 的临时目录是软链接（/var → /private/var），服务端按真实路径返回，这里也用真实路径
+const root = realpathSync(mkdtempSync(join(tmpdir(), 'ugc-lens-ui-')))
 const cwd = join(root, 'project')
 const outside = join(root, 'outside')
 mkdirSync(join(cwd, 'data'), { recursive: true })
@@ -188,4 +189,36 @@ test('ui：浏览器上传的文件保存到全局目录并可打开，文件名
   assert.equal(opened.status, 200, opened.text)
   assert.ok(opened.json.stats.items.comment > 0)
   assert.equal((await call('/api/upload?name=run.sh', { method: 'POST', raw: Buffer.from('x') })).status, 400)
+})
+
+test('ui：ping 返回启动目录并记为最近活动；请求结束后不算进行中', async () => {
+  const before = ui.activity().last
+  await new Promise((done) => setTimeout(done, 5))
+  const ping = await call('/api/ping')
+  assert.equal(ping.status, 200)
+  assert.deepEqual(ping.json, { ok: true, cwd })
+  assert.ok(ui.activity().last > before)
+  assert.equal(ui.activity().inflight, 0)
+  assert.equal((await call('/api/ping', { token: null })).status, 401)
+})
+
+test('ui：没有提供退出方式时 quit 返回 501；提供时先返回再退出', async () => {
+  assert.equal((await call('/api/quit', { method: 'POST' })).status, 501)
+  let quitted = 0
+  const own = createUiServer({ cwd, token: 'quit-token', homeDir: home, staticDir, onQuit: () => { quitted++ } })
+  await new Promise<void>((done) => own.server.listen(0, '127.0.0.1', done))
+  const ownPort = (own.server.address() as AddressInfo).port
+  try {
+    const res = await fetch(`http://127.0.0.1:${ownPort}/api/quit`, { method: 'POST', headers: { 'x-ugc-lens-token': 'quit-token' } })
+    assert.equal(res.status, 200)
+    assert.deepEqual(await res.json(), { ok: true })
+    await new Promise((done) => setTimeout(done, 20))
+    assert.equal(quitted, 1)
+    const wrong = await fetch(`http://127.0.0.1:${ownPort}/api/quit`, { method: 'POST' })
+    assert.equal(wrong.status, 401)
+    assert.equal(quitted, 1)
+  } finally {
+    own.server.closeAllConnections()
+    await new Promise((done) => own.server.close(done))
+  }
 })

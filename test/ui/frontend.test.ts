@@ -160,3 +160,14 @@ test('模型设置：已保存的 key 只在接口地址不变时沿用，空 ke
   assert.deepEqual(formBody({ ...form, api_key: '  ' }), { provider: 'qwen', region: 'cn', model: 'qwen-plus' })
   assert.equal(formBody({ ...form, api_key: ' sk-1 ' }).api_key, 'sk-1')
 })
+
+test('心跳：网络不通或令牌失效视为服务已退出，其他错误不算', async () => {
+  const { HEARTBEAT_MS, connectionLost } = await import('../../web/src/lib/lifecycle.ts')
+  assert.equal(connectionLost(new TypeError('Failed to fetch')), true)
+  assert.equal(connectionLost({ status: 401 }), true)
+  assert.equal(connectionLost({ status: 500 }), false)
+  assert.equal(connectionLost(new Error('x')), false)
+  // 心跳间隔要明显短于桌面版空闲退出时间，后台标签页的计时器被浏览器放慢到每分钟一次也不会误判
+  const { DESKTOP_IDLE_MS } = await import('../../src/ui/instance.ts')
+  assert.ok(HEARTBEAT_MS * 5 <= DESKTOP_IDLE_MS)
+})

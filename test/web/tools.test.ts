@@ -224,3 +224,13 @@ describe('askDataset 联网', () => {
     } finally { cleanup() }
   })
 })
+
+test('联网规则：数据里查不到但与当前文件相关时主动联网查背景，无关问题和平台评论不联网', async () => {
+  const { WEB_PROMPT } = await import('../../src/web/tools.ts')
+  // 先查数据，查不到再联网；搜索词用内容标题、作者等；回答写明数据里没有
+  assert.match(WEB_PROMPT, /先用数据工具/)
+  assert.match(WEB_PROMPT, /与当前(数据|文件)相关/)
+  assert.match(WEB_PROMPT, /标题/)
+  assert.match(WEB_PROMPT, /数据中没有/)
+  assert.match(WEB_PROMPT, /不要用联网工具搜集平台评论/)
+})

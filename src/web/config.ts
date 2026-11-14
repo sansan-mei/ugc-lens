@@ -33,13 +33,13 @@ export interface WebConfig {
   cacheTtlMs: number
 }
 
-const PRESETS: Record<WebProviderId, { baseUrl?: string; apiKeyEnv?: string; needsKey: boolean }> = {
+export const WEB_PRESETS: Readonly<Record<WebProviderId, { baseUrl?: string; apiKeyEnv?: string; needsKey: boolean }>> = {
   searxng: { needsKey: false },
   tavily: { baseUrl: 'https://api.tavily.com', apiKeyEnv: 'TAVILY_API_KEY', needsKey: true },
 }
 
-function isProvider(value: string): value is WebProviderId {
-  return Object.hasOwn(PRESETS, value)
+export function isWebProvider(value: string): value is WebProviderId {
+  return Object.hasOwn(WEB_PRESETS, value)
 }
 
 function pick(...values: Array<string | null | undefined>): string | undefined {
@@ -75,8 +75,8 @@ export function loadWebConfig(overrides: WebConfigFile = {}, cwd: string = proce
 
   const provider = pick(overrides.provider, env.UGC_LENS_WEB_PROVIDER, file.provider, global.provider)
   if (!provider) throw new ConfigError('未选择联网搜索后端：设置 web.provider（searxng 或 tavily）或 UGC_LENS_WEB_PROVIDER')
-  if (!isProvider(provider)) throw new ConfigError(`未知的联网 provider "${provider}"，可选：${Object.keys(PRESETS).join(', ')}`)
-  const preset = PRESETS[provider]
+  if (!isWebProvider(provider)) throw new ConfigError(`未知的联网 provider "${provider}"，可选：${Object.keys(WEB_PRESETS).join(', ')}`)
+  const preset = WEB_PRESETS[provider]
 
   const baseUrl = pick(overrides.base_url, env.UGC_LENS_WEB_BASE_URL, file.base_url, global.base_url, preset.baseUrl)
   if (!baseUrl) throw new ConfigError(`${provider} 必须设置 base_url（web.base_url 或 UGC_LENS_WEB_BASE_URL）`)
@@ -89,7 +89,7 @@ export function loadWebConfig(overrides: WebConfigFile = {}, cwd: string = proce
     const inheritedProcess = apiKeyEnv !== undefined && apiKey === trustedEnv[apiKeyEnv]
     if (inheritedGlobal || inheritedProcess) {
       const trustedProvider = pick(overrides.provider, trustedEnv.UGC_LENS_WEB_PROVIDER, global.provider)
-      const trustedPreset = trustedProvider && isProvider(trustedProvider) ? PRESETS[trustedProvider] : undefined
+      const trustedPreset = trustedProvider && isWebProvider(trustedProvider) ? WEB_PRESETS[trustedProvider] : undefined
       const trustedKeyEnv = pick(overrides.api_key_env, global.api_key_env, trustedPreset?.apiKeyEnv)
       if (inheritedProcess && apiKeyEnv !== trustedKeyEnv) {
         throw new ConfigError('联网端点与凭证来源未绑定：项目不能自行选择其他进程凭证，请在可信配置指定 web.api_key_env')

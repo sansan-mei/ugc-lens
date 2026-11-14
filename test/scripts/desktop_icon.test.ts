@@ -44,3 +44,19 @@ test('dmg 附带放行说明，与工作流里的应用名、图标一致', () =
   assert.match(note, /隐私与安全性/)
   assert.match(note, /退出/)
 })
+
+test('桌面打包工作流：master 上改动打包相关文件时触发，不再依赖原型分支', () => {
+  const workflow = readFileSync(new URL('../../.github/workflows/desktop.yml', import.meta.url), 'utf8')
+  const triggers = workflow.slice(workflow.indexOf('\non:'), workflow.indexOf('\npermissions:'))
+  assert.doesNotMatch(triggers, /sea-prototype/)
+  assert.match(triggers, /workflow_dispatch/)
+  assert.match(triggers, /push:\s*\n\s*branches: \[master\]/)
+  assert.match(triggers, /pull_request:/)
+  // 工作流里用到的打包脚本和桌面入口改了都要重新打包验证
+  const used = new Set([...workflow.matchAll(/scripts\/[\w./-]+\.(?:ts|mjs)/g)].map((m) => m[0]))
+  used.add('scripts/desktop_entry.mjs')
+  used.add('src/cli/desktop.ts')
+  const covered = (file: string) => triggers.includes(`- ${file}`) || (file.startsWith('scripts/desktop/') && triggers.includes('- scripts/desktop/**'))
+  for (const file of used) assert.ok(covered(file), `${file} 不在触发路径里`)
+  assert.ok(triggers.includes('- .github/workflows/desktop.yml'))
+})

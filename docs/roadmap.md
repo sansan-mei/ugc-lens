@@ -532,7 +532,7 @@
   | Windows 安装包 | x64 | 同上 | 双击打开界面 |
 - 前置条件：第 19 步界面可用。
 - 实施顺序：
-  1. 原型（已完成，分支 `sea-prototype`）：Node 26 单文件可执行（SEA）+ 虚拟文件系统（`useVfs`，26.9 起），把 `dist/`、`ui/`、`playbook/`、`skills/`、`package.json` 和生产依赖压成 zip 嵌入，ESM 入口 `scripts/desktop_entry.mjs` 直接加载现有编译产物。手动触发的工作流 `desktop.yml` 在 macOS arm64 出 dmg（ULMO/LZMA）、Windows x64 出 Inno Setup 安装包（LZMA2，装到用户目录、不需要管理员权限），并做冒烟检查。
+  1. 原型（已完成，2026-11-14 经 PR 合入 master）：Node 26 单文件可执行（SEA）+ 虚拟文件系统（`useVfs`，26.9 起），把 `dist/`、`ui/`、`playbook/`、`skills/`、`package.json` 和生产依赖压成 zip 嵌入，ESM 入口 `scripts/desktop_entry.mjs` 直接加载现有编译产物。工作流 `desktop.yml`（手动触发；master 推送或 PR 改动打包相关文件时自动触发）在 macOS arm64 出 dmg（ULMO/LZMA）、Windows x64 出 Inno Setup 安装包（LZMA2，装到用户目录、不需要管理员权限），并做冒烟检查。
   2. 真机验证：用户在自己的 Mac 和 Windows 上安装、双击打开界面、卸载；记录放行步骤（Gatekeeper、SmartScreen）。
   3. 桌面版正式发布前必须补齐：
      - 界面内模型配置：首次启动没有可用配置时引导填写，写入全局配置 `~/.ugc-lens/config.json`（权限 0600），与命令行 `init` 结果一致。
@@ -557,7 +557,7 @@
   | Windows x64 | 安装包 29.2MB | 99.0MB |
   其中 ugc-lens 自身（编译产物、界面、手册、生产依赖）压缩后 3.4MB，其余是 Node 运行时；只要用 Node，下载包下限约 25～30MB。
 - 完成标准：三个渠道由同一次发版产生且版本一致；普通用户不用命令行就能完成安装、配置模型、分析一个文件并退出；README 有下载入口和放行说明。
-- 状态：第 1 项已完成（未合入 master）；第 2 项等待用户真机验证；第 3 项中模型配置（master 已合入）、退出与单实例、macOS 图标已完成，Windows 不弹控制台和 .ico 未做；第 4～7 项已规划未实现（dmg 已附带放行说明，README 下载入口未写）。
+- 状态：第 1 项已完成并合入 master；第 2 项等待用户真机验证；第 3 项中模型配置（master 已合入）、退出与单实例、macOS 图标已完成，Windows 不弹控制台和 .ico 未做；第 4～7 项已规划未实现（dmg 已附带放行说明，README 下载入口未写）。
 - 笔记（2026-11-14 真机安装 0.0.19 dmg）：
   - 放行：ad-hoc 签名被 Gatekeeper 拒绝，新版 macOS 的提示只有“完成”，右键“打开”无效，只能在“隐私与安全性”点“仍要打开”或 `xattr` 去除隔离标记；用户容易在 dmg 窗口里直接双击（那份副本带隔离标记）。dmg 现附带《打开前必读.txt》。
   - 再次双击无效：macOS 对已在运行的应用只会激活，不会再启动进程；`LSUIElement` 应用又没有程序坞图标，关掉页面后就回不去了。改为双击时运行一个很快退出的启动器，复用或后台启动服务（docs/architecture.md 第 2.1 节“退出与桌面单实例”）。

@@ -47,3 +47,8 @@ export function donutArcs<T extends { value: number }>(segments: T[], circumfere
     return arc
   })
 }
+
+/** 打开数据后显示的标签页：在对话里选择文件时留在对话页，接着提问；其他页面跳到概况 */
+export function tabAfterOpen(tab: string): string {
+  return tab === 'chat' ? 'chat' : 'overview'
+}

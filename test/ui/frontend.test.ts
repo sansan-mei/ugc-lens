@@ -146,7 +146,8 @@ test('模型设置：已保存的 key 只在接口地址不变时沿用，空 ke
     { id: 'qwen', name: '通义千问', regions: true, key: 'required' as const, key_env: 'DASHSCOPE_API_KEY', base_url: { cn: 'https://cn.example/v1', global: 'https://intl.example/v1' } },
     { id: 'custom', name: '自定义', regions: false, key: 'optional' as const },
   ]
-  const view = { path: '/h/.ugc-lens/config.json', providers, overrides: [], effective: { ok: false as const, error: 'x' }, saved: { provider: 'qwen', region: 'cn' as const, model: 'qwen-plus', has_key: true, endpoint: 'https://cn.example/v1' } }
+  const web = { enabled: false, providers: [], saved: null, effective: { ok: false as const, enabled: false, error: 'x' }, overrides: [] }
+  const view = { path: '/h/.ugc-lens/config.json', providers, overrides: [], effective: { ok: false as const, error: 'x' }, saved: { provider: 'qwen', region: 'cn' as const, model: 'qwen-plus', has_key: true, endpoint: 'https://cn.example/v1' }, web, analysis: { auto_sentiment: false, auto_topics: false, token_budget: 30000 } }
   const form = initialForm(view)
   assert.deepEqual(form, { provider: 'qwen', region: 'cn', base_url: '', model: 'qwen-plus', api_key: '' })
   assert.equal(formEndpoint(form, providers), 'https://cn.example/v1')
@@ -170,4 +171,73 @@ test('心跳：网络不通或令牌失效视为服务已退出，其他错误�
   // 心跳间隔要明显短于桌面版空闲退出时间，后台标签页的计时器被浏览器放慢到每分钟一次也不会误判
   const { DESKTOP_IDLE_MS } = await import('../../src/ui/instance.ts')
   assert.ok(HEARTBEAT_MS * 5 <= DESKTOP_IDLE_MS)
+})
+
+test('打开数据后的标签页：在对话页选择文件时留在对话页，其他页面跳到概况', async () => {
+  const { tabAfterOpen } = await import('../../web/src/lib/format.ts')
+  assert.equal(tabAfterOpen('chat'), 'chat')
+  for (const tab of ['overview', 'items', 'reports']) assert.equal(tabAfterOpen(tab), 'overview')
+})
+
+test('markdown：[web:N] 有对应来源时渲染为外部链接，未知编号和非 http(s) 网址保持文字', () => {
+  const sources = [{ id: 'web:1', title: '梗的出处 <b>', url: 'https://wiki.example/meme?a=1&b=2' }, { id: 'web:2', title: 'x', url: 'javascript:alert(1)' }]
+  const html: string = renderMarkdown('外部资料显示 [web:1]，另见 [web:2] 和 [web:9]', { webSources: sources })
+  assert.match(html, /<a class="cite-web" href="https:\/\/wiki.example\/meme\?a=1&amp;b=2" target="_blank" rel="noopener noreferrer" title="梗的出处 &lt;b&gt;">web:1<\/a>/)
+  assert.doesNotMatch(html, /javascript:/)
+  assert.match(html, /\[web:2\]/)
+  assert.match(html, /\[web:9\]/)
+  // 没有传来源时与原来一致
+  assert.match(renderMarkdown('见 [web:1]'), /\[web:1\]/)
+})
+
+test('对话事件：done 带回联网来源，工具名有中文说明', async () => {
+  const { applyChatEvent, newAssistantTurn, toolLabel } = await import('../../web/src/lib/chat.ts')
+  const done = applyChatEvent(newAssistantTurn(), { type: 'done', answer: 'a [web:1]', stop_reason: 'completed', citations: { valid: [], invalid: [] }, known_tokens: 1, unknown_calls: 0, web_sources: [{ id: 'web:1', title: 't', url: 'https://x.example' }] })
+  assert.deepEqual(done.web_sources, [{ id: 'web:1', title: 't', url: 'https://x.example' }])
+  assert.equal(toolLabel('web_search'), '联网搜索')
+  assert.equal(toolLabel('web_fetch'), '读取网页')
+})
+
+test('联网设置表单：初始值来自已保存设置，空 key 不发送，key 提示与服务端沿用规则一致', async () => {
+  const { initialWebForm, webFormBody, webKeyPlaceholder } = await import('../../web/src/lib/web_settings.ts')
+  const providers = [{ id: 'searxng', name: 'S', needs_key: false }, { id: 'tavily', name: 'T', needs_key: true, key_env: 'TAVILY_API_KEY', base_url: 'https://api.tavily.com' }]
+  const view = { enabled: true, providers, saved: { provider: 'tavily', has_key: true, endpoint: 'https://api.tavily.com' }, effective: { ok: true, enabled: true, provider: 'tavily', base_url: 'https://api.tavily.com', has_key: true }, overrides: [] }
+  const form = initialWebForm(view as never)
+  assert.deepEqual(form, { enabled: true, provider: 'tavily', base_url: '', api_key: '' })
+  assert.deepEqual(webFormBody(form), { enabled: true, provider: 'tavily' })
+  assert.deepEqual(webFormBody({ ...form, api_key: ' k ', base_url: ' https://p.example ' }), { enabled: true, provider: 'tavily', api_key: 'k', base_url: 'https://p.example' })
+  assert.match(webKeyPlaceholder(form, view as never), /已保存/)
+  assert.match(webKeyPlaceholder({ ...form, base_url: 'https://p.example' }, view as never), /重新填写/)
+  assert.deepEqual(initialWebForm({ ...view, enabled: false, saved: null } as never), { enabled: false, provider: 'searxng', base_url: '', api_key: '' })
+})
+
+test('自动分析：按任务状态给出说明和可用操作，进行中时需要轮询', async () => {
+  const { analysisTaskView, anyRunning } = await import('../../web/src/lib/analysis.ts')
+  assert.deepEqual(analysisTaskView({ state: 'idle' }), { text: '尚未分析', action: '开始分析', running: false })
+  assert.deepEqual(analysisTaskView({ state: 'running' }), { text: '分析中…', action: null, running: true })
+  assert.deepEqual(analysisTaskView({ state: 'done' }), { text: '已完成', action: '重新分析', running: false })
+  const failed = analysisTaskView({ state: 'error', error: '没有配置模型' })
+  assert.equal(failed.action, '重试')
+  assert.match(failed.text, /没有配置模型/)
+  assert.equal(anyRunning({ sentiment: { state: 'done' }, topics: { state: 'running' } }), true)
+  assert.equal(anyRunning({ sentiment: { state: 'done' }, topics: { state: 'error' } }), false)
+})
+
+test('切回历史对话：对话接入过文件且不是当前文件时才重新打开', async () => {
+  const { needsReopen } = await import('../../web/src/lib/chat.ts')
+  assert.equal(needsReopen(null, undefined), false)
+  assert.equal(needsReopen('a', undefined), false)
+  assert.equal(needsReopen('a', { id: 'a', path: '/x/a.json' }), false)
+  assert.equal(needsReopen('a', { id: 'b', path: '/x/b.json' }), true)
+  assert.equal(needsReopen(null, { id: 'b', path: '/x/b.json' }), true)
+})
+
+test('工具详情：结果随 tool_end 保存；JSON 格式化显示，非 JSON 与截断的文字原样保留', async () => {
+  const { applyChatEvent, newAssistantTurn, prettyJson } = await import('../../web/src/lib/chat.ts')
+  let turn = applyChatEvent(newAssistantTurn(), { type: 'tool', step: 1, call_id: 'c1', name: 'search_feedback', args: '{"query":"学历"}' })
+  turn = applyChatEvent(turn, { type: 'tool_end', call_id: 'c1', name: 'search_feedback', ok: true, result: '{"total":3}' })
+  assert.deepEqual(turn.tools[0], { call_id: 'c1', name: 'search_feedback', args: '{"query":"学历"}', ok: true, result: '{"total":3}' })
+  assert.equal(prettyJson('{"a":[1,2],"b":"中文"}'), '{\n  "a": [\n    1,\n    2\n  ],\n  "b": "中文"\n}')
+  assert.equal(prettyJson('第 1 条：价格贵'), '第 1 条：价格贵')
+  assert.equal(prettyJson('{"a":1'), '{"a":1')
 })

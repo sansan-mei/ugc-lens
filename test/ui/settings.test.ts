@@ -93,7 +93,7 @@ test('settings：未配置时列出提供商，并说明当前不可用', async 
 test('settings：未配置时新建对话返回 422，提示在界面里配置', async () => {
   const r = await call('/api/chat', 'POST', {})
   assert.equal(r.status, 422)
-  assert.match(r.json.error, /模型设置/)
+  assert.match(r.json.error, /设置 → 模型/)
 })
 
 test('settings：用填写的 key 获取模型列表', async () => {
@@ -195,4 +195,35 @@ test('settings：环境变量和项目配置覆盖时列出覆盖项', async () 
     assert.ok(r.json.overrides.some((o: string) => o.includes('model') && o.includes('项目')))
     assert.equal(r.json.effective.model, 'env-model')
   } finally { delete process.env.UGC_LENS_MODEL }
+})
+
+test('settings 联网：读取、测试搜索、保存；读取时不返回 key', async () => {
+  const search = await startMockServer((req, res) => sendJson(res, 200, { results: [{ title: '结果', url: 'https://example.com/a', content: '摘要' }] }))
+  try {
+    const initial = await call('/api/settings')
+    assert.equal(initial.json.web.enabled, false)
+    const draft = { enabled: true, provider: 'searxng', base_url: search.baseUrl }
+    const tested = await call('/api/settings/web/test', 'POST', draft)
+    assert.equal(tested.status, 200, tested.text)
+    assert.equal(tested.json.ok, true)
+    assert.ok(tested.json.results >= 1)
+    assert.match(String(search.requests[0]?.url), /\/search\?/)
+    const saved = await call('/api/settings/web', 'PUT', draft)
+    assert.equal(saved.status, 200, saved.text)
+    assert.equal(saved.json.web.enabled, true)
+    assert.equal(saved.json.web.effective.ok, true)
+    const bad = await call('/api/settings/web', 'PUT', { enabled: true, provider: 'tavily', base_url: 'https://other.example' })
+    assert.equal(bad.status, 400)
+    const secret = await call('/api/settings/web', 'PUT', { enabled: true, provider: 'tavily', api_key: 'tvly-hidden' })
+    assert.equal(secret.status, 200, secret.text)
+    assert.doesNotMatch(secret.text, /tvly-hidden/)
+    assert.doesNotMatch((await call('/api/settings')).text, /tvly-hidden/)
+  } finally { await search.close() }
+})
+
+test('settings 联网：测试失败时返回原因而不是报错', async () => {
+  const tested = await call('/api/settings/web/test', 'POST', { enabled: true, provider: 'searxng', base_url: 'http://127.0.0.1:9/' })
+  assert.equal(tested.status, 200, tested.text)
+  assert.equal(tested.json.ok, false)
+  assert.ok(tested.json.error)
 })

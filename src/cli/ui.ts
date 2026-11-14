@@ -13,7 +13,7 @@ export const UI_USAGE = `用法：ugc-lens ui [--cwd <目录>] [--port <端口>]
   --no-open      不自动打开浏览器，只打印网址
   --desktop      桌面版使用：记录运行中的实例供再次双击时复用，页面关闭 10 分钟后自动退出
 
-网址里带有本次启动生成的令牌，不要分享给他人。按 Ctrl+C 或界面右上角“退出”停止。`
+网址里带有本次启动生成的令牌，不要分享给他人。按 Ctrl+C 或界面“设置”里的“退出 ugc-lens”停止。`
 
 export function parseUiArgs(argv: readonly string[]): { cwd: string; port: number; open: boolean; desktop: boolean } {
   const { values, positionals } = parseArgs({ args: [...argv], allowPositionals: true, options: { cwd: { type: 'string' }, port: { type: 'string' }, 'no-open': { type: 'boolean', default: false }, desktop: { type: 'boolean', default: false } } })
@@ -88,7 +88,7 @@ export async function startUi(argv: readonly string[], deps: UiDeps = {}): Promi
     }, deps.checkMs ?? 30_000)
     timer.unref()
   }
-  log(`ugc-lens 界面已启动：${url}\n目录：${args.cwd}\n按 Ctrl+C 或界面右上角“退出”停止。`)
+  log(`ugc-lens 界面已启动：${url}\n目录：${args.cwd}\n按 Ctrl+C 或界面“设置”里的“退出 ugc-lens”停止。`)
   if (args.open) (deps.open ?? openBrowser)(url)
   return { url, stop, done }
 }

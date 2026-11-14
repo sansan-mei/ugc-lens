@@ -9,7 +9,7 @@ import { Transform } from 'node:stream'
 import { contentTimeline } from '../analysis/content_timeline.ts'
 import { createLlmModel } from '../agent/llm_model.ts'
 import type { AgentModel } from '../agent/model.ts'
-import { ConfigError, loadLlmConfig } from '../config.ts'
+import { ConfigError, loadLlmConfig, sharedMappingsDir } from '../config.ts'
 import { getEvidence } from '../dataset/evidence.ts'
 import { getFeedback, getReplies, searchFeedback, type FeedbackSort } from '../dataset/query.ts'
 import { FEEDBACK_KINDS, type Dataset, type FeedbackKind } from '../dataset/types.ts'
@@ -21,6 +21,9 @@ import { HttpError } from './http.ts'
 import { createNativePicker, type NativePicker, type PickKind } from './picker.ts'
 import { describeSettings, draftConfig, parseDraft, resolveDraft, saveSettings } from './settings.ts'
 import { fetchModelIds, verifyLlm } from '../llm/setup.ts'
+import { createSearchBackend } from '../web/search.ts'
+import { createAnalysisRunner, describeAnalysisSettings, isAnalysisTask, parseAnalysisSettings, saveAnalysisSettings, type AnalysisRunner } from './analysis.ts'
+import { describeWebSettings, draftWebConfig, parseWebDraft, resolveWebDraft, saveWebSettings } from './web_settings.ts'
 
 /**
  * 本地图形界面（roadmap 第 19 步）。只监听 127.0.0.1；接口要求启动时生成的令牌，并检查 Host，
@@ -51,6 +54,8 @@ export interface UiServerOptions {
   chatModels?: () => ChatModels
   /** 网页上的“退出”按钮调用；不提供时 /api/quit 返回 501 */
   onQuit?: () => void
+  /** 自动分析用的模型；测试注入，默认读取 ugc-lens 的模型配置 */
+  analysisModel?: () => AgentModel
 }
 
 interface RecentFile { path: string; kind: PickKind; opened_at: string }
@@ -63,6 +68,8 @@ export interface UiServer {
   close: () => Promise<void>
   /** 进行中的请求数和最近一次请求结束（或开始）的时间，桌面版据此判断页面是否已关闭 */
   activity: () => { inflight: number; last: number }
+  /** 后台情感分析与主题统计 */
+  analysis: AnalysisRunner
 }
 
 
@@ -108,7 +115,7 @@ async function allowedPath(cwd: string, path: string, picked: Set<string>): Prom
 function defaultChatModels(cwd: string, homeDir: string): ChatModels {
   let config
   try { config = loadLlmConfig({}, cwd, homeDir) } catch (error) {
-    if (error instanceof ConfigError) throw new ConfigError(`${error.message}。对话需要模型，请在右上角“模型设置”里配置，或运行 ugc-lens init`)
+    if (error instanceof ConfigError) throw new ConfigError(`${error.message}。对话需要模型，请在右上角“设置 → 模型”里配置，或运行 ugc-lens init`)
     throw error
   }
   const client = createChatClient(config)
@@ -175,6 +182,12 @@ export function createUiServer(options: UiServerOptions): UiServer {
   const chat = createChatHub({
     cwd, homeDir: home, models: options.chatModels ?? (() => defaultChatModels(cwd, home)),
   })
+  const analysisModel = options.analysisModel ?? (() => defaultChatModels(cwd, home).analysis)
+  const analysis = createAnalysisRunner({ cwd, homeDir: home, model: analysisModel })
+  const overviewOf = async (d: Dataset) => {
+    const view = await buildOverview(d, cwd)
+    return { ...view, labels: [...view.labels, ...await analysis.results(d)] }
+  }
   const token = options.token ?? randomBytes(18).toString('base64url')
   const expected = Buffer.from(token)
   const datasets = new Map<string, Dataset>()
@@ -189,6 +202,15 @@ export function createUiServer(options: UiServerOptions): UiServer {
     },
   }
   let port = 0
+
+  /** 按设置自动开始还没有结果的分析；模型未配置时跳过，不制造错误状态 */
+  const autoAnalyze = (d: Dataset) => {
+    const settings = describeAnalysisSettings(home)
+    const tasks = [settings.auto_sentiment && 'sentiment', settings.auto_topics && 'topics'].filter((t): t is 'sentiment' | 'topics' => !!t)
+    if (!tasks.length) return
+    try { analysisModel() } catch { return }
+    for (const task of tasks) analysis.start(d, task, { onlyIfMissing: true })
+  }
 
   const dataset = (id: string): Dataset => {
     const found = datasets.get(id)
@@ -256,13 +278,34 @@ export function createUiServer(options: UiServerOptions): UiServer {
       } finally { await rm(temp, { force: true }) }
     }
     if (parts[0] === 'settings') {
-      if (req.method === 'GET' && parts.length === 1) return json(res, describeSettings(cwd, home))
+      const settingsView = () => ({ ...describeSettings(cwd, home), web: describeWebSettings(cwd, home), analysis: describeAnalysisSettings(home) })
+      if (parts[1] === 'analysis' && parts.length === 2 && req.method === 'PUT') {
+        saveAnalysisSettings(parseAnalysisSettings(await readBody(req)), home)
+        return json(res, settingsView())
+      }
+      if (req.method === 'GET' && parts.length === 1) return json(res, settingsView())
+      if (parts[1] === 'web' && parts.length === 2 && req.method === 'PUT') {
+        saveWebSettings(parseWebDraft(await readBody(req)), home)
+        // 空闲对话按新的联网配置重建，进行中的回答不受影响
+        await chat.releaseIdle()
+        return json(res, settingsView())
+      }
+      if (parts[1] === 'web' && parts[2] === 'test' && parts.length === 3 && req.method === 'POST') {
+        const draft = parseWebDraft(await readBody(req))
+        try {
+          const hits = await createSearchBackend(draftWebConfig(resolveWebDraft(draft, home))).search('ugc-lens', 3, AbortSignal.timeout(15_000))
+          return json(res, { ok: true, results: hits.length })
+        } catch (error) {
+          if (error instanceof HttpError) throw error
+          return json(res, { ok: false, error: (error as Error).message })
+        }
+      }
       if (req.method === 'PUT' && parts.length === 1) {
         saveSettings(parseDraft(await readBody(req)), home)
         // 识别结构的模型和空闲对话都按新配置重新建立
         model = options.model
         await chat.releaseIdle()
-        return json(res, describeSettings(cwd, home))
+        return json(res, settingsView())
       }
       if (req.method === 'POST' && parts[1] === 'models' && parts.length === 2) {
         const draft = resolveDraft(parseDraft(await readBody(req)), home)
@@ -294,12 +337,29 @@ export function createUiServer(options: UiServerOptions): UiServer {
       return json(res, [...datasets.values()].map((d) => ({ id: d.id, file: d.file_path, title: d.contents[0]?.title, items: d.items.length })))
     }
     if (req.method === 'POST' && parts[0] === 'open') {
-      const body = await readBody(req) as { path?: unknown }
-      if (typeof body.path !== 'string' || !body.path) throw new HttpError(400, '需要 path')
-      const file = await resolvePath(body.path)
-      const loaded = await loadDataset(file, { cacheDir: join(cwd, '.ugc-lens', 'mappings'), model: lazyModel })
+      const body = await readBody(req) as { path?: unknown; chat?: unknown }
+      let file: string
+      if (typeof body.chat === 'string' && body.chat) {
+        // 切回历史对话时重新打开它接入过的文件：路径来自用户自己的对话记录（权限 600），
+        // 是当时用户选中的文件，不受最近打开列表长度限制
+        const saved = (await chat.get(body.chat)).dataset?.path
+        if (!saved) throw new HttpError(404, '这个对话没有接入过文件')
+        try { file = await realpath(saved) } catch { throw new HttpError(404, `上次使用的文件已不存在：${saved}`) }
+        await remember(file, 'data')
+      } else {
+        if (typeof body.path !== 'string' || !body.path) throw new HttpError(400, '需要 path')
+        file = await resolvePath(body.path)
+      }
+      const loaded = await loadDataset(file, { cacheDir: join(cwd, '.ugc-lens', 'mappings'), sharedCacheDir: sharedMappingsDir(home), model: lazyModel })
       datasets.set(loaded.id, loaded)
-      return json(res, await buildOverview(loaded, cwd))
+      autoAnalyze(loaded)
+      return json(res, await overviewOf(loaded))
+    }
+    if (req.method === 'POST' && parts[0] === 'datasets' && parts[1] && parts[2] === 'analysis' && parts[3] && parts.length === 4) {
+      const d = dataset(parts[1])
+      if (!isAnalysisTask(parts[3])) throw new HttpError(404, `未知的分析：${parts[3]}`)
+      analysis.start(d, parts[3])
+      return json(res, analysis.status(d))
     }
     if (req.method === 'POST' && parts[0] === 'datasets' && parts[1] && parts[2] === 'check-ids') {
       const d = dataset(parts[1])
@@ -309,7 +369,8 @@ export function createUiServer(options: UiServerOptions): UiServer {
     }
     if (parts[0] === 'datasets' && parts[1] && req.method === 'GET') {
       const d = dataset(parts[1])
-      if (parts[2] === 'overview') return json(res, await buildOverview(d, cwd))
+      if (parts[2] === 'overview') return json(res, await overviewOf(d))
+      if (parts[2] === 'analysis' && parts.length === 3) return json(res, { ...analysis.status(d), settings: describeAnalysisSettings(home) })
       if (parts[2] === 'items' && parts[3]) {
         const evidence = getEvidence(d, parts[3])
         if (!evidence) throw new HttpError(404, `没有 ID ${parts[3]}`)
@@ -380,5 +441,5 @@ export function createUiServer(options: UiServerOptions): UiServer {
     const address = server.address()
     if (address && typeof address === 'object') port = address.port
   })
-  return { server, token, url: (p) => `http://127.0.0.1:${p}/#token=${token}`, close: () => chat.close(), activity: () => ({ inflight, last }) }
+  return { server, token, url: (p) => `http://127.0.0.1:${p}/#token=${token}`, close: async () => { await Promise.all([chat.close(), analysis.close()]) }, activity: () => ({ inflight, last }), analysis }
 }

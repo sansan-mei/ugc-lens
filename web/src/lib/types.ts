@@ -1,3 +1,4 @@
+import type { AnalysisSettings } from './analysis.ts'
 export interface ItemView {
   id: string
   kind: string
@@ -15,7 +16,8 @@ export interface Term { word: string; docs: number }
 
 export interface Peak { start_sec: number; end_sec: number; count: number; baseline: number; groups: Array<{ id: string; text: string; count: number; first_sec?: number }>; terms: Term[] }
 
-interface LabelBase { dir: string; coverage: number; counts: unknown }
+/** source 为 model 时是界面自动分析的结果，否则是宿主模式的逐条标注 */
+interface LabelBase { dir: string; coverage: number; counts: unknown; source?: 'model'; created_at?: string }
 interface Scope { scope_note?: string }
 export type LabelResult = LabelBase & (
   | { task: 'sentiment'; summary: Scope & { target: string; summary: { evaluated: number; total: number; counts: Record<string, number>; proportions: Record<string, number>; mean_score: number | null } } }
@@ -48,5 +50,16 @@ export interface SettingsView {
   providers: ProviderInfo[]
   saved: { provider?: string; region: 'cn' | 'global'; base_url?: string; model?: string; has_key: boolean; endpoint?: string } | null
   effective: { ok: true; provider: string; model: string; base_url: string; has_key: boolean } | { ok: false; error: string }
+  overrides: string[]
+  web: WebSettingsView
+  analysis: AnalysisSettings
+}
+
+export interface WebProviderInfo { id: string; name: string; needs_key: boolean; key_env?: string; base_url?: string }
+export interface WebSettingsView {
+  enabled: boolean
+  providers: WebProviderInfo[]
+  saved: { provider?: string; base_url?: string; has_key: boolean; endpoint?: string } | null
+  effective: { ok: true; enabled: boolean; provider: string; base_url: string; has_key: boolean } | { ok: false; enabled: boolean; error: string }
   overrides: string[]
 }

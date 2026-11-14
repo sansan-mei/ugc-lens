@@ -21,7 +21,7 @@ ugc-lens 目前还没有做 Apple 开发者签名和公证，第一次打开时 
 - 数据、报告默认放在你的用户目录下的 ugc-lens 文件夹。
 
 四、退出
-- 点界面右上角的「退出」按钮。
+- 点界面右上角的齿轮「设置」，在最下面点「退出 ugc-lens」。
 - 或者直接关掉页面，10 分钟后会自动退出。
 
 只支持 Apple 芯片（M 系列）的 Mac。Intel Mac 请改用 npm 版：npm install -g ugc-lens

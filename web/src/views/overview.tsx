@@ -1,11 +1,14 @@
 import { CountingNumber } from '@animate-ui/react/primitives/texts/counting-number'
 import { Fade } from '@animate-ui/react/primitives/effects/fade'
-import { ExternalLink, Sparkles } from 'lucide-react'
+import { ExternalLink, LoaderCircle, Play, RotateCcw, Settings, Sparkles } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { BarList, Columns, DensityArea, Donut } from '../components/charts.tsx'
 import { ItemRow } from '../components/item_row.tsx'
 import { Badge, Card, CardHeader, Empty, Notice } from '../components/ui/card.tsx'
+import { Button } from '../components/ui/button.tsx'
+import { api } from '../lib/api.ts'
+import { ANALYSIS_TASKS, analysisTaskView, anyRunning, type AnalysisSettings, type AnalysisStatus, type AnalysisTask } from '../lib/analysis.ts'
 import { baseName, clock, fmt, KIND, pct } from '../lib/format.ts'
 import type { LabelResult, Overview, Term } from '../lib/types.ts'
 import { cn } from '../lib/utils.ts'
@@ -18,7 +21,7 @@ const SENTIMENT = [
   ['uncertain', '无法判断', 'stroke-uncertain', 'bg-uncertain'],
 ] as const
 
-interface Actions { openItem: (id: string) => void; search: (query: string, kinds?: string[]) => void }
+interface Actions { openItem: (id: string) => void; search: (query: string, kinds?: string[]) => void; reload: () => void; settings: () => void }
 
 function Reveal({ children, className, index }: { children: React.ReactNode; className?: string; index: number }) {
   return <Fade inView inViewOnce delay={Math.min(index * 60, 360)} className={className}>{children}</Fade>
@@ -75,17 +78,7 @@ export function OverviewView({ o, ...actions }: { o: Overview } & Actions) {
     })
   }
   for (const label of o.labels) cards.push(labelCard(label, actions.openItem))
-  if (!o.labels.length) {
-    cards.push({
-      span: 'lg:col-span-12',
-      node: (
-        <Card>
-          <CardHeader title="情感与主题" />
-          <Notice>还没有逐条标注结果。在 Claude Code、Codex 中使用 ugc-lens 技能，或运行 <code>ugc-lens host label-export &lt;文件&gt; sentiment</code> 完成标注后，这里会显示情感分布、主题占比和商业机会。</Notice>
-        </Card>
-      ),
-    })
-  }
+  cards.push({ span: 'lg:col-span-12', node: <AnalysisPanel datasetId={o.id} hasLabels={o.labels.length > 0} reload={actions.reload} settings={actions.settings} /> })
 
   return (
     <div className="space-y-6">
@@ -172,7 +165,7 @@ function labelCard(label: LabelResult, openItem: (id: string) => void): { span: 
       span: 'lg:col-span-6',
       node: (
         <Card className="h-full">
-          <CardHeader title="情感分布" sub={`评价对象：${s.target} · 已评估 ${fmt(stats.evaluated)}/${fmt(stats.total)} 条 · ${coverage}`} />
+          <CardHeader title={label.source === 'model' ? '情感分布（模型分析）' : '情感分布'} sub={`评价对象：${s.target} · 已评估 ${fmt(stats.evaluated)}/${fmt(stats.total)} 条 · ${coverage}`} />
           <div className="flex flex-wrap items-center gap-6">
             <Donut center={fmt(stats.evaluated)} segments={SENTIMENT.map(([key, name, stroke]) => ({ key, label: name, value: stats.counts[key] ?? 0, className: stroke }))} />
             <ul className="min-w-[180px] flex-1 space-y-2 text-sm">
@@ -196,7 +189,7 @@ function labelCard(label: LabelResult, openItem: (id: string) => void): { span: 
       span: 'lg:col-span-6',
       node: (
         <Card className="h-full">
-          <CardHeader title="主题占比" sub={`逐条多标签归类，比例分母为成功归类条数，可超过 100% · ${coverage}`} />
+          <CardHeader title={label.source === 'model' ? '主题占比（模型分析）' : '主题占比'} sub={`逐条多标签归类，比例分母为成功归类条数，可超过 100% · ${coverage}`} />
           <BarList items={s.topics.map((t: { title: string; count: number; share: number }) => ({ label: t.title, value: t.count, note: `${fmt(t.count)} · ${pct(t.share)}` }))} />
           <p className="mt-3 text-xs text-muted-foreground">未归类 {fmt(s.unclassified)} 条，无法判断 {fmt(s.uncertain)} 条。</p>
           {scope}
@@ -230,4 +223,57 @@ function labelCard(label: LabelResult, openItem: (id: string) => void): { span: 
       </Card>
     ),
   }
+}
+
+/** 情感分析与主题统计：显示后台任务状态，可手动开始；进行中时轮询，完成后刷新概况 */
+function AnalysisPanel({ datasetId, hasLabels, reload, settings }: { datasetId: string; hasLabels: boolean; reload: () => void; settings: () => void }) {
+  const [status, setStatus] = useState<(AnalysisStatus & { settings: AnalysisSettings }) | null>(null)
+  const [error, setError] = useState('')
+  const wasRunning = useRef(false)
+  const load = async () => {
+    try {
+      const next = await api<AnalysisStatus & { settings: AnalysisSettings }>(`datasets/${encodeURIComponent(datasetId)}/analysis`)
+      setStatus(next)
+      if (wasRunning.current && !anyRunning(next)) reload()
+      wasRunning.current = anyRunning(next)
+    } catch (e) { setError((e as Error).message) }
+  }
+  useEffect(() => { wasRunning.current = false; void load() }, [datasetId])
+  useEffect(() => {
+    if (!status || !anyRunning(status)) return
+    const timer = setTimeout(() => void load(), 2000)
+    return () => clearTimeout(timer)
+  }, [status])
+  const start = async (task: AnalysisTask) => {
+    setError('')
+    try {
+      const next = await api<AnalysisStatus>(`datasets/${encodeURIComponent(datasetId)}/analysis/${task}`, { method: 'POST', body: '{}' })
+      wasRunning.current = true
+      setStatus((s) => s && { ...s, ...next })
+    } catch (e) { setError((e as Error).message) }
+  }
+  const auto = status?.settings && (status.settings.auto_sentiment || status.settings.auto_topics)
+  return (
+    <Card>
+      <CardHeader title="智能分析" sub={`用配置的模型逐条分析，每项最多消耗约 ${fmt(status?.settings.token_budget ?? 30000)} token。${auto ? '打开数据时会自动分析，可在设置里关闭。' : '自动分析已关闭，可在设置里开启。'}`} />
+      <div className="grid gap-3 sm:grid-cols-2">
+        {ANALYSIS_TASKS.map((t) => {
+          const view = analysisTaskView(status?.[t.id] ?? { state: 'idle' })
+          return <div key={t.id} className="flex items-start justify-between gap-3 rounded-lg border p-4">
+            <div className="min-w-0">
+              <p className="text-sm font-medium">{t.name}</p>
+              <p className="mt-1 text-xs text-muted-foreground">{t.desc}</p>
+              <p className={cn('mt-2 flex items-center gap-1.5 text-xs', status?.[t.id]?.state === 'error' ? 'text-destructive' : 'text-muted-foreground')}>{view.running && <LoaderCircle className="size-3.5 animate-spin" />}{view.text}</p>
+            </div>
+            {view.action && <Button size="sm" variant={status?.[t.id]?.state === 'done' ? 'outline' : 'default'} className="shrink-0" onClick={() => void start(t.id)}>{status?.[t.id]?.state === 'done' ? <RotateCcw /> : <Play />}{view.action}</Button>}
+          </div>
+        })}
+      </div>
+      {error && <Notice className="mt-3 border-destructive/30 text-destructive">{error}</Notice>}
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+        <span>{hasLabels ? '' : '也可以在 Claude Code、Codex 中使用 ugc-lens 技能逐条标注，结果同样显示在这里。'}</span>
+        <Button size="sm" variant="ghost" onClick={settings}><Settings />分析设置</Button>
+      </div>
+    </Card>
+  )
 }

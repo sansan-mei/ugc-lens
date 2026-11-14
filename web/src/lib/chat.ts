@@ -4,13 +4,17 @@ export type ChatEvent =
   | { type: 'step'; step: number }
   | { type: 'delta'; step: number; text: string }
   | { type: 'tool'; step: number; call_id: string; name: string; args: string }
-  | { type: 'tool_end'; call_id: string; name: string; ok: boolean }
+  | { type: 'tool_end'; call_id: string; name: string; ok: boolean; result?: string }
   | { type: 'retry'; attempt: number; reason: string }
   | { type: 'warning'; message: string }
-  | { type: 'done'; answer: string; stop_reason: string; citations: { valid: string[]; invalid: string[] }; known_tokens: number; unknown_calls: number }
+  | { type: 'done'; answer: string; stop_reason: string; citations: { valid: string[]; invalid: string[] }; known_tokens: number; unknown_calls: number; web_sources?: WebSourceLink[] }
   | { type: 'error'; message: string }
 
-export interface ToolProgress { call_id: string; name: string; args: string; ok?: boolean }
+/** 回答里 [web:N] 对应的外部来源 */
+export interface WebSourceLink { id: string; title: string; url: string }
+
+/** args 是请求参数（JSON 文本），result 是交给模型的工具结果，过长时服务端已截断 */
+export interface ToolProgress { call_id: string; name: string; args: string; ok?: boolean; result?: string }
 
 export interface AssistantTurn {
   role: 'assistant'
@@ -23,6 +27,7 @@ export interface AssistantTurn {
   stop_reason?: string
   tokens?: number
   error?: string
+  web_sources?: WebSourceLink[]
 }
 
 export interface UserTurn { role: 'user'; text: string }
@@ -41,9 +46,9 @@ export function applyChatEvent(turn: AssistantTurn, event: ChatEvent): Assistant
     case 'step': case 'retry': return { ...turn, text: '' }
     case 'delta': return { ...turn, text: turn.text + event.text }
     case 'tool': return { ...turn, tools: [...turn.tools, { call_id: event.call_id, name: event.name, args: event.args }] }
-    case 'tool_end': return { ...turn, tools: turn.tools.map((t) => t.call_id === event.call_id ? { ...t, ok: event.ok } : t) }
+    case 'tool_end': return { ...turn, tools: turn.tools.map((t) => t.call_id === event.call_id ? { ...t, ok: event.ok, ...(event.result !== undefined ? { result: event.result } : {}) } : t) }
     case 'warning': return { ...turn, warnings: [...turn.warnings, event.message] }
-    case 'done': return { ...turn, text: event.answer, status: 'done', citations: event.citations, stop_reason: event.stop_reason, tokens: event.known_tokens }
+    case 'done': return { ...turn, text: event.answer, status: 'done', citations: event.citations, stop_reason: event.stop_reason, tokens: event.known_tokens, web_sources: event.web_sources }
     case 'error': return { ...turn, status: 'error', error: event.message }
   }
 }
@@ -71,6 +76,7 @@ const TOOL_LABELS: Record<string, string> = {
   start_watch: '开始监听', watch_status: '查询监听', stop_watch: '停止监听', analyze_topics: '主题统计', analyze_business: '商业分析',
   get_analysis_coverage: '分析覆盖', get_content_timeline: '内容时间轴', read_profile: '读取画像', record_profile: '记录画像',
   search_learnings: '查找经验', record_learning: '记录经验', playbook_update: '更新手册',
+  web_search: '联网搜索', web_fetch: '读取网页',
 }
 export const toolLabel = (name: string): string => TOOL_LABELS[name] ?? name
 
@@ -86,4 +92,17 @@ export function relativeTime(iso: string, now: Date = new Date()): string {
   if (days === 1) return '昨天'
   const md = `${then.getMonth() + 1}月${then.getDate()}日`
   return then.getFullYear() === now.getFullYear() ? md : `${then.getFullYear()}年${md}`
+}
+
+/** 历史对话记录的、本对话最近一次接入的文件 */
+export interface ChatDataset { id: string; path: string }
+
+/** 切回历史对话时是否要重新打开它的文件：接入过文件，且不是当前打开的那份 */
+export function needsReopen(currentId: string | null, saved: ChatDataset | undefined): boolean {
+  return !!saved && saved.id !== currentId
+}
+
+/** 工具参数和结果的显示：能解析成 JSON 就缩进展示，否则原样 */
+export function prettyJson(text: string): string {
+  try { return JSON.stringify(JSON.parse(text), null, 2) } catch { return text }
 }

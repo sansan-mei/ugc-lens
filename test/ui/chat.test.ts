@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { request } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
@@ -211,4 +211,94 @@ test('ui 对话历史：每轮保存到全局目录，可列出、查看，服�
   assert.equal((await call(`/api/chats/${sid}`)).status, 404)
   assert.equal((await call(`/api/chat/${sid}/messages`, { method: 'POST', body: { text: 'hi' } })).status, 404)
   assert.equal((await call('/api/chats/..%2F..%2Fsecret')).status, 404)
+})
+
+test('ui 对话历史：记住本对话接入的文件，切回时可按对话重新打开（不受最近打开列表限制）', async () => {
+  const { id } = await openDataset()
+  script = [{ content: '好的', deltas: ['好的'] }]
+  const sid = (await call('/api/chat', { method: 'POST', body: {} })).json.id as string
+  await call(`/api/chat/${sid}/messages`, { method: 'POST', body: { text: '看看这份数据', dataset_id: id } })
+  const record = await call(`/api/chats/${sid}`)
+  assert.equal(record.json.dataset.id, id)
+  assert.match(record.json.dataset.path, /bilibili_all\.json$/)
+
+  // 之后没带数据集的追问不清掉记录
+  script.push({ content: '继续', deltas: ['继续'] })
+  await call(`/api/chat/${sid}/messages`, { method: 'POST', body: { text: '还有吗' } })
+  assert.equal((await call(`/api/chats/${sid}`)).json.dataset.id, id)
+
+  const reopened = await call('/api/open', { method: 'POST', body: { chat: sid } })
+  assert.equal(reopened.status, 200, reopened.text)
+  assert.equal(reopened.json.id, id)
+
+  // 启动目录外的文件：最近打开列表清空后，新的服务仍能按对话记录打开
+  writeFileSync(join(outside, 'picked.json'), readFileSync(join(cwd, 'data', 'bilibili_all.json')))
+  const other = createUiServer({ cwd, token: 't2', homeDir: join(root, 'home'), picker: { available: true, pick: async () => join(outside, 'picked.json') }, model: noModel, chatModels, staticDir: root })
+  await new Promise<void>((done) => other.server.listen(0, '127.0.0.1', done))
+  const otherPort = (other.server.address() as AddressInfo).port
+  const post = (path: string, body: unknown) => fetch(`http://127.0.0.1:${otherPort}/api/${path}`, { method: 'POST', headers: { 'x-ugc-lens-token': 't2', 'content-type': 'application/json' }, body: JSON.stringify(body) }).then(async (r) => ({ status: r.status, json: await r.json() as any }))
+  try {
+    const picked = (await post('pick', { kind: 'data' })).json.path as string
+    const outsideId = (await post('open', { path: picked })).json.id as string
+    const sid2 = (await post('chat', {})).json.id as string
+    script.push({ content: '收到', deltas: ['收到'] })
+    await fetch(`http://127.0.0.1:${otherPort}/api/chat/${sid2}/messages`, { method: 'POST', headers: { 'x-ugc-lens-token': 't2', 'content-type': 'application/json' }, body: JSON.stringify({ text: '看看', dataset_id: outsideId }) }).then((r) => r.text())
+    rmSync(join(root, 'home', '.ugc-lens', 'ui', 'recent.json'), { force: true })
+    const third = createUiServer({ cwd, token: 't3', homeDir: join(root, 'home'), picker: { available: false, pick: async () => undefined }, model: noModel, chatModels, staticDir: root })
+    await new Promise<void>((done) => third.server.listen(0, '127.0.0.1', done))
+    const thirdPort = (third.server.address() as AddressInfo).port
+    const open3 = (body: unknown) => fetch(`http://127.0.0.1:${thirdPort}/api/open`, { method: 'POST', headers: { 'x-ugc-lens-token': 't3', 'content-type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.status)
+    try {
+      assert.equal(await open3({ path: picked }), 403)
+      assert.equal(await open3({ chat: sid2 }), 200)
+      assert.equal(await open3({ chat: 'nosuchchat01' }), 404)
+    } finally { third.server.closeAllConnections(); await new Promise((done) => third.server.close(done)) }
+  } finally { await other.close(); other.server.closeAllConnections(); await new Promise((done) => other.server.close(done)) }
+})
+
+test('ui 对话历史：服务重启后恢复对话，模型之前导入的数据会重新导入，可以直接接着查', async () => {
+  script = [
+    { tool_calls: [{ name: 'load_dataset', args: { file: 'data/bilibili_all.json' } }] },
+    { content: '已导入', deltas: ['已导入'] },
+  ]
+  const sid = (await call('/api/chat', { method: 'POST', body: {} })).json.id as string
+  const first = await call(`/api/chat/${sid}/messages`, { method: 'POST', body: { text: '导入数据' } })
+  const loaded = JSON.parse(String(lastModel!.requests.at(-1)!.messages.find((m) => m.role === 'tool')!.content)) as { dataset_id: string }
+  assert.equal(first.events.at(-1).type, 'done')
+
+  // 新的服务进程：内存里没有任何数据集
+  const fresh = createUiServer({ cwd, token: 't4', homeDir: join(root, 'home'), picker: { available: false, pick: async () => undefined }, model: noModel, chatModels, staticDir: root })
+  await new Promise<void>((done) => fresh.server.listen(0, '127.0.0.1', done))
+  const freshPort = (fresh.server.address() as AddressInfo).port
+  const headers = { 'x-ugc-lens-token': 't4', 'content-type': 'application/json' }
+  try {
+    // 旧对话没有记录界面接入的文件时，从历史里的导入结果推出来，切回对话可以重新打开
+    const record = await (await fetch(`http://127.0.0.1:${freshPort}/api/chats/${sid}`, { headers })).json() as { dataset?: { id: string; path: string } }
+    assert.equal(record.dataset?.id, loaded.dataset_id)
+    script = [
+      { tool_calls: [{ name: 'search_feedback', args: { dataset_id: loaded.dataset_id, kinds: ['comment'] } }] },
+      { content: '查到了', deltas: ['查到了'] },
+    ]
+    await fetch(`http://127.0.0.1:${freshPort}/api/chat/${sid}/messages`, { method: 'POST', headers, body: JSON.stringify({ text: '评论说了啥' }) }).then((r) => r.text())
+    const toolResult = lastModel!.requests.at(-1)!.messages.filter((m) => m.role === 'tool').at(-1)
+    assert.doesNotMatch(String(toolResult?.content), /^错误/)
+  } finally { await fresh.close(); fresh.server.closeAllConnections(); await new Promise((done) => fresh.server.close(done)) }
+})
+
+test('ui 对话：工具事件带完整参数和结果，供界面点开查看，历史里同样保存', async () => {
+  const { id } = await openDataset()
+  script = [
+    { tool_calls: [{ name: 'search_feedback', args: { dataset_id: id, kinds: ['comment'], query: '学历' } }] },
+    { content: '好', deltas: ['好'] },
+  ]
+  const sid = (await call('/api/chat', { method: 'POST', body: {} })).json.id as string
+  const reply = await call(`/api/chat/${sid}/messages`, { method: 'POST', body: { text: '搜一下' } })
+  const tool = reply.events.find((e) => e.type === 'tool')
+  assert.deepEqual(JSON.parse(tool.args), { dataset_id: id, kinds: ['comment'], query: '学历' })
+  const end = reply.events.find((e) => e.type === 'tool_end')
+  const sent = String(lastModel!.requests.at(-1)!.messages.find((m) => m.role === 'tool')!.content)
+  assert.equal(end.result, sent.slice(0, end.result.length))
+  assert.ok(end.result.length > 0)
+  const saved = (await call(`/api/chats/${sid}`)).json.turns.at(-1)
+  assert.equal(saved.tools[0].result, end.result)
 })

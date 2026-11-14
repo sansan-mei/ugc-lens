@@ -110,6 +110,8 @@
 .prose-report th { background: var(--muted); font-weight: 500; }
 .cite { display: inline-flex; align-items: center; margin: 0 2px; padding: 0 6px; border-radius: calc(var(--radius) - 4px); border: 1px solid var(--border); background: var(--background); font-size: 12px; line-height: 18px; font-variant-numeric: tabular-nums; color: var(--foreground); box-shadow: 0 1px 2px rgb(0 0 0 / 0.05); transition: background-color .15s, border-color .15s; }
 .cite:hover:not(:disabled) { background: var(--accent); border-color: var(--ring); }
+.cite-web { margin: 0 2px; font-size: 12px; color: var(--muted-foreground); text-decoration: underline; text-underline-offset: 2px; }
+.cite-web:hover { color: var(--foreground); }
 .cite.plain { border: 0; box-shadow: none; padding: 0; color: inherit; background: transparent; }
 .prose-chat { font-size: 14.5px; line-height: 1.75; }
 .prose-chat > :first-child { margin-top: 0; }

@@ -1,10 +1,10 @@
-import { ArrowUp, Check, History, LoaderCircle, MessageCircle, Plus, Settings, Square, Trash2, X } from 'lucide-react'
+import { ArrowUp, Check, FileText, History, LoaderCircle, MessageCircle, Paperclip, Plus, Settings, Square, Trash2, X } from 'lucide-react'
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { Badge, Card, Empty, Notice } from '../components/ui/card.tsx'
 import { Button } from '../components/ui/button.tsx'
-import { Sheet } from '../components/ui/dialog.tsx'
+import { Dialog, DialogContent, DialogDescription, DialogTitle, Sheet } from '../components/ui/dialog.tsx'
 import { api, ApiError, streamChat } from '../lib/api.ts'
-import { applyChatEvent, newAssistantTurn, relativeTime, toolLabel, type AssistantTurn, type ChatSummary, type ChatTurn } from '../lib/chat.ts'
+import { applyChatEvent, newAssistantTurn, prettyJson, relativeTime, toolLabel, type AssistantTurn, type ChatDataset, type ChatSummary, type ChatTurn, type ToolProgress } from '../lib/chat.ts'
 import { matchCommands, parseCommand, type ChatCommand } from '../lib/commands.ts'
 import { baseName } from '../lib/format.ts'
 import { renderMarkdown } from '../lib/markdown.ts'
@@ -26,8 +26,8 @@ export interface ChatState {
   refresh: () => Promise<void>
 }
 
-/** 对话状态放在 App 里，切换标签页时回答继续生成、历史不丢 */
-export function useChat(): ChatState {
+/** 对话状态放在 App 里，切换标签页时回答继续生成、历史不丢。onSelect：切回历史对话后通知它接入过的文件 */
+export function useChat(onSelect?: (id: string, dataset: ChatDataset | undefined) => void): ChatState {
   const [turns, setTurns] = useState<ChatTurn[]>([])
   const [busy, setBusy] = useState(false)
   const [chats, setChats] = useState<ChatSummary[]>([])
@@ -91,10 +91,11 @@ export function useChat(): ChatState {
       reset()
       setLoading(true)
       try {
-        const record = await api<{ turns: ChatTurn[] }>(`chats/${encodeURIComponent(id)}`)
+        const record = await api<{ turns: ChatTurn[]; dataset?: ChatDataset }>(`chats/${encodeURIComponent(id)}`)
         session.current = id
         setCurrent(id)
         setTurns(record.turns)
+        onSelect?.(id, record.dataset)
       } catch (error) {
         setTurns([{ role: 'assistant', text: '', status: 'error', tools: [], warnings: [], error: (error as Error).message }])
         void refresh()
@@ -127,20 +128,48 @@ function AssistantMessage({ turn, openItem, settings }: { turn: AssistantTurn; o
     }
   })
   const streaming = turn.status === 'streaming'
+  const [detailId, setDetailId] = useState<string | null>(null)
+  // 按 call_id 取最新状态：详情打开时工具可能还在运行，结束后自动显示结果
+  const detail = turn.tools.find((t) => t.call_id === detailId) ?? null
+  const setDetail = (t: ToolProgress | null) => setDetailId(t?.call_id ?? null)
+  const md = { webSources: turn.web_sources }
+  // 只列出回答里实际引用到的外部来源
+  const cited = (turn.web_sources ?? []).filter((s) => turn.text.includes(s.id))
   return <div className="space-y-2.5">
-    {turn.tools.length > 0 && <div className="flex flex-wrap gap-1.5">{turn.tools.map((t) => <Badge key={t.call_id} title={t.args} className="font-normal text-muted-foreground">
+    {turn.tools.length > 0 && <div className="flex flex-wrap gap-1.5">{turn.tools.map((t) => <button key={t.call_id} type="button" title="查看请求参数和结果" onClick={() => setDetail(t)} className="rounded-md outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"><Badge className="cursor-pointer font-normal text-muted-foreground transition-colors hover:border-ring hover:text-foreground">
       {t.ok === undefined ? (streaming ? <LoaderCircle className="size-3 animate-spin" /> : <X className="size-3" />) : t.ok ? <Check className="size-3" /> : <X className="size-3 text-destructive" />}{toolLabel(t.name)}
-    </Badge>)}</div>}
-    {turn.text ? <div ref={body} className="prose-report prose-chat" onClick={(e) => { const b = (e.target as HTMLElement).closest<HTMLButtonElement>('.cite'); if (b && !b.disabled && b.dataset.id) openItem(b.dataset.id) }} dangerouslySetInnerHTML={{ __html: streaming ? withCaret(renderMarkdown(turn.text)) : renderMarkdown(turn.text) }} />
+    </Badge></button>)}</div>}
+    <ToolDetail tool={detail} running={streaming} onClose={() => setDetail(null)} />
+    {turn.text ? <div ref={body} className="prose-report prose-chat" onClick={(e) => { const b = (e.target as HTMLElement).closest<HTMLButtonElement>('.cite'); if (b && !b.disabled && b.dataset.id) openItem(b.dataset.id) }} dangerouslySetInnerHTML={{ __html: streaming ? withCaret(renderMarkdown(turn.text)) : renderMarkdown(turn.text, md) }} />
       : streaming && <p className="flex items-center gap-2 text-sm text-muted-foreground"><LoaderCircle className="size-4 animate-spin" />{turn.tools.some((t) => t.ok === undefined) ? '正在调用工具…' : '思考中…'}</p>}
-    {turn.status === 'error' && <Notice className="border-destructive/30 text-destructive">{turn.error}{/模型设置/.test(turn.error ?? '') && <Button size="sm" variant="outline" className="mt-2 flex text-foreground" onClick={settings}><Settings />打开模型设置</Button>}</Notice>}
+    {turn.status === 'error' && <Notice className="border-destructive/30 text-destructive">{turn.error}{/设置 → 模型|模型设置/.test(turn.error ?? '') && <Button size="sm" variant="outline" className="mt-2 flex text-foreground" onClick={settings}><Settings />打开模型设置</Button>}</Notice>}
     {turn.status === 'stopped' && <p className="text-xs text-muted-foreground">已停止</p>}
+    {cited.length > 0 && <div className="rounded-md border bg-muted/30 px-3 py-2 text-xs"><p className="mb-1 font-medium text-muted-foreground">外部资料（不计入数据统计，内容未经核实）</p><ol className="space-y-0.5">{cited.map((s) => <li key={s.id} className="flex min-w-0 gap-1.5"><span className="shrink-0 tabular-nums text-muted-foreground">{s.id}</span><a href={s.url} target="_blank" rel="noopener noreferrer" className="truncate underline-offset-2 hover:underline" title={s.url}>{s.title || s.url}</a></li>)}</ol></div>}
     {turn.warnings.map((w) => <p key={w} className="text-xs text-muted-foreground">{w}</p>)}
     {turn.status === 'done' && <p className="text-xs text-muted-foreground">
       {turn.stop_reason && turn.stop_reason !== 'completed' ? `未完整结束（${turn.stop_reason}）· ` : ''}
       {invalid.size ? `${invalid.size} 个引用在数据中找不到 · ` : ''}已知 token {turn.tokens ?? 0}
     </p>}
   </div>
+}
+
+/** 一次工具调用的请求参数与结果（交给模型的原文，过长时已截断） */
+function ToolDetail({ tool, running, onClose }: { tool: ToolProgress | null; running: boolean; onClose: () => void }) {
+  const block = 'max-h-[32vh] overflow-auto whitespace-pre-wrap break-all rounded-md border bg-muted/40 p-3 font-mono text-xs leading-relaxed'
+  const state = !tool ? '' : tool.ok === undefined ? (running ? '运行中' : '未完成') : tool.ok ? '成功' : '失败'
+  return <Dialog.Root open={!!tool} onOpenChange={(open) => { if (!open) onClose() }}>
+    <DialogContent className="top-[8vh] max-h-[84vh] w-[min(760px,calc(100%-2rem))]">
+      <DialogTitle className="text-lg font-semibold leading-none">{tool ? toolLabel(tool.name) : ''}</DialogTitle>
+      <DialogDescription className="-mt-2 text-sm text-muted-foreground"><code className="font-mono text-xs">{tool?.name}</code> · {state}</DialogDescription>
+      {tool && <div className="grid min-h-0 gap-3 overflow-y-auto">
+        <div className="grid gap-1.5"><p className="text-xs font-medium text-muted-foreground">请求参数</p><pre className={block}>{prettyJson(tool.args)}</pre></div>
+        <div className="grid gap-1.5"><p className="text-xs font-medium text-muted-foreground">返回结果（交给模型的内容）</p>
+          {tool.result !== undefined ? <pre className={cn(block, tool.ok === false && 'text-destructive')}>{prettyJson(tool.result)}</pre>
+            : <p className="text-sm text-muted-foreground">{tool.ok === undefined && running ? '工具还在运行…' : '没有记录结果（早期的对话不保存工具结果）'}</p>}
+        </div>
+      </div>}
+    </DialogContent>
+  </Dialog.Root>
 }
 
 function ChatHistory({ chat, onPick }: { chat: ChatState; onPick?: () => void }) {
@@ -252,7 +281,9 @@ export function ChatView({ chat, o, openItem, actions, modelReady }: { chat: Cha
       <form className="border-t p-3 sm:p-4" onSubmit={(e) => { e.preventDefault(); submit() }}>
         <div className="relative mx-auto max-w-3xl">
           {commands.length > 0 && <CommandMenu commands={commands} active={typingName ? active : -1} onPick={pick} />}
+          {o && <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground"><span className="inline-flex min-w-0 items-center gap-1.5 rounded-md border bg-muted/40 px-2 py-1"><FileText className="size-3.5 shrink-0" /><span className="truncate" title={o.file}>{baseName(o.file)}</span></span><button type="button" className="shrink-0 underline-offset-2 hover:text-foreground hover:underline" onClick={actions.open}>更换</button></div>}
           <div className="flex items-end gap-2 rounded-lg border bg-background p-2 shadow-xs focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/50">
+            <Button type="button" size="icon" variant="ghost" aria-label="选择数据文件" title="选择数据文件（也可以把文件拖到这里）" onClick={actions.open}><Paperclip /></Button>
             <textarea ref={input} aria-label="输入问题" value={draft} rows={1} onChange={(e) => edit(e.target.value)} onKeyDown={onKeyDown}
               placeholder={o ? '问问这份数据，或输入 / 查看命令' : '描述要做的事，或输入 / 查看命令'}
               className={cn('max-h-40 min-h-9 flex-1 resize-none bg-transparent px-2 py-1.5 text-sm leading-relaxed outline-none placeholder:text-muted-foreground', '[field-sizing:content]')} />
@@ -261,7 +292,7 @@ export function ChatView({ chat, o, openItem, actions, modelReady }: { chat: Cha
               : <Button type="submit" size="icon" aria-label="发送" disabled={!draft.trim()}><ArrowUp /></Button>}
           </div>
         </div>
-        <p className={cn('mx-auto mt-1.5 max-w-3xl px-1 text-[11px]', hint ? 'text-destructive' : 'text-muted-foreground')}>{hint || 'Enter 发送，Shift+Enter 换行，输入 / 查看命令'}</p>
+        <p className={cn('mx-auto mt-1.5 max-w-3xl px-1 text-[11px]', hint ? 'text-destructive' : 'text-muted-foreground')}>{hint || 'Enter 发送，Shift+Enter 换行，输入 / 查看命令；点回形针或拖入文件即可接入数据'}</p>
       </form>
     </Card>
   </div>

@@ -1,8 +1,11 @@
-import { Check, KeyRound, LoaderCircle, RefreshCw } from 'lucide-react'
+import { Check, KeyRound, LoaderCircle, Power, RefreshCw } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Button } from './ui/button.tsx'
 import { inputClass, Notice } from './ui/card.tsx'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from './ui/dialog.tsx'
+import { Tabs, TabsList, TabsTrigger } from './ui/tabs.tsx'
+import { WebSettingsPanel } from './web_settings_panel.tsx'
+import { AnalysisSettingsPanel } from './analysis_settings_panel.tsx'
 import { api } from '../lib/api.ts'
 import { defaultEndpoint, formBody, initialForm, keyPlaceholder, type SettingsForm } from '../lib/settings.ts'
 import type { SettingsView } from '../lib/types.ts'
@@ -12,15 +15,17 @@ const label = 'grid gap-1.5 text-sm font-medium'
 const hint = 'text-xs font-normal text-muted-foreground'
 
 /** 模型设置：选择提供商、填写 key 和模型，写入全局配置 ~/.ugc-lens/config.json */
-export function SettingsDialog({ open, onOpenChange, onSaved }: { open: boolean; onOpenChange: (open: boolean) => void; onSaved: (view: SettingsView) => void }) {
+export function SettingsDialog({ open, onOpenChange, onSaved, onQuit, section: initialSection = 'model' }: { open: boolean; onOpenChange: (open: boolean) => void; onSaved: (view: SettingsView) => void; onQuit?: () => void; section?: string }) {
   const [view, setView] = useState<SettingsView | null>(null)
   const [form, setForm] = useState<SettingsForm>({ provider: '', region: 'cn', base_url: '', model: '', api_key: '' })
   const [models, setModels] = useState<string[]>([])
   const [busy, setBusy] = useState<'' | 'load' | 'models' | 'test' | 'save'>('')
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null)
+  const [section, setSection] = useState('model')
 
   useEffect(() => {
     if (!open) return
+    setSection(initialSection)
     setMessage(null); setModels([]); setBusy('load')
     api<SettingsView>('settings').then((v) => { setView(v); setForm(initialForm(v)) }).catch((e) => setMessage({ ok: false, text: (e as Error).message })).finally(() => setBusy(''))
   }, [open])
@@ -50,9 +55,11 @@ export function SettingsDialog({ open, onOpenChange, onSaved }: { open: boolean;
 
   return <Dialog.Root open={open} onOpenChange={onOpenChange}>
     <DialogContent className="top-[8vh] max-h-[84vh] w-[min(600px,calc(100%-2rem))]">
-      <DialogTitle className="text-lg font-semibold leading-none">模型设置</DialogTitle>
-      <DialogDescription className="-mt-2 text-sm text-muted-foreground">对话、结构识别和分析使用这里的模型。保存到 {view ? <code className="font-mono text-xs">{view.path}</code> : '全局配置'}（仅本机，权限 600），与 <code className="font-mono text-xs">ugc-lens init</code> 相同。</DialogDescription>
-      {busy === 'load' || !view ? <p className="flex items-center gap-2 py-6 text-sm text-muted-foreground"><LoaderCircle className="size-4 animate-spin" />读取配置…</p> : <form className="-mx-1 grid min-h-0 gap-4 overflow-y-auto px-1" onSubmit={(e) => { e.preventDefault(); if (canSubmit) void run('save') }}>
+      <DialogTitle className="text-lg font-semibold leading-none">设置</DialogTitle>
+      <DialogDescription className="-mt-2 text-sm text-muted-foreground">保存到 {view ? <code className="font-mono text-xs">{view.path}</code> : '全局配置'}（仅本机，权限 600），与命令行共用。</DialogDescription>
+      <Tabs.Root value={section} onValueChange={setSection}><TabsList aria-label="设置分类" className="w-full">{[['model', '模型'], ['web', '联网'], ['analysis', '分析']].map(([id, name]) => <TabsTrigger key={id} value={id!}>{name}</TabsTrigger>)}</TabsList></Tabs.Root>
+      {busy === 'load' || !view ? <p className="flex items-center gap-2 py-6 text-sm text-muted-foreground"><LoaderCircle className="size-4 animate-spin" />读取配置…</p> : section === 'web' ? <div className="-mx-1 min-h-0 overflow-y-auto px-1"><WebSettingsPanel view={view} onSaved={(v) => { setView(v); onSaved(v) }} /></div> : section === 'analysis' ? <div className="-mx-1 min-h-0 overflow-y-auto px-1"><AnalysisSettingsPanel view={view} onSaved={(v) => { setView(v); onSaved(v) }} /></div> : <form className="-mx-1 grid min-h-0 gap-4 overflow-y-auto px-1" onSubmit={(e) => { e.preventDefault(); if (canSubmit) void run('save') }}>
+        <p className="text-xs text-muted-foreground">对话、结构识别和分析使用这里的模型，与 <code className="font-mono">ugc-lens init</code> 相同。</p>
         {view.overrides.length > 0 && <Notice className="text-xs">以下设置会覆盖这里保存的值：{view.overrides.join('、')}</Notice>}
         <label className={label}>提供商
           <select aria-label="提供商" value={form.provider} onChange={(e) => { set({ provider: e.target.value, base_url: '', model: '' }); setModels([]) }} className={inputClass}>
@@ -85,6 +92,8 @@ export function SettingsDialog({ open, onOpenChange, onSaved }: { open: boolean;
           <Button type="submit" disabled={!canSubmit || !form.model.trim()}>{busy === 'save' ? <LoaderCircle className="animate-spin" /> : <Check />}保存</Button>
         </div>
       </form>}
+      {/* 退出放在设置里而不是顶栏：顶栏的电源图标容易被当成“停止生成” */}
+      {onQuit && <div className="-mb-1 flex items-center justify-between gap-3 border-t pt-3 text-xs text-muted-foreground"><span>关闭页面 10 分钟后桌面版会自动退出</span><Button type="button" variant="ghost" size="sm" className="text-muted-foreground hover:text-destructive" onClick={onQuit}><Power />退出 ugc-lens</Button></div>}
     </DialogContent>
   </Dialog.Root>
 }

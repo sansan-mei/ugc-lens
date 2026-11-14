@@ -7,6 +7,10 @@ export function escapeHtml(text: unknown): string {
 
 const CITE = /^[^\s[\]]{1,64}$/
 
+export interface MarkdownOptions { webSources?: ReadonlyArray<{ id: string; title: string; url: string }> }
+// 渲染是同步的，本次渲染可用的外部来源放在这里，避免把参数穿过每一层
+let webLinks = new Map<string, { title: string; url: string }>()
+
 function inline(text: string): string {
   const out: string[] = []
   let i = 0
@@ -19,6 +23,11 @@ function inline(text: string): string {
     }
     if ((m = /^\[([^\]\n]+)\](?!\()/.exec(rest))) {
       const ids = m[1]!.split(/\s*,\s*/)
+      if (ids.every((id) => /^web:\d+$/.test(id) && webLinks.has(id))) {
+        out.push(ids.map((id) => { const s = webLinks.get(id)!; return `<a class="cite-web" href="${escapeHtml(s.url)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(s.title)}">${escapeHtml(id)}</a>` }).join(''))
+        i += m[0].length
+        continue
+      }
       if (ids.every((id) => CITE.test(id)) && !/^web:\d+$/.test(m[1]!)) {
         out.push(ids.map((id) => `<button type="button" class="cite" data-id="${escapeHtml(id)}">${escapeHtml(id)}</button>`).join(''))
         i += m[0].length
@@ -39,7 +48,12 @@ function splitRow(line: string): string[] {
   return line.trim().replace(/^\|/, '').replace(/\|$/, '').split(/(?<!\\)\|/).map((cell) => cell.trim().replace(/\\\|/g, '|'))
 }
 
-export function renderMarkdown(source: string): string {
+export function renderMarkdown(source: string, options: MarkdownOptions = {}): string {
+  webLinks = new Map((options.webSources ?? []).filter((s) => /^https?:\/\//i.test(s.url)).map((s) => [s.id, { title: s.title, url: s.url }]))
+  try { return renderBlocks(source) } finally { webLinks = new Map() }
+}
+
+function renderBlocks(source: string): string {
   const lines = String(source).replace(/\r\n?/g, '\n').split('\n')
   const html: string[] = []
   let i = 0

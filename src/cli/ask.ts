@@ -2,7 +2,7 @@ import { currentTask, withTask } from '../agent/usage.ts'
 import { parseArgs } from 'node:util'
 import type { AgentRunResult } from '../agent/loop.ts'
 import { askDataset } from '../ask/index.ts'
-import { loadLlmConfig, sharedMappingsDir } from '../config.ts'
+import { loadLlmConfig } from '../config.ts'
 import { loadDataset } from '../ingest/index.ts'
 import { mappingSource, abortOnInterrupt, askModel, formatWebCitations, UsageError, webSessionFor } from './common.ts'
 import { formatEvent } from './format_event.ts'
@@ -42,7 +42,7 @@ export async function runAsk(argv: readonly string[]): Promise<void> {
   const web = webSessionFor(args.web)
   const { signal } = abortOnInterrupt('正在取消')
 
-  const dataset = await loadDataset(args.file, { sharedCacheDir: sharedMappingsDir(), model, signal })
+  const dataset = await loadDataset(args.file, { model, signal })
   console.error(`已导入 ${dataset.items.length} 条（文件结构${mappingSource(dataset.mapping)}）`)
 
   let history: AgentRunResult['messages'] | undefined

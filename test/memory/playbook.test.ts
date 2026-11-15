@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -11,24 +11,38 @@ function sandbox() {
   return { memory, cleanup: () => rmSync(root, { recursive: true, force: true }) }
 }
 
-test('playbook：项目优先于全局，缺少副本时使用包内默认；初始化不覆盖编辑', () => {
+test('playbook：缺少副本时使用包内默认；初始化不覆盖编辑，手动编辑后指纹变化', () => {
   const { memory, cleanup } = sandbox()
   try {
     assert.equal(loadPlaybook(memory), DEFAULT_PLAYBOOK)
-    const global = initPlaybook(memory, true)
-    writeFileSync(global, DEFAULT_PLAYBOOK.text.replace(/版本：\d+/, `版本：${DEFAULT_PLAYBOOK.version + 1}`))
+    const path = initPlaybook(memory)
+    writeFileSync(path, DEFAULT_PLAYBOOK.text.replace(/版本：\d+/, `版本：${DEFAULT_PLAYBOOK.version + 1}`))
     assert.equal(loadPlaybook(memory).version, DEFAULT_PLAYBOOK.version + 1)
-    initPlaybook(memory, true)
+    initPlaybook(memory)
     assert.equal(loadPlaybook(memory).version, DEFAULT_PLAYBOOK.version + 1)
-    const project = initPlaybook(memory)
-    assert.equal(loadPlaybook(memory).version, DEFAULT_PLAYBOOK.version + 1)
-    assert.equal(loadPlaybook(memory).source, project)
+    assert.equal(loadPlaybook(memory).source, path)
     assert.ok(Object.isFrozen(loadPlaybook(memory).sections))
     const snapshot = loadPlaybook(memory)
-    writeFileSync(project, snapshot.text.replace('使用中文', '使用简体中文'))
+    writeFileSync(path, snapshot.text.replace('使用中文', '使用简体中文'))
     assert.equal(loadPlaybook(memory).version, snapshot.version)
     assert.notEqual(loadPlaybook(memory).hash, snapshot.hash)
     assert.notEqual(snapshot.text, loadPlaybook(memory).text)
+  } finally { cleanup() }
+})
+
+test('playbook：只有全局一份，启动目录下的手册和待审修改都不使用', () => {
+  const { memory, cleanup } = sandbox()
+  try {
+    mkdirSync(join(memory.cwd, '.ugc-lens'), { recursive: true })
+    writeFileSync(join(memory.cwd, '.ugc-lens', 'playbook.md'), DEFAULT_PLAYBOOK.text.replace(/版本：\d+/, '版本：99'))
+    assert.equal(loadPlaybook(memory), DEFAULT_PLAYBOOK)
+    const path = initPlaybook(memory)
+    assert.equal(path, join(memory.homeDir, '.ugc-lens', 'playbook.md'))
+    assert.equal(playbookPath(memory), path)
+    const proposal = proposePlaybook(memory, { operation: 'add', section: 'common', text: '新规则' })
+    assert.ok(existsSync(join(memory.homeDir, '.ugc-lens', 'playbook.pending.json')))
+    assert.equal(reviewPlaybook(memory, proposal.id, true), path)
+    assert.equal(existsSync(join(memory.cwd, '.ugc-lens', 'playbook.pending.json')), false)
   } finally { cleanup() }
 })
 

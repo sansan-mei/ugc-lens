@@ -1,9 +1,9 @@
 import { homedir } from 'node:os'
-import { ConfigError, readConfigSection, rejectProjectSecret } from '../config.ts'
+import { ConfigError, readConfigSection } from '../config.ts'
 
 export type WebProviderId = 'searxng' | 'tavily'
 
-/** 配置文件 .ugc-lens/config.json 中 web 字段的格式，所有字段可选 */
+/** 配置文件 ~/.ugc-lens/config.json 中 web 字段的格式，所有字段可选 */
 export interface WebConfigFile {
   /** 只认参数、进程环境和全局配置；项目配置不能自行开启联网 */
   enabled?: boolean
@@ -65,27 +65,25 @@ export function webEnabled(overrides: Pick<WebConfigFile, 'enabled'> = {}, _cwd:
   return readConfigSection<WebConfigFile>(homeDir, 'web').enabled === true
 }
 
-/** 读取联网配置。优先级：参数 > 环境变量 > 项目配置 > 全局配置 > 预设；key 与端点的绑定规则同模型配置。 */
-export function loadWebConfig(overrides: WebConfigFile = {}, cwd: string = process.cwd(), homeDir: string = homedir()): WebConfig {
-  const file = readConfigSection<WebConfigFile>(cwd, 'web')
-  rejectProjectSecret(file, cwd, 'web')
+/** 读取联网配置。优先级：参数 > 环境变量 > 全局配置 > 预设；key 与端点的绑定规则同模型配置。启动目录下的配置不读取。 */
+export function loadWebConfig(overrides: WebConfigFile = {}, _cwd: string = process.cwd(), homeDir: string = homedir()): WebConfig {
   const global = readConfigSection<WebConfigFile>(homeDir, 'web')
   const trustedEnv = process.env
   const env = trustedEnv
 
-  const provider = pick(overrides.provider, env.UGC_LENS_WEB_PROVIDER, file.provider, global.provider)
+  const provider = pick(overrides.provider, env.UGC_LENS_WEB_PROVIDER, global.provider)
   if (!provider) throw new ConfigError('未选择联网搜索后端：设置 web.provider（searxng 或 tavily）或 UGC_LENS_WEB_PROVIDER')
   if (!isWebProvider(provider)) throw new ConfigError(`未知的联网 provider "${provider}"，可选：${Object.keys(WEB_PRESETS).join(', ')}`)
   const preset = WEB_PRESETS[provider]
 
-  const baseUrl = pick(overrides.base_url, env.UGC_LENS_WEB_BASE_URL, file.base_url, global.base_url, preset.baseUrl)
+  const baseUrl = pick(overrides.base_url, env.UGC_LENS_WEB_BASE_URL, global.base_url, preset.baseUrl)
   if (!baseUrl) throw new ConfigError(`${provider} 必须设置 base_url（web.base_url 或 UGC_LENS_WEB_BASE_URL）`)
   if (!/^https?:\/\//i.test(baseUrl)) throw new ConfigError('联网搜索 base_url 必须是 http 或 https 地址')
 
-  const apiKeyEnv = pick(overrides.api_key_env, file.api_key_env, global.api_key_env, preset.apiKeyEnv)
-  const apiKey = pick(overrides.api_key, apiKeyEnv ? env[apiKeyEnv] : undefined, file.api_key, global.api_key)
+  const apiKeyEnv = pick(overrides.api_key_env, global.api_key_env, preset.apiKeyEnv)
+  const apiKey = pick(overrides.api_key, apiKeyEnv ? env[apiKeyEnv] : undefined, global.api_key)
   if (apiKey && !overrides.api_key) {
-    const inheritedGlobal = apiKey === global.api_key && apiKey !== file.api_key
+    const inheritedGlobal = apiKey === global.api_key
     const inheritedProcess = apiKeyEnv !== undefined && apiKey === trustedEnv[apiKeyEnv]
     if (inheritedGlobal || inheritedProcess) {
       const trustedProvider = pick(overrides.provider, trustedEnv.UGC_LENS_WEB_PROVIDER, global.provider)
@@ -103,7 +101,7 @@ export function loadWebConfig(overrides: WebConfigFile = {}, cwd: string = proce
   if (preset.needsKey && !apiKey) throw new ConfigError(`缺少 ${provider} 的 API key：设置 ${apiKeyEnv ?? 'web.api_key'}`)
 
   const number = (name: 'max_calls' | 'timeout_ms' | 'max_bytes' | 'max_chars' | 'cache_ttl_hours', fallback: number): number => {
-    const value = overrides[name] ?? file[name] ?? global[name] ?? fallback
+    const value = overrides[name] ?? global[name] ?? fallback
     if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) throw new ConfigError(`web.${name} 必须是正数`)
     return value
   }

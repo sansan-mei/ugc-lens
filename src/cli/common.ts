@@ -57,7 +57,7 @@ export function mappingSource(mapping: { from_cache: boolean; builtin?: boolean 
 /** --web 或可信配置开启时创建联网会话；未开启时返回 undefined */
 export function webSessionFor(flag: boolean, cwd: string = process.cwd()): WebSession | undefined {
   if (!webEnabled(flag ? { enabled: true } : {}, cwd)) return undefined
-  return createWebSession({ config: loadWebConfig({}, cwd), cacheDir: defaultWebCacheDir(cwd) })
+  return createWebSession({ config: loadWebConfig({}, cwd), cacheDir: defaultWebCacheDir() })
 }
 
 /** 外部引用有问题时返回提示，没有问题返回 undefined */

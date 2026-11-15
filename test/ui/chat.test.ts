@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { request } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
@@ -369,4 +369,9 @@ test('ui 对话：工具事件带完整参数和结果，供界面点开查看�
   assert.ok(end.result.length > 0)
   const saved = (await call(`/api/chats/${sid}`)).json.turns.at(-1)
   assert.equal(saved.tools[0].result, end.result)
+})
+
+test('界面：打开文件、对话导入数据都不在启动目录下写 .ugc-lens，数据只在 ~/.ugc-lens', () => {
+  assert.equal(existsSync(join(cwd, '.ugc-lens')), false)
+  assert.ok(existsSync(join(root, 'home', '.ugc-lens', 'ui', 'chats')))
 })

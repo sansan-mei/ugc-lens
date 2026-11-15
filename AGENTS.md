@@ -53,6 +53,7 @@
   - 模型接口用 `test/helpers/mock_server.ts` 起一个本地 HTTP 服务模拟，走真实的 `fetch` 路径。
   - Agent 循环用 `src/agent/fake_model.ts` 的假模型。
   - 读取配置的测试用 `test/helpers/env.ts` 隔离环境变量和工作目录。
+  - ugc-lens 的全部数据都写在 `~/.ugc-lens`。`npm test` 用 `--import` 预加载 `test/helpers/home.ts`，每个测试进程默认使用临时主目录；单独运行测试文件时也要带上：`node --import ./test/helpers/home.ts --test <文件>`，否则会写进本机真实目录。
 - 测试断言行为和数据之间的关系（例如“每个 tool_call 都有对应的 tool 结果”），不要把会变化的值写死（例如模型列表、具体 token 数）。
 - 修复 bug 时，先写一个能复现问题的测试，再修代码。
 - 真实模型的验证放在 `examples/` 里手动运行，不放进 `npm test`。

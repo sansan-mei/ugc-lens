@@ -13,17 +13,18 @@ import { ImportError } from './errors.ts'
 import { readInput } from './formats.ts'
 import { PRESET_MAPPINGS } from './presets.ts'
 
+import { homedir } from 'node:os'
+import { sharedMappingsDir } from '../config.ts'
 export { ImportError, MAX_FILE_BYTES, type ImportErrorCode } from './errors.ts'
 export type { InputFormat } from './formats.ts'
 
 export interface LoadDatasetOptions {
   /** 缓存里没有可用规则时，用它推断映射规则 */
   model?: AgentModel
-  /** 默认 <cwd>/.ugc-lens/mappings */
+  /** 默认 ~/.ugc-lens/mappings */
   cacheDir?: string
   /**
-   * 跨项目共用的规则缓存（通常是 ~/.ugc-lens/mappings）：先查项目缓存，再查这里；新规则两边都写。
-   * 换一个启动目录打开同样结构的文件时不必再请模型识别。不传时只用项目缓存。
+   * 额外的规则缓存目录：先查 cacheDir，再查这里；新规则两边都写。入口层不再使用（全部规则都在 ~/.ugc-lens/mappings），保留给库调用。
    */
   sharedCacheDir?: string
   /** false：不读缓存，总是重新推断（仍会写入缓存）；同时跳过内置规则 */
@@ -38,8 +39,8 @@ export function datasetId(filePath: string): string {
   return createHash('sha256').update(resolve(filePath)).digest('hex').slice(0, 12)
 }
 
-export function defaultCacheDir(cwd: string = process.cwd()): string {
-  return join(cwd, '.ugc-lens', 'mappings')
+export function defaultCacheDir(homeDir: string = homedir()): string {
+  return sharedMappingsDir(homeDir)
 }
 
 /** 最多试多少条其他指纹的规则，避免缓存很大时每次导入都很慢 */

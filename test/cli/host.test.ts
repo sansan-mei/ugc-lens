@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { tmpdir, homedir } from 'node:os'
 import { join } from 'node:path'
 import { after, test, type TestContext } from 'node:test'
 import { runHost } from '../../src/cli/host.ts'
@@ -31,9 +31,10 @@ test('host CLI：参数错误给出用法错误', async () => {
   await assert.rejects(runHost(['search', BV_FIXTURE, 'x', '--kinds', 'tweet'], { cwd }), /未知类型/)
 })
 
-test('host CLI：prepare 默认写到当前目录 .ugc-lens/host/<数据集ID>', async (t) => {
+test('host CLI：prepare 默认写到 ~/.ugc-lens/host/<数据集ID>，不写当前目录', async (t) => {
   const { json } = await capture(t, ['prepare', BV_FIXTURE])
-  assert.equal(json.out, join(cwd, '.ugc-lens', 'host', json.dataset_id))
+  assert.equal(json.out, join(homedir(), '.ugc-lens', 'host', json.dataset_id))
+  assert.equal(existsSync(join(cwd, '.ugc-lens')), false)
   assert.ok(existsSync(join(json.out, 'manifest.json')))
   assert.ok(existsSync(join(json.out, json.chunks[0].file)))
 })
@@ -71,7 +72,7 @@ test('host CLI：label-export 与 label-import 往返，遗漏时退出码 1', a
   await assert.rejects(runHost(['label-export', BV_FIXTURE, 'topics'], { cwd }), /--topics/)
   const exported = await capture(t, ['label-export', BV_FIXTURE, 'sentiment', '--kinds', 'comment', '--sample', '3'])
   assert.equal(exported.json.items, 3)
-  assert.ok(exported.json.out.startsWith(join(cwd, '.ugc-lens', 'host')) && exported.json.out.endsWith('labels-sentiment'))
+  assert.ok(exported.json.out.startsWith(join(homedir(), '.ugc-lens', 'host')) && exported.json.out.endsWith('labels-sentiment'))
   const ids = readFileSync(join(exported.json.out, exported.json.batches[0].file), 'utf8').trim().split('\n').map((line) => JSON.parse(line).id as string)
 
   const partial = await capture(t, ['label-import', BV_FIXTURE, exported.json.out])
@@ -98,5 +99,5 @@ test('host CLI：recheck 排除已引用 ID；propose 写入待审修改并校�
   await assert.rejects(runHost(['propose', 'nope', 'add', '--text', 'x'], { cwd }), /章节/)
   const proposal = await capture(t, ['propose', 'summarize', 'add', '--text=- 区分广告植入与真实体验。'])
   assert.match(proposal.json.apply, /ugc-lens playbook --apply /)
-  assert.ok(existsSync(join(cwd, '.ugc-lens', 'playbook.pending.json')))
+  assert.ok(existsSync(join(homedir(), '.ugc-lens', 'playbook.pending.json')))
 })

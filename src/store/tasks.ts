@@ -1,3 +1,5 @@
+import { homedir } from 'node:os'
+import { dataDir } from '../config.ts'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import * as z from 'zod'
@@ -38,8 +40,8 @@ export interface TaskStore {
   put(task: Task): Promise<void>
 }
 
-export function defaultTasksPath(cwd: string = process.cwd()): string {
-  return join(cwd, '.ugc-lens', 'tasks.json')
+export function defaultTasksPath(homeDir: string = homedir()): string {
+  return join(dataDir(homeDir), 'tasks.json')
 }
 
 /**

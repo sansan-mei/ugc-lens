@@ -69,7 +69,7 @@ export interface ChatHubOptions {
 export function webForUi(cwd: string, homeDir: string): { session?: WebSession; warning?: string } {
   try {
     if (!webEnabled({}, cwd, homeDir)) return {}
-    return { session: createWebSession({ config: loadWebConfig({}, cwd, homeDir), cacheDir: defaultWebCacheDir(cwd) }) }
+    return { session: createWebSession({ config: loadWebConfig({}, cwd, homeDir), cacheDir: defaultWebCacheDir(homeDir) }) }
   } catch (error) {
     return { warning: `联网未开启：${(error as Error).message}。可以在“设置 → 联网”里修改` }
   }
@@ -211,7 +211,7 @@ export function createChatHub(options: ChatHubOptions): ChatHub {
     if (history?.length) web.session?.observeHistory(history)
     const entry: Entry = { session: undefined as unknown as ChatSession, busy: false, announced: knownDatasets(history ?? []), record, web: web.session, webWarning: web.warning, loadModel: models.analysis }
     entry.session = createSession({
-      model: models.ask, analysisModel: models.analysis, modelName: models.name, cwd: options.cwd, stream: true, history, web: web.session, sharedCacheDir: sharedMappingsDir(options.homeDir),
+      model: models.ask, analysisModel: models.analysis, modelName: models.name, cwd: options.cwd, stream: true, history, web: web.session, homeDir: options.homeDir,
       extraTools: chatTools(id),
       extraPrompt: CHAT_HISTORY_PROMPT,
       memory: { cwd: options.cwd, homeDir: options.homeDir, onWarning: (message) => entry.listener?.({ type: 'warning', message }) },
@@ -251,7 +251,7 @@ export function createChatHub(options: ChatHubOptions): ChatHub {
     const warnings: string[] = []
     for (const path of new Set(wanted.values())) {
       try {
-        entry.session.attach(await loadDataset(path, { model, cacheDir: join(options.cwd, '.ugc-lens', 'mappings'), sharedCacheDir: sharedMappingsDir(options.homeDir) }))
+        entry.session.attach(await loadDataset(path, { model, cacheDir: sharedMappingsDir(options.homeDir) }))
       } catch (error) {
         warnings.push(`本对话之前使用的文件无法重新导入：${path}（${(error as Error).message}）`)
       }

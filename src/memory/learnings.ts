@@ -1,3 +1,4 @@
+import { dataDir } from '../config.ts'
 import { randomUUID } from 'node:crypto'
 import { appendFile, mkdir, open } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -17,7 +18,7 @@ export interface Learning {
   note?: string
   evidence_ids?: string[]
 }
-export const learningsPath = (memory: MemoryOptions): string => join(memory.cwd, '.ugc-lens', 'learnings.md')
+export const learningsPath = (memory: MemoryOptions): string => join(dataDir(memory.homeDir), 'learnings.md')
 export async function recordLearning(memory: MemoryOptions, datasets: readonly Dataset[], entry: Pick<Learning, 'kind' | 'observations' | 'playbook' | 'note' | 'evidence_ids'>): Promise<Learning> {
   if (!datasets.length) throw new Error('经验必须关联数据集')
   if (entry.kind === 'candidate' && (datasets.length !== 1 || !entry.evidence_ids?.length || entry.evidence_ids.some((id) => !getFeedback(datasets[0]!, id)))) throw new Error('候选经验必须绑定单个数据集并提供有效证据 ID')
@@ -28,7 +29,7 @@ export async function recordLearning(memory: MemoryOptions, datasets: readonly D
   const record: Learning = { ...entry, id: randomUUID(), created_at: new Date().toISOString(), dataset_ids: datasets.map((d) => d.id), platforms: [...new Set(datasets.map((d) => d.platform))] }
   const serialized = JSON.stringify(record)
   if (serialized.length > 7000) throw new Error('经验记录超过单条 7000 字符上限')
-  const dir = join(memory.cwd, '.ugc-lens')
+  const dir = dataDir(memory.homeDir)
   await mkdir(dir, { recursive: true })
   // JSON 单行可以无损检索原记录，避免笔记中的 Markdown 改变记录边界。
   await appendFile(learningsPath(memory), `\n## ${record.kind} ${record.id}\n\n\`\`\`json\n${serialized}\n\`\`\`\n`, { mode: 0o600 })
@@ -37,7 +38,7 @@ export async function recordLearning(memory: MemoryOptions, datasets: readonly D
 export async function recordOutcome(memory: MemoryOptions | undefined, datasets: readonly Dataset[], entry: Parameters<typeof recordLearning>[2]): Promise<string | undefined> {
   if (!memory || !datasets.length) return undefined
   try { await recordLearning(memory, datasets, entry) } catch {
-    const warning = '经验记录失败；本次回答或报告已保留，请检查 .ugc-lens 目录权限'
+    const warning = '经验记录失败；本次回答或报告已保留，请检查 ~/.ugc-lens 目录权限'
     try { memory.onWarning?.(warning) } catch { /* 通知失败不能掩盖分析结果。 */ }
     return warning
   }

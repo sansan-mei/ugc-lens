@@ -1,3 +1,5 @@
+import { homedir } from 'node:os'
+import { join } from 'node:path'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { test } from 'node:test'
@@ -17,7 +19,7 @@ test('情感工具保存完整逐条结果，对外返回紧凑汇总和可核�
     assert.equal(result.records, undefined)
     assert.equal(result.summary.counts.positive, 1)
     assert.equal(result.examples[0].id, 'a')
-    assert.ok(result.path.startsWith(sandbox.dir))
+    assert.ok(result.path.startsWith(join(homedir(), '.ugc-lens', 'sentiment')))
     const saved = JSON.parse(await readFile(result.path, 'utf8'))
     assert.equal(saved.records[0].score, 0.9)
     await assert.rejects(tool.execute({ token_budget: 0 }, sandbox.ctx), /参数/)

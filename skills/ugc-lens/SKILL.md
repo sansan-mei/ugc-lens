@@ -18,9 +18,9 @@ metadata:
 
 1. **MCP 已连接**：工具列表里有 `analyze`、`load_dataset` 等工具时直接使用，跳到“选择工具”。
 2. **未连接但可执行命令**：运行 `ugc-lens --version`（或 `npx -y ugc-lens --version`）确认已安装，需要 Node.js 22.18 或更高版本。可以直接用命令行完成任务：
-   - `ugc-lens analyze <文件> --focus 方向1,方向2`：完整报告打印到标准输出，并保存到当前目录 `.ugc-lens/reports/`；`--scenario reputation|competitor` 切换场景。
+   - `ugc-lens analyze <文件> --focus 方向1,方向2`：完整报告打印到标准输出，并保存到 `~/.ugc-lens/reports/`；`--scenario reputation|competitor` 切换场景。
    - `ugc-lens ask <文件> "问题1" "问题2"`：带 `[ID]` 依据的追问。
-   - 运行前确认工作目录，报告、缓存和经验会写到该目录的 `.ugc-lens/`；长任务给出合理超时。
+   - 工作目录只决定相对路径；报告、缓存和经验都写到 `~/.ugc-lens/`；长任务给出合理超时。
 3. **需要长期接入**：向用户提议注册 MCP，由用户确认后再修改宿主配置。`--cwd` 写数据项目的绝对路径：
    - Claude Code：`claude mcp add --transport stdio ugc-lens -- npx -y ugc-lens mcp --cwd /绝对路径/数据项目`
    - Codex：在 `~/.codex/config.toml` 添加 `[mcp_servers.ugc-lens]`，`command = "npx"`，`args = ["-y", "ugc-lens", "mcp", "--cwd", "/绝对路径/数据项目"]`
@@ -31,7 +31,7 @@ metadata:
 
 ## 宿主模型模式（不需要 key）
 
-ugc-lens 负责导入、统计、分块、检索和引用核验，你负责理解内容和写报告。命令都输出 JSON；在数据项目目录运行（`.ugc-lens/` 写在当前目录），未全局安装时把 `ugc-lens` 换成 `npx -y ugc-lens`。
+ugc-lens 负责导入、统计、分块、检索和引用核验，你负责理解内容和写报告。命令都输出 JSON；在数据项目目录运行（相对路径以当前目录为准，输出写在 `~/.ugc-lens/`），未全局安装时把 `ugc-lens` 换成 `npx -y ugc-lens`。
 
 1. `ugc-lens host describe <文件>`：`mapped: true` 时跳到第 3 步。media_crawl 的 B 站 `*_all.json`、TXT、Markdown、JSONL 字符串、JSON 字符串数组都内置支持。
 2. `mapped: false` 时，根据返回的 `shape`（每行一个路径、类型和示例）写映射规则 JSON，保存到临时文件后运行 `ugc-lens host mapping <文件> <规则.json>`；按返回的错误修改，直到 `ok: true`。规则格式：

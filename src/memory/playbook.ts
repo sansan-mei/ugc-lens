@@ -35,18 +35,17 @@ export function parsePlaybook(text: string, source = 'explicit'): PlaybookSnapsh
   return Object.freeze({ version, hash: createHash('sha256').update(text).digest('hex').slice(0, 12), source, text, sections: Object.freeze(sections) })
 }
 export const DEFAULT_PLAYBOOK = parsePlaybook(readFileSync(new URL('../../playbook/default.md', import.meta.url), 'utf8'), 'bundled')
-export const playbookPath = (memory: MemoryOptions, global = false): string => join(global ? memory.homeDir ?? homedir() : memory.cwd, '.ugc-lens', 'playbook.md')
+/** 手册只有 ~/.ugc-lens/playbook.md 一份，不再区分项目副本 */
+export const playbookPath = (memory: MemoryOptions): string => join(memory.homeDir ?? homedir(), '.ugc-lens', 'playbook.md')
 export function loadPlaybook(memory?: MemoryOptions): PlaybookSnapshot {
   if (!memory) return DEFAULT_PLAYBOOK
-  for (const path of [playbookPath(memory), playbookPath(memory, true)]) {
-    if (existsSync(path)) return parsePlaybook(readFileSync(path, 'utf8'), path)
-  }
-  return DEFAULT_PLAYBOOK
+  const path = playbookPath(memory)
+  return existsSync(path) ? parsePlaybook(readFileSync(path, 'utf8'), path) : DEFAULT_PLAYBOOK
 }
-export function initPlaybook(memory: MemoryOptions, global = false): string {
-  const path = playbookPath(memory, global)
+export function initPlaybook(memory: MemoryOptions): string {
+  const path = playbookPath(memory)
   if (existsSync(path)) return path
-  const text = global ? DEFAULT_PLAYBOOK.text : loadPlaybook(memory).text
+  const text = DEFAULT_PLAYBOOK.text
   mkdirSync(join(path, '..'), { recursive: true })
   try { writeFileSync(path, text, { flag: 'wx', mode: 0o600 }) } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
@@ -69,7 +68,7 @@ export function promptPlaybookInfo(prompt: string): PlaybookInfo | undefined {
 
 export type PlaybookChange = { operation: 'add' | 'patch' | 'remove'; section: PlaybookStage | 'common'; text?: string; match?: string }
 export interface PlaybookProposal { id: string; base: PlaybookInfo; created_at: string; change: PlaybookChange; text: string }
-const pendingPath = (memory: MemoryOptions): string => join(memory.cwd, '.ugc-lens', 'playbook.pending.json')
+const pendingPath = (memory: MemoryOptions): string => join(memory.homeDir ?? homedir(), '.ugc-lens', 'playbook.pending.json')
 export function readProposal(memory: MemoryOptions): PlaybookProposal | undefined {
   const path = pendingPath(memory)
   if (!existsSync(path)) return undefined

@@ -2,17 +2,17 @@ import { currentTask, withTask } from '../agent/usage.ts'
 import { writeFile } from 'node:fs/promises'
 import { parseArgs } from 'node:util'
 import { scenarioIds } from '../analysis/scenarios.ts'
-import { loadLlmConfig, sharedMappingsDir } from '../config.ts'
+import { loadLlmConfig } from '../config.ts'
 import { loadDataset } from '../ingest/index.ts'
 import { analyzeDataset } from '../pipeline/analyze.ts'
 import { mappingSource, abortOnInterrupt, analysisModel, formatAnalyzeProgress, positiveNumber, splitList, UsageError } from './common.ts'
 
 export const ANALYZE_USAGE = `用法：ugc-lens analyze <文件> [选项]
 
-分析一个数据文件，Markdown 报告打印到标准输出，并保存到 .ugc-lens/reports/。
+分析一个数据文件，Markdown 报告打印到标准输出，并保存到 ~/.ugc-lens/reports/。
 
   -o, --output <文件>    报告另存到这个文件，不再打印到标准输出
-  --no-save              不保存到 .ugc-lens/reports/
+  --no-save              不保存到 ~/.ugc-lens/reports/
   --chars <字数>         交给模型的评论总字数，默认 80000
   --focus <方向>         只分析这些方向，逗号分开，例如 价格,售后
   --concurrency <数>     同时调用模型的块数，默认 4
@@ -67,7 +67,7 @@ export async function runAnalyze(argv: readonly string[]): Promise<void> {
   const model = analysisModel(config)
   const { signal } = abortOnInterrupt('正在取消')
 
-  const dataset = await loadDataset(args.file, { sharedCacheDir: sharedMappingsDir(), model, signal })
+  const dataset = await loadDataset(args.file, { model, signal })
   console.error(`已导入 ${dataset.items.length} 条（文件结构${mappingSource(dataset.mapping)}）`)
   const result = await analyzeDataset({
     memory: { cwd: process.cwd(), onWarning: (message) => console.error(message) },

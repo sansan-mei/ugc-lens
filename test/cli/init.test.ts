@@ -53,7 +53,7 @@ describe('runInitFlow', () => {
     assert.deepEqual(result, { provider: 'deepseek', api_key: 'sk-test', model: 'model-b' })
     assert.deepEqual(saved(), result)
     assert.equal(statSync(globalConfigPath(home)).mode & 0o777, 0o600)
-    assert.equal(readFileSync(playbookPath({ cwd: home, homeDir: home }, true), 'utf8'), DEFAULT_PLAYBOOK.text)
+    assert.equal(readFileSync(playbookPath({ cwd: home, homeDir: home }), 'utf8'), DEFAULT_PLAYBOOK.text)
     assert.ok(io.printed.some((line) => line.includes('DeepSeek')))
     assert.ok(io.printed.some((line) => line.includes('测试调用通过')))
   })

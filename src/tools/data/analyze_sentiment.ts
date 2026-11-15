@@ -1,3 +1,4 @@
+import { dataDir } from '../../config.ts'
 import { randomUUID } from 'node:crypto'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -9,7 +10,7 @@ import { analyzeSentiment } from '../../sentiment/index.ts'
 import { defineTool } from '../define.ts'
 import { datasetIdParam, resolveDataset } from './shared.ts'
 
-export function createAnalyzeSentimentTool(store: DatasetStore, model: AgentModel) {
+export function createAnalyzeSentimentTool(store: DatasetStore, model: AgentModel, homeDir?: string) {
   return defineTool({
     name: 'analyze_sentiment',
     description: '分批调用 AI 对原文逐条评分（-1～1），代码精确汇总情感数量、比例、均值、覆盖率和类型分布。情感分析或情感比例问题优先使用；不要靠少数检索结果估计比例。返回汇总、引用示例和完整逐条 JSON 路径；最后据此解读，说明未评估部分。会使用模型 token，默认预算 30000。',
@@ -23,7 +24,7 @@ export function createAnalyzeSentimentTool(store: DatasetStore, model: AgentMode
     async execute({ dataset_id, target, kinds, content_id, token_budget }, ctx) {
       const result = await analyzeSentiment({ dataset: resolveDataset(store, dataset_id), model, target, kinds, contentId: content_id, tokenBudget: token_budget, signal: ctx.signal })
       ctx.signal.throwIfAborted()
-      const dir = join(ctx.cwd, '.ugc-lens', 'sentiment')
+      const dir = join(dataDir(homeDir), 'sentiment')
       await mkdir(dir, { recursive: true })
       const path = join(dir, `${randomUUID()}.json`)
       await writeFile(path, JSON.stringify(result, null, 2), { mode: 0o600 })

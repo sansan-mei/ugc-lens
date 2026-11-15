@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -13,6 +13,17 @@ function sandbox() {
   const cwd = mkdtempSync(join(tmpdir(), 'ugc-learning-'))
   return { memory: { cwd, homeDir: cwd }, cleanup: () => rmSync(cwd, { recursive: true, force: true }) }
 }
+test('learnings：经验只写入 ~/.ugc-lens/learnings.md，不写启动目录', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'ugc-learning-'))
+  const memory = { cwd: join(root, 'project'), homeDir: join(root, 'home') }
+  try {
+    await recordLearning(memory, [dataset], { kind: 'candidate', note: '价格', observations: {}, evidence_ids: ['c1'] })
+    assert.ok(existsSync(join(memory.homeDir, '.ugc-lens', 'learnings.md')))
+    assert.equal(existsSync(join(memory.cwd, '.ugc-lens')), false)
+    assert.equal((await searchLearnings(memory)).entries.length, 1)
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
 test('learnings：并发追加保留所有原记录，按数据集和关键词分页，不自动总结', async () => {
   const { memory, cleanup } = sandbox()
   try {

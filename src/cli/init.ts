@@ -9,7 +9,7 @@ export const INIT_USAGE = `用法：ugc-lens init
 
 交互式初始化：选择提供商和模型、填 API key、发一次测试调用，
 写入全局配置 ~/.ugc-lens/config.json（权限 600），所有目录下生效。
-密钥只保存在全局配置；项目目录的 .ugc-lens/config.json 只能覆盖提供商、模型等非密钥设置。`
+ugc-lens 的全部数据只放在 ~/.ugc-lens，启动目录下不读取也不写入配置。`
 
 /** 交互的输入输出，测试时换成假的 */
 export interface InitIo {
@@ -141,7 +141,7 @@ export async function runInitFlow(deps: InitDeps): Promise<LlmConfigFile | undef
   }
 
   const path = writeGlobalConfig(file, deps.homeDir)
-  initPlaybook({ cwd: deps.cwd ?? process.cwd(), homeDir: deps.homeDir }, true)
+  initPlaybook({ cwd: deps.cwd ?? process.cwd(), homeDir: deps.homeDir })
   io.print(`已写入 ${path}（权限 600），所有目录下生效。密钥不会写入项目目录。`)
   return file
 }

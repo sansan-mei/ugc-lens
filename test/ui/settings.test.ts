@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, statSync, writeFileSync, rmSync } from 'node:fs'
 import { request } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { join } from 'node:path'
@@ -185,16 +185,16 @@ test('settings：保存后已有对话改用新配置', async () => {
   }
 })
 
-test('settings：环境变量和项目配置覆盖时列出覆盖项', async () => {
+test('settings：环境变量覆盖时列出覆盖项；启动目录的配置不算覆盖', async () => {
   process.env.UGC_LENS_MODEL = 'env-model'
   mkdirSync(join(cwd, '.ugc-lens'), { recursive: true })
   writeFileSync(join(cwd, '.ugc-lens', 'config.json'), JSON.stringify({ llm: { model: 'project-model' } }))
   try {
     const r = await call('/api/settings')
     assert.ok(r.json.overrides.includes('UGC_LENS_MODEL'))
-    assert.ok(r.json.overrides.some((o: string) => o.includes('model') && o.includes('项目')))
+    assert.equal(r.json.overrides.some((o: string) => o.includes('项目')), false)
     assert.equal(r.json.effective.model, 'env-model')
-  } finally { delete process.env.UGC_LENS_MODEL }
+  } finally { delete process.env.UGC_LENS_MODEL; rmSync(join(cwd, '.ugc-lens'), { recursive: true, force: true }) }
 })
 
 test('settings 联网：读取、测试搜索、保存；读取时不返回 key', async () => {

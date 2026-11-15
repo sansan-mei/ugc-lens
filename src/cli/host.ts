@@ -1,4 +1,4 @@
-import { sharedMappingsDir } from '../config.ts'
+import { dataDir, sharedMappingsDir } from '../config.ts'
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { parseArgs } from 'node:util'
@@ -22,9 +22,9 @@ export const HOST_USAGE = `用法：ugc-lens host <操作> <文件> [参数]
 宿主模型模式：不读取 ugc-lens 的模型配置，由 Claude Code、Codex 等宿主自己的模型阅读分块并写报告，ugc-lens 只做导入、统计、分块、检索和引用核验。结果以 JSON 打印到标准输出。
 
   describe <文件>                  能否不经模型导入；不能时给出结构摘要，供宿主写映射规则
-  mapping <文件> <规则.json>       校验宿主写的映射规则并试转换，通过后写入 .ugc-lens/mappings/
+  mapping <文件> <规则.json>       校验宿主写的映射规则并试转换，通过后写入 ~/.ugc-lens/mappings/
   prepare <文件> [选项]            写出 facts.md、guide.md、chunks/*.md 和 manifest.json
-      --out <目录>                 输出目录，默认 .ugc-lens/host/<数据集ID>
+      --out <目录>                 输出目录，默认 ~/.ugc-lens/host/<数据集ID>
       --focus <方向>               分析方向，逗号分开
       --scenario <名称>            场景手册：${scenarioIds().join('、')}
       --chars <字数>               分块的评论总字数，超出时抽样，默认 80000
@@ -39,13 +39,13 @@ export const HOST_USAGE = `用法：ugc-lens host <操作> <文件> [参数]
       --goal <目标>                business 的分析目标；--background <背景> 可选
       --kinds <类型> --content <内容ID>  限定范围
       --sample <条数> --seed <数>  数据很大时随机抽样标注，结果注明为样本
-      --batch <条数>               每批条数，默认 50；--out <目录> 默认 .ugc-lens/host/<ID>/labels-<任务>
+      --batch <条数>               每批条数，默认 50；--out <目录> 默认 ~/.ugc-lens/host/<ID>/labels-<任务>
   label-import <文件> <任务目录>    校验 answers/*.jsonl 并汇总分布、占比或机会列表；有错误或遗漏时退出码 1
   recheck <文件> --query <检索词>   补查：找出未被引用的相关原文供核对反例，--query 最多 3 个，--exclude 已引用 ID（逗号分开）
   propose <章节> <add|patch|remove> --text <规则> [--match <原文>]
                                    提出分析手册修改（章节：common、ask、summarize、merge），由用户 ugc-lens playbook --apply 生效
 
-相对路径和 .ugc-lens/ 以当前目录为准。`
+相对路径以当前目录为准；所有输出默认写在 ~/.ugc-lens/。`
 
 const brief = (item: FeedbackItem) => ({
   id: item.id, kind: item.kind, text: item.text, parent_id: item.parent_id, content_id: item.content_id,
@@ -56,7 +56,7 @@ export interface HostIo { cwd?: string; write?: (text: string) => void }
 
 async function load(file: string, cacheDir: string) {
   try {
-    return await loadDataset(file, { cacheDir, sharedCacheDir: sharedMappingsDir() })
+    return await loadDataset(file, { cacheDir })
   } catch (error) {
     if (error instanceof ImportError && error.code === 'no_model') {
       throw new ImportError('no_model', `${error.message}。宿主模型模式下先运行 ugc-lens host describe ${file} 查看结构，再用 ugc-lens host mapping ${file} <规则.json> 提交规则`)
@@ -91,7 +91,7 @@ export async function runHost(argv: readonly string[], io: HostIo = {}): Promise
     return print({ id: proposal.id, base: proposal.base, apply: `ugc-lens playbook --apply ${proposal.id}`, reject: `ugc-lens playbook --reject ${proposal.id}`, text: proposal.text })
   }
   if (!file) throw new UsageError(`${action} 需要数据文件路径`)
-  const cacheDir = join(cwd, '.ugc-lens', 'mappings')
+  const cacheDir = sharedMappingsDir()
 
   switch (action) {
     case 'describe':
@@ -108,7 +108,7 @@ export async function runHost(argv: readonly string[], io: HostIo = {}): Promise
     case 'prepare': {
       if (values.scenario !== undefined && !scenarioIds().includes(values.scenario)) throw new UsageError(`未知的分析场景 "${values.scenario}"，可选：${scenarioIds().join(', ')}`)
       const dataset = await load(file, cacheDir)
-      const outDir = values.out ?? join(cwd, '.ugc-lens', 'host', dataset.id)
+      const outDir = values.out ?? join(dataDir(), 'host', dataset.id)
       const manifest = await prepareHostRun({
         file, outDir, cacheDir, directions: splitList(values.focus), scenario: values.scenario,
         maxTotalChars: positiveNumber('chars', values.chars), memory: { cwd, onWarning: (message) => console.error(message) },
@@ -158,7 +158,7 @@ export async function runHost(argv: readonly string[], io: HostIo = {}): Promise
       const unknown = kinds?.filter((kind) => !(FEEDBACK_KINDS as readonly string[]).includes(kind))
       if (unknown?.length) throw new UsageError(`未知类型：${unknown.join(', ')}`)
       const dataset = await load(file, cacheDir)
-      const outDir = values.out ?? join(cwd, '.ugc-lens', 'host', dataset.id, `labels-${type}`)
+      const outDir = values.out ?? join(dataDir(), 'host', dataset.id, `labels-${type}`)
       const integer = (name: string, value: string | undefined) => {
         const n = positiveNumber(name, value)
         if (n !== undefined && !Number.isInteger(n)) throw new UsageError(`--${name} 需要整数`)

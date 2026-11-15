@@ -51,7 +51,7 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit && tsc -p web/tsconfig.json",
-    "test": "node --test \"test/**/*.test.ts\"",
+    "test": "node --import ./test/helpers/home.ts --test \"test/**/*.test.ts\"",
     "build": "node scripts/build.ts && npm run build:ui",
     "prepublishOnly": "npm run typecheck && npm test && npm run build",
     "chat": "node --env-file-if-exists=.env examples/01_chat.ts",

@@ -34,7 +34,7 @@ node src/cli/index.ts
 你 > 停止监听
 ```
 
-会话会记住已导入的数据和对话，监听在后台运行，可以继续提问。输入 `/exit`、`/quit`，或按 Ctrl+D、Ctrl+C 退出并停止后台监听。对话历史只在本次进程内保留，报告和监听任务状态保存到当前目录的 `.ugc-lens/`。原有子命令仍可单独使用。
+会话会记住已导入的数据和对话，监听在后台运行，可以继续提问。输入 `/exit`、`/quit`，或按 Ctrl+D、Ctrl+C 退出并停止后台监听。对话历史只在本次进程内保留，报告和监听任务状态保存到 `~/.ugc-lens/`。原有子命令仍可单独使用。
 
 ## 配置模型
 
@@ -46,13 +46,15 @@ ugc-lens init
 
 交互式地选提供商、从 `/models` 列表里选模型、填 API key 并发一次测试调用，写入全局配置 `~/.ugc-lens/config.json`（权限 600），所有目录下都能用。
 
-**密钥只保存在全局配置**，不写进任何项目目录：ugc-lens 不读取当前目录的 `.env`，项目的 `.ugc-lens/config.json` 里写 `api_key` 会报错。临时换一个 key 可以设置进程环境变量：
+**所有数据只在 `~/.ugc-lens/` 一个目录**：配置、报告、规则缓存、经验、手册、对话历史等都写在这里，在哪个目录启动都一样，启动目录下不会生成 `.ugc-lens/`。早期版本写在项目目录 `.ugc-lens/` 里的内容不再读取，需要时手动搬过来。
+
+**密钥只保存在全局配置**，不写进任何项目目录：ugc-lens 不读取当前目录的 `.env` 和 `.ugc-lens/config.json`。临时换一个 key 可以设置进程环境变量：
 
 ```bash
 UGC_LENS_PROVIDER=deepseek UGC_LENS_MODEL=deepseek-flash DEEPSEEK_API_KEY=你的key ugc-lens analyze data.json
 ```
 
-支持 DeepSeek、通义千问、Kimi、智谱、MiniMax、OpenAI、Claude、Gemini、Grok、OpenRouter 和本地模型，变量名和差异见 [模型提供商](docs/providers.md)。优先级：进程环境变量 > 项目 `.ugc-lens/config.json`（只能改提供商、模型等非密钥设置）> 全局配置。
+支持 DeepSeek、通义千问、Kimi、智谱、MiniMax、OpenAI、Claude、Gemini、Grok、OpenRouter 和本地模型，变量名和差异见 [模型提供商](docs/providers.md)。优先级：进程环境变量 > 全局配置。
 
 ## 使用
 
@@ -60,7 +62,7 @@ UGC_LENS_PROVIDER=deepseek UGC_LENS_MODEL=deepseek-flash DEEPSEEK_API_KEY=你的
 ugc-lens                                          # 持续对话，自动选择工具
 ugc-lens init                                     # 初始化模型配置
 
-# 分析一个文件：报告打印到标准输出，同时保存到 .ugc-lens/reports/
+# 分析一个文件：报告打印到标准输出，同时保存到 ~/.ugc-lens/reports/
 ugc-lens analyze bilibili_all.json > report.md
 ugc-lens analyze bilibili_all.json --focus 价格,售后     # 只看这些方向
 
@@ -74,10 +76,10 @@ ugc-lens watch ./data --pattern "*_all.json,*_comments.json" --existing
 ugc-lens <命令> --help    # 查看全部选项
 ```
 
-- 文件结构第一次由模型识别，规则缓存在 `.ugc-lens/mappings/`，同样结构的文件之后不再调用模型。
+- 文件结构第一次由模型识别，规则缓存在 `~/.ugc-lens/mappings/`，同样结构的文件之后不再调用模型。
 - 报告包括：概况、IP 属地、关键词、弹幕高峰、各方向（主要观点、吐槽点、正面评价、争议）的主题和原文引用，末尾是耗时和 token 用量。
 - 统计、去重、关键词、引用校验都由代码完成，模型只负责分块总结和合并，一个 10 万条评论的文件大约用 6～7 万 token。
-- `watch` 的任务状态存在 `.ugc-lens/tasks.json`，按 Ctrl+C 停止后再启动会继续没做完的任务。
+- `watch` 的任务状态存在 `~/.ugc-lens/tasks.json`，按 Ctrl+C 停止后再启动会继续没做完的任务。
 
 ## 输入格式
 
@@ -110,7 +112,7 @@ node src/cli/index.ts analyze survey.csv
 
 ## 分析手册与经验
 
-分析规则放在 Markdown 手册里，按“项目 `.ugc-lens/playbook.md` → 全局 `~/.ugc-lens/playbook.md` → 包内默认”选择。`init` 首次创建全局副本，已有内容会保留。
+分析规则放在 Markdown 手册里，只有 `~/.ugc-lens/playbook.md` 一份，没有时用包内默认。`init` 首次创建副本，已有内容会保留。
 
 ```bash
 ugc-lens playbook                     # 查看当前规则、来源、版本和待审修改
@@ -122,7 +124,7 @@ ugc-lens playbook --reject <ID>       # 丢弃待审修改
 
 手册保留“共同规则、追问、分块总结、合并”四个章节与正整数版本，最多 4000 字符。每次分析开始时读取一次，同一次分析的总结和合并使用相同快照；持续对话开始后也保持不变。编辑或应用规则后，下次分析或新对话生效。报告会标明版本和内容指纹，即使忘记修改版本号也能识别差异。
 
-分析和数据问答完成后，CLI 与 MCP 自动向项目 `.ugc-lens/learnings.md` 追加运行观察，例如失败分块、无效引用、规则版本。不会额外调用模型，也不保存完整问题或回答。`--no-save` 只关闭报告保存，经验仍会记录；记录失败时保留结果并给出警告。
+分析和数据问答完成后，CLI 与 MCP 自动向 `~/.ugc-lens/learnings.md` 追加运行观察，例如失败分块、无效引用、规则版本。不会额外调用模型，也不保存完整问题或回答。`--no-save` 只关闭报告保存，经验仍会记录；记录失败时保留结果并给出警告。
 
 对话和 MCP 提供 `search_learnings`（按关键词、数据集分页检索）、`record_learning`（附真实原文 ID 的候选经验）和 `playbook_update`（提出待审规则修改）。历史经验只在需要时检索，仍须核对当前样本；候选经验不会自动变成规则。模型提出的规则修改必须由用户用上面的命令应用。
 
@@ -132,7 +134,7 @@ ugc-lens playbook --reject <ID>       # 丢弃待审修改
 
 在持续对话或 `ask` 中直接说“分析这份数据的情感分数和正负面比例”，模型会调用 `analyze_sentiment`。它分批让 AI 对每条原文给出 -1～1 的分数及理由，再由代码汇总，最后让对话模型解读。可指定评价对象、`kinds` 和 `content_id`；不指定对象时评估文本整体情绪，情绪不等于对某个选择的支持/反对。
 
-每条记录等权，不按点赞加权。分数 >0.2 为正面、<-0.2 为负面，其余中性；正负混合单列，不因均值为 0 算作中性。无法判断单独计数，并保留反讽标记与实际评价对象。比例以已评估条数（含无法判断）为分母，均值仅使用有效数值；同时返回导入样本内的实际评估覆盖率。完整逐条评分保存在当前工作目录 `.ugc-lens/sentiment/*.json`。默认独立 token 预算 30000，达到预算后返回已完成部分；预算为软上限，失败、遗漏和超长未处理项均不会算作中性。此用量在工具结果中单独返回，不包含在外层对话的 token 统计中。当前 `analyze` 固定报告流水线不会自动增加情感调用。
+每条记录等权，不按点赞加权。分数 >0.2 为正面、<-0.2 为负面，其余中性；正负混合单列，不因均值为 0 算作中性。无法判断单独计数，并保留反讽标记与实际评价对象。比例以已评估条数（含无法判断）为分母，均值仅使用有效数值；同时返回导入样本内的实际评估覆盖率。完整逐条评分保存在 `~/.ugc-lens/sentiment/*.json`。默认独立 token 预算 30000，达到预算后返回已完成部分；预算为软上限，失败、遗漏和超长未处理项均不会算作中性。此用量在工具结果中单独返回，不包含在外层对话的 token 统计中。当前 `analyze` 固定报告流水线不会自动增加情感调用。
 
 采样数据可以分析样本内主题和情绪，搜集占平台全量的比例并不等于采样完成率。缺少采样设计元数据时，不推测置信度或整体误差保证，也不把样本内比例说成平台全量比例。默认手册已更新；已有项目或全局 `playbook.md` 保留原文，需要手动同步上述采样和情感规则，新对话才会加载。
 
@@ -149,7 +151,7 @@ ugc-lens playbook --reject <ID>       # 丢弃待审修改
 | 时间轴 | `get_content_timeline` 按内容 ID 对齐弹幕时间窗口与字幕，支持分页；无字幕不猜画面，不将同时间段的现象当作因果。 |
 | 覆盖记录 | `get_analysis_coverage` 展示各导入集合及重复信号；固定报告另展示成功块、失败块、跳过与未选择数量。成功总结块不表示已逐条归类。 |
 
-主题和商业分析可用 `kinds`、`content_id` 筛选，默认逐条阶段预算 30000；主题发现阶段额外用量在 `discovery` 中返回，不包含在逐条阶段预算内。完整结果保存在 `.ugc-lens/topics/` 和 `.ugc-lens/business/`，代码 API `classifyTopics`、`analyzeBusiness` 不自动写文件。固定 `analyze` 流水线新增覆盖及时间轴表，主题精确归类、情感和商业分析仍按需调用，不默认增加这些模型请求。
+主题和商业分析可用 `kinds`、`content_id` 筛选，默认逐条阶段预算 30000；主题发现阶段额外用量在 `discovery` 中返回，不包含在逐条阶段预算内。完整结果保存在 `~/.ugc-lens/topics/` 和 `~/.ugc-lens/business/`，代码 API `classifyTopics`、`analyzeBusiness` 不自动写文件。固定 `analyze` 流水线新增覆盖及时间轴表，主题精确归类、情感和商业分析仍按需调用，不默认增加这些模型请求。
 
 ### 本地用户画像
 
@@ -220,7 +222,7 @@ ugc-lens mcp --cwd /数据项目 --web                 # 仅供服务内部的 a
 | `timeout_ms` | 15000 | 单次请求超时 |
 | `max_bytes` | 2000000 | 单个网页最大字节数（解压后同样受限） |
 | `max_chars` | 8000 | 返回给模型的正文最大字符数 |
-| `cache_ttl_hours` | 24 | 本地缓存有效期，缓存在项目 `.ugc-lens/web-cache/` |
+| `cache_ttl_hours` | 24 | 本地缓存有效期，缓存在 `~/.ugc-lens/web-cache/` |
 
 注意事项：
 
@@ -243,7 +245,7 @@ claude mcp add --transport stdio ugc-lens -- npx -y ugc-lens@0.0.15 mcp --cwd /�
 claude mcp add --transport stdio ugc-lens -- node /绝对路径/ugc-lens/src/cli/index.ts mcp --cwd /绝对路径/数据项目
 ```
 
-两种配置选一种。在 Claude Code 的 `/mcp` 中确认连接，然后直接说“分析 `/绝对路径/video_all.json`，重点看价格”，宿主会选择工具。`--cwd` 指定配置、缓存、报告和相对数据路径的基准目录；服务沿用环境变量、项目配置、全局配置的优先级。
+两种配置选一种。在 Claude Code 的 `/mcp` 中确认连接，然后直接说“分析 `/绝对路径/video_all.json`，重点看价格”，宿主会选择工具。`--cwd` 指定相对数据路径的基准目录；配置、缓存、报告都在 `~/.ugc-lens/`，服务沿用环境变量、全局配置的优先级。
 
 其他支持 stdio 的宿主可使用同等配置：
 
@@ -321,9 +323,9 @@ ugc-lens ui --cwd ./data --no-open
 
 ```bash
 ugc-lens host describe video_all.json             # 能否直接导入；不能时给出结构摘要
-ugc-lens host mapping data.json rule.json         # 宿主写的映射规则，校验后写入 .ugc-lens/mappings/
+ugc-lens host mapping data.json rule.json         # 宿主写的映射规则，校验后写入 ~/.ugc-lens/mappings/
 ugc-lens host prepare video_all.json --focus 价格,售后
-#   → .ugc-lens/host/<ID>/facts.md、guide.md、chunks/*.md、manifest.json
+#   → ~/.ugc-lens/host/<ID>/facts.md、guide.md、chunks/*.md、manifest.json
 ugc-lens host search video_all.json "退款|退钱"     # 真实匹配总数和原文
 ugc-lens host get video_all.json <ID>             # 全文、上级和直接回复
 ugc-lens host verify video_all.json report.md     # [ID] 存在、"摘句" [ID] 逐字出现；有问题退出码 1
@@ -332,7 +334,7 @@ ugc-lens host verify video_all.json report.md     # [ID] 存在、"摘句" [ID] 
 ugc-lens host label-export video_all.json sentiment --target 价格   # 情感
 ugc-lens host label-export video_all.json topics --topics topics.json  # 主题归类
 ugc-lens host label-export video_all.json business --goal 付费机会     # 商业机会
-ugc-lens host label-import video_all.json .ugc-lens/host/<ID>/labels-sentiment
+ugc-lens host label-import video_all.json ~/.ugc-lens/host/<ID>/labels-sentiment
 
 ugc-lens host recheck video_all.json --query "退款|退钱" --exclude 101,102   # 补查反例候选
 ugc-lens host propose summarize add --text="- 区分广告与真实体验"          # 待审的手册修改
@@ -381,7 +383,7 @@ npm run stats        # 模型识别 JSON 文件结构，转换成统一格式并
 npm run ask          # 用数据工具追问，回答带评论 ID 作为证据（需要 .env）
 npm run chunks       # 新词发现、关键词、弹幕高峰和分块结果，不调用模型做分析
 npm run summarize    # 分块总结：每块调用一次模型，打印各方向的观点、引用和 token 用量（需要 .env）
-npm run analyze      # 完整分析，Markdown 报告打印出来并保存到 .ugc-lens/reports/（需要 .env）
+npm run analyze      # 完整分析，Markdown 报告打印出来并保存到 ~/.ugc-lens/reports/（需要 .env）
 npm run watch -- <目录> # 监听目录，新出现的 *_all.json 写完后自动分析（需要 .env）
 ```
 

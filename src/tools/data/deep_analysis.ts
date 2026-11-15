@@ -1,3 +1,4 @@
+import { dataDir } from '../../config.ts'
 import { randomUUID } from 'node:crypto'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -15,8 +16,8 @@ import { discoverAndClassifyTopics } from '../../pipeline/topics.ts'
 import { defineTool } from '../define.ts'
 import { datasetIdParam, resolveDataset } from './shared.ts'
 
-async function persist(cwd: string, category: string, value: unknown) {
-  const dir = join(cwd, '.ugc-lens', category)
+async function persist(homeDir: string | undefined, category: string, value: unknown) {
+  const dir = join(dataDir(homeDir), category)
   await mkdir(dir, { recursive: true })
   const path = join(dir, `${randomUUID()}.json`)
   await writeFile(path, JSON.stringify(value, null, 2), { mode: 0o600 })
@@ -35,7 +36,7 @@ export function createDeepAnalysisTools(store: DatasetStore, model?: AgentModel,
       const run = await discoverAndClassifyTopics({ dataset, model, playbook: loadPlaybook(memory), topics, kinds, contentId: content_id, tokenBudget: token_budget, signal: ctx.signal })
       if (!run.result) return JSON.stringify({ dataset_id: dataset.id, discovery: run.discovery, topics: [], note: run.note })
       ctx.signal.throwIfAborted()
-      const path = await persist(ctx.cwd, 'topics', { ...run.result, discovery: run.discovery })
+      const path = await persist(memory?.homeDir, 'topics', { ...run.result, discovery: run.discovery })
       const { records, ...summary } = run.result
       return JSON.stringify({ ...summary, discovery: run.discovery, path, issues: records.filter((r) => r.status !== 'processed').slice(0, 3) })
     } }),
@@ -43,7 +44,7 @@ export function createDeepAnalysisTools(store: DatasetStore, model?: AgentModel,
       const background = memory ? visibleProfile(memory) : undefined
       const result = await analyzeBusiness({ dataset: resolveDataset(store, dataset_id), model, goal, background, kinds, contentId: content_id, tokenBudget: token_budget, signal: ctx.signal })
       ctx.signal.throwIfAborted()
-      const path = await persist(ctx.cwd, 'business', result)
+      const path = await persist(memory?.homeDir, 'business', result)
       const { records, opportunities, ...summary } = result
       return JSON.stringify({ ...summary, path, opportunities: opportunities.slice(0, 15), opportunities_total: opportunities.length, omitted: Math.max(0, opportunities.length - 15), issues: records.filter((r) => r.status !== 'processed').slice(0, 3) })
     } }),

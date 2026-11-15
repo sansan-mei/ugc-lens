@@ -88,12 +88,6 @@ export function describeSettings(cwd: string, homeDir: string, env: NodeJS.Proce
   const overrides = ['UGC_LENS_PROVIDER', 'UGC_LENS_MODEL', 'UGC_LENS_BASE_URL', 'UGC_LENS_REGION'].filter((name) => env[name])
   const keyEnv = global.api_key_env ?? presetOf(global.provider)?.apiKeyEnv
   if (keyEnv && env[keyEnv]) overrides.push(keyEnv)
-  try {
-    const project = readConfigSection<LlmConfigFile>(cwd, 'llm')
-    for (const field of ['provider', 'model', 'region', 'base_url'] as const) {
-      if (project[field]) overrides.push(`项目配置 ${field}`)
-    }
-  } catch { /* 项目配置无法解析时，下面的 effective 会给出错误 */ }
 
   let effective: SettingsView['effective']
   try {

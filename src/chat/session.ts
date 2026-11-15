@@ -7,7 +7,8 @@ import { runAgent, type AgentRunResult } from '../agent/loop.ts'
 import type { AgentModel } from '../agent/model.ts'
 import { buildAskPrompt } from '../ask/index.ts'
 import type { Dataset } from '../dataset/types.ts'
-import { datasetId, loadDataset } from '../ingest/index.ts'
+import { datasetId, defaultCacheDir, loadDataset } from '../ingest/index.ts'
+import { dataDir } from '../config.ts'
 import type { ChatMessage } from '../llm/types.ts'
 import { DEFAULT_PLAYBOOK, loadPlaybook, playbookInfo, type MemoryOptions, type PlaybookSnapshot } from '../memory/playbook.ts'
 import { recordOutcome } from '../memory/learnings.ts'
@@ -19,6 +20,7 @@ import { openTaskStore, type TaskStore } from '../store/tasks.ts'
 import { createDataTools } from '../tools/data/index.ts'
 import { resolveDataset } from '../tools/data/shared.ts'
 import { defineTool } from '../tools/define.ts'
+import type { AgentTool } from '../tools/types.ts'
 import { watchDirectory, type WatchEvent } from '../watch/index.ts'
 import { scenarioIds } from '../analysis/scenarios.ts'
 import { findWebCitations, guardAfterWeb, WEB_PROMPT, type WebCitations, type WebSession } from '../web/tools.ts'
@@ -47,8 +49,8 @@ export interface SessionOptions {
   onEvent?: RunEventListener
   onWatchEvent?: (event: WatchEvent) => void
   load?: typeof loadDataset
-  /** 跨项目共用的结构规则缓存目录（入口层传 ~/.ugc-lens/mappings）；不传只用项目缓存 */
-  sharedCacheDir?: string
+  /** 数据目录所在的用户主目录（规则缓存、监听任务都在 <homeDir>/.ugc-lens），默认当前用户 */
+  homeDir?: string
   analyze?: (options: AnalyzeOptions) => Promise<Pick<AnalyzeResult, 'markdown' | 'path' | 'calls' | 'usage' | 'memory_warning'>>
   watch?: typeof watchDirectory
   /** 开启联网时传入；整个会话共用，来源编号跨轮延续 */
@@ -57,6 +59,10 @@ export interface SessionOptions {
   stream?: boolean
   /** 恢复已保存的对话：不含 system 的历史消息，接在本次的 system prompt 之后 */
   history?: readonly ChatMessage[]
+  /** 入口层追加的只读工具（如界面的历史对话） */
+  extraTools?: readonly AgentTool[]
+  /** 与 extraTools 配套的使用说明，接在 system prompt 末尾，整个会话不变 */
+  extraPrompt?: string
 }
 
 export interface ChatSession {
@@ -70,7 +76,7 @@ export interface ChatSession {
 export function createSession(options: SessionOptions): ChatSession {
   const cwd = resolve(options.cwd ?? process.cwd())
   const playbook = loadPlaybook(options.memory)
-  const system = options.web ? `${buildSessionPrompt(playbook)}\n\n${WEB_PROMPT}` : buildSessionPrompt(playbook)
+  const system = [buildSessionPrompt(playbook), options.web ? WEB_PROMPT : '', options.extraPrompt ?? ''].filter(Boolean).join('\n\n')
   const lifetime = new AbortController()
   const datasets = new Map<string, Dataset>()
   const store = { list: () => [...datasets.values()], get: (id: string) => datasets.get(id) }
@@ -86,7 +92,7 @@ export function createSession(options: SessionOptions): ChatSession {
     const path = resolve(cwd, file)
     const cached = [...datasets.values()].find((dataset) => dataset.file_path === path)
     if (cached) return cached
-    const dataset = await load(path, { model, signal, cacheDir: join(cwd, '.ugc-lens', 'mappings'), sharedCacheDir: options.sharedCacheDir })
+    const dataset = await load(path, { model, signal, cacheDir: defaultCacheDir(options.homeDir) })
     signal.throwIfAborted()
     datasets.set(dataset.id, dataset)
     return dataset
@@ -105,6 +111,7 @@ export function createSession(options: SessionOptions): ChatSession {
       ...(options.memory ? createMemoryTools(store, options.memory, playbook) : []),
     ], options.web),
     ...(options.web?.tools() ?? []),
+    ...(options.extraTools ?? []),
     defineTool({
       name: 'list_files',
       description: '列出目录中的文件和子目录（分页），用于寻找用户的数据文件；不读取文件正文。',
@@ -145,7 +152,7 @@ export function createSession(options: SessionOptions): ChatSession {
         const path = resolve(cwd, dir)
         if (!(await stat(path)).isDirectory()) throw new Error(`不是目录：${path}`)
         // 独立存储防止切换目录后恢复其他目录的未完成任务。
-        const tasks = await openTaskStore(join(cwd, '.ugc-lens', `watch-${datasetId(path)}.json`))
+        const tasks = await openTaskStore(join(dataDir(options.homeDir), `watch-${datasetId(path)}.json`))
         const controller = new AbortController()
         const signal = AbortSignal.any([lifetime.signal, controller.signal])
         let ready!: () => void
@@ -161,7 +168,7 @@ export function createSession(options: SessionOptions): ChatSession {
           },
           analyze: async (file, taskSignal) => withTask(async () => {
             // 监听每次重新导入，避免使用对话里旧的文件快照。
-            const dataset = await load(file, { model, signal: taskSignal, cacheDir: join(cwd, '.ugc-lens', 'mappings'), sharedCacheDir: options.sharedCacheDir })
+            const dataset = await load(file, { model, signal: taskSignal, cacheDir: defaultCacheDir(options.homeDir) })
             const result = await analyze({ dataset, model, directions, cwd, memory: options.memory, modelName: options.modelName, signal: taskSignal })
             datasets.set(dataset.id, dataset)
             return { task_usage: currentTask()!.snapshot(), report: result.path, calls: result.calls, usage: result.usage }

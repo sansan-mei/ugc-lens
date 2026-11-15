@@ -1,3 +1,4 @@
+import { defaultReportsDir } from '../pipeline/analyze.ts'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
 import { createWriteStream } from 'node:fs'
@@ -186,7 +187,7 @@ export function createUiServer(options: UiServerOptions): UiServer {
   const analysis = createAnalysisRunner({ cwd, homeDir: home, model: analysisModel })
   // 同一份已打开的数据，概况的统计部分只算一次；分析结果每次重读
   const staticOverviews = new WeakMap<Dataset, ReturnType<typeof buildStaticOverview>>()
-  const labelsOf = async (d: Dataset) => [...await hostLabels(d, cwd), ...await analysis.results(d)]
+  const labelsOf = async (d: Dataset) => [...await hostLabels(d, home), ...await analysis.results(d)]
   const overviewOf = async (d: Dataset) => {
     let view = staticOverviews.get(d)
     if (!view) { view = buildStaticOverview(d); staticOverviews.set(d, view) }
@@ -354,7 +355,7 @@ export function createUiServer(options: UiServerOptions): UiServer {
         if (typeof body.path !== 'string' || !body.path) throw new HttpError(400, '需要 path')
         file = await resolvePath(body.path)
       }
-      const loaded = await loadDataset(file, { cacheDir: join(cwd, '.ugc-lens', 'mappings'), sharedCacheDir: sharedMappingsDir(home), model: lazyModel })
+      const loaded = await loadDataset(file, { cacheDir: sharedMappingsDir(home), model: lazyModel })
       datasets.set(loaded.id, loaded)
       autoAnalyze(loaded)
       return json(res, await overviewOf(loaded))
@@ -398,14 +399,15 @@ export function createUiServer(options: UiServerOptions): UiServer {
     }
     if (req.method === 'GET' && parts[0] === 'reports' && parts.length === 1) {
       return json(res, { reports: await listFiles(cwd, (name) => /\.(md|markdown)$/i.test(name), 4).then(async (found) => {
-        const generated = await listFiles(join(cwd, '.ugc-lens', 'reports'), (name) => name.endsWith('.md'), 0).catch(() => [])
-        return [...generated.map((r) => ({ ...r, path: `.ugc-lens/reports/${r.path}` })), ...found]
+        const generated = await listFiles(defaultReportsDir(home), (name) => name.endsWith('.md'), 0).catch(() => [])
+        return [...generated.map((r) => ({ ...r, path: join(defaultReportsDir(home), r.path) })), ...found]
       }) })
     }
     if (req.method === 'GET' && parts[0] === 'report') {
       const path = q.get('path')
       if (!path || !/\.(md|markdown)$/i.test(path)) throw new HttpError(400, '只能打开 Markdown 报告')
-      const file = await resolvePath(path)
+      // 生成的报告在 ~/.ugc-lens/reports，不在启动目录里
+      const file = await allowedPath(defaultReportsDir(home), path, picked).catch(() => resolvePath(path))
       if ((await stat(file)).size > MAX_REPORT_BYTES) throw new HttpError(413, '报告超过 2 MB')
       return json(res, { path, text: await readFile(file, 'utf8') })
     }

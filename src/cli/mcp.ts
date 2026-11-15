@@ -1,4 +1,3 @@
-import { sharedMappingsDir } from '../config.ts'
 import { stat } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { parseArgs } from 'node:util'
@@ -29,11 +28,11 @@ export async function runMcp(argv: readonly string[]): Promise<void> {
   ])
   // 启动时校验配置，避免宿主调用 ask 时才发现联网配置有误
   const webConfig = webEnabled(web ? { enabled: true } : {}, cwd) ? loadWebConfig({}, cwd) : undefined
-  const webFactory = webConfig ? () => createWebSession({ config: webConfig, cacheDir: defaultWebCacheDir(cwd) }) : undefined
+  const webFactory = webConfig ? () => createWebSession({ config: webConfig, cacheDir: defaultWebCacheDir() }) : undefined
   let finished!: () => void
   const done = new Promise<void>((resolve) => { finished = resolve })
   const handle = serveStdio(() => {
-    const server = createMcpServer({ cwd, memory: { cwd }, web: webFactory, sharedCacheDir: sharedMappingsDir() })
+    const server = createMcpServer({ cwd, memory: { cwd }, web: webFactory })
     const onclose = server.server.onclose
     server.server.onclose = () => { onclose?.(); finished() }
     return server

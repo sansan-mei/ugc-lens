@@ -1,5 +1,6 @@
 import { readdir, readFile, stat } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
+import { join } from 'node:path'
+import { dataDir } from '../config.ts'
 import { summarizeDanmaku } from '../analysis/danmaku.ts'
 import { countTerms, createTokenizerFor, topTerms } from '../analysis/keywords.ts'
 import { searchFeedback } from '../dataset/query.ts'
@@ -27,8 +28,8 @@ export function dailyCounts(dataset: Dataset): Array<{ day: string; count: numbe
 }
 
 // 已有的宿主模式标注结果（labels-<任务>/result.json），只取汇总，不带逐条记录
-export async function labelSummaries(cwd: string, datasetId: string): Promise<Array<{ task: string; dir: string; summary: unknown; counts: unknown; coverage: number }>> {
-  const base = join(cwd, '.ugc-lens', 'host', datasetId)
+export async function labelSummaries(homeDir: string, datasetId: string): Promise<Array<{ task: string; dir: string; summary: unknown; counts: unknown; coverage: number }>> {
+  const base = join(dataDir(homeDir), 'host', datasetId)
   const names = await readdir(base).catch(() => [] as string[])
   const out = []
   for (const name of names.filter((n) => n.startsWith('labels-')).sort()) {
@@ -43,12 +44,9 @@ export async function labelSummaries(cwd: string, datasetId: string): Promise<Ar
   return out
 }
 
-/** 宿主模式结果在运行 host 命令的目录下：启动目录和数据文件所在目录都找 */
-export async function hostLabels(dataset: Dataset, cwd: string) {
-  const dirs = [...new Set([cwd, dirname(dataset.file_path)])]
-  const out = []
-  for (const dir of dirs) out.push(...await labelSummaries(dir, dataset.id))
-  return out
+/** 宿主模式结果（ugc-lens host 输出）都在 ~/.ugc-lens/host/<数据集 ID>/ */
+export async function hostLabels(dataset: Dataset, homeDir: string) {
+  return labelSummaries(homeDir, dataset.id)
 }
 
 const BIN_TEXT = 80
@@ -81,6 +79,6 @@ export function buildStaticOverview(dataset: Dataset) {
   }
 }
 
-export async function buildOverview(dataset: Dataset, cwd: string) {
-  return { ...buildStaticOverview(dataset), labels: await hostLabels(dataset, cwd) }
+export async function buildOverview(dataset: Dataset, homeDir: string) {
+  return { ...buildStaticOverview(dataset), labels: await hostLabels(dataset, homeDir) }
 }

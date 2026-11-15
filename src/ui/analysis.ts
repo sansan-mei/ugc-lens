@@ -121,15 +121,12 @@ function runTopics(cwd: string, homeDir: string): TaskRun {
 
 export function createAnalysisRunner(options: AnalysisRunnerOptions): AnalysisRunner {
   const base = join(options.homeDir, '.ugc-lens', 'ui', 'analysis')
-  // 早期版本按数据集 ID 存在启动目录下，仍然读取
-  const legacyBase = join(options.cwd, '.ugc-lens', 'ui', 'analysis')
   const keyOf = (dataset: Dataset) => {
     const key = dataset.content_digest ?? `id-${dataset.id}`
     if (!SAFE_ID.test(key)) throw new HttpError(400, '数据集标识不合法')
     return key
   }
   const fileOf = (dataset: Dataset, task: AnalysisTask) => join(base, keyOf(dataset), `${task}.json`)
-  const legacyFileOf = (dataset: Dataset, task: AnalysisTask) => SAFE_ID.test(dataset.id) ? join(legacyBase, dataset.id, `${task}.json`) : undefined
   const readSaved = (file: string, dataset: Dataset): SavedResult | undefined => {
     try {
       const saved = JSON.parse(readFileSync(file, 'utf8')) as SavedResult
@@ -137,7 +134,7 @@ export function createAnalysisRunner(options: AnalysisRunnerOptions): AnalysisRu
     } catch { return undefined }
   }
   const findSaved = (dataset: Dataset, task: AnalysisTask): { saved: SavedResult; dir: string } | undefined => {
-    for (const file of [fileOf(dataset, task), legacyFileOf(dataset, task)]) {
+    for (const file of [fileOf(dataset, task)]) {
       if (!file || !existsSync(file)) continue
       const saved = readSaved(file, dataset)
       if (saved) return { saved, dir: dirname(file) }

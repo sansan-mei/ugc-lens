@@ -11,7 +11,7 @@ import type { AgentModel } from '../agent/model.ts'
 import { askDataset } from '../ask/index.ts'
 import { loadLlmConfig } from '../config.ts'
 import type { Dataset } from '../dataset/types.ts'
-import { loadDataset } from '../ingest/index.ts'
+import { loadDataset, defaultCacheDir } from '../ingest/index.ts'
 import { createChatClient } from '../llm/client.ts'
 import type { ChatMessage } from '../llm/types.ts'
 import { analyzeDataset, type AnalyzeOptions, type AnalyzeResult } from '../pipeline/analyze.ts'
@@ -35,8 +35,8 @@ export interface McpServerOptions {
   analyze?: (options: AnalyzeOptions) => Promise<Pick<AnalyzeResult, 'markdown' | 'path' | 'calls' | 'usage' | 'memory_warning'>>
   /** 开启联网时为每段 ask 对话创建会话；只在服务内部的 ask 使用，不向宿主暴露联网工具 */
   web?: () => WebSession
-  /** 跨项目共用的结构规则缓存目录；不传只用项目缓存 */
-  sharedCacheDir?: string
+  /** 数据目录所在的用户主目录，规则缓存在 <homeDir>/.ugc-lens/mappings，默认当前用户 */
+  homeDir?: string
 }
 
 interface AskConversation {
@@ -83,7 +83,7 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
     const cached = store.list().find((dataset) => dataset.file_path === path)
     if (cached) return cached
     const dataset = await (options.load ?? loadDataset)(path, {
-      model: { complete: (request) => getModels().analysis.complete(request) }, signal, cacheDir: join(cwd, '.ugc-lens', 'mappings'), sharedCacheDir: options.sharedCacheDir,
+      model: { complete: (request) => getModels().analysis.complete(request) }, signal, cacheDir: defaultCacheDir(options.homeDir),
     })
     signal.throwIfAborted()
     datasets.set(dataset.id, dataset)

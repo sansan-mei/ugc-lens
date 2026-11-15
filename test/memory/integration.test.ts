@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -72,7 +72,7 @@ test('ask 追问保持原 system prompt；新对话读取应用后的规则，le
     assert.match(model.requests[2]?.messages[0]?.content ?? '', /先说明适用范围/)
     assert.doesNotMatch(model.requests[2]?.messages[0]?.content ?? '', /完整的私人问题|invalid_citations/)
     assert.ok(model.requests[0]?.tools.some((t) => t.function.name === 'search_learnings'))
-    const saved = readFileSync(join(memory.cwd, '.ugc-lens', 'learnings.md'), 'utf8')
+    const saved = readFileSync(join(memory.homeDir, '.ugc-lens', 'learnings.md'), 'utf8')
     assert.doesNotMatch(saved, /完整的私人问题|价格高/)
     const records = (await searchLearnings(memory)).entries
     assert.equal(records[0]?.observations.invalid_citations, 1)
@@ -105,7 +105,7 @@ test('持续对话冻结规则；模型只能提出待审修改，工具错误�
 test('记录失败时保留问答结果；代码 API 默认不读项目规则且不写经验', async () => {
   const { memory, cleanup } = sandbox()
   try {
-    writeFileSync(join(memory.cwd, '.ugc-lens'), 'blocked')
+    mkdirSync(join(memory.homeDir, '.ugc-lens', 'learnings.md'), { recursive: true })
     const dataset = makeDataset([makeItem({ id: 'c1', text: '测试' })])
     const model = createFakeModel([{ content: '结果 [c1]' }, { content: '仍有结果 [c1]' }])
     const direct = await askDataset({ model, datasets: [dataset], question: 'q' })
@@ -122,7 +122,7 @@ test('分析结果和已保存报告不会被经验写入失败吞掉', async ()
   const { memory, cleanup } = sandbox()
   try {
     const dataset = await fixtureDataset()
-    writeFileSync(join(memory.cwd, '.ugc-lens'), 'blocked')
+    mkdirSync(join(memory.homeDir, '.ugc-lens', 'learnings.md'), { recursive: true })
     const model = createFakeModel((request) => ({ tool_calls: [{ name: request.tools[0]!.function.name, args: { findings: [] } }] }))
     const result = await analyzeDataset({ model, dataset, memory, playbook: DEFAULT_PLAYBOOK, outDir: join(memory.cwd, 'reports') })
     assert.match(result.memory_warning!, /记录失败/)

@@ -1,3 +1,5 @@
+import { homedir } from 'node:os'
+import { dataDir } from '../config.ts'
 import { join } from 'node:path'
 import * as z from 'zod'
 import { currentTask } from '../agent/usage.ts'
@@ -209,6 +211,6 @@ export function findWebCitations(text: string, sources: ReadonlyMap<string, WebS
 }
 
 /** 入口层使用的默认缓存位置 */
-export function defaultWebCacheDir(cwd: string): string {
-  return join(cwd, '.ugc-lens', 'web-cache')
+export function defaultWebCacheDir(homeDir: string = homedir()): string {
+  return join(dataDir(homeDir), 'web-cache')
 }

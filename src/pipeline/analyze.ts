@@ -1,3 +1,5 @@
+import { homedir } from 'node:os'
+import { dataDir } from '../config.ts'
 import { currentTask, withTask, type TaskUsage } from '../agent/usage.ts'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -49,7 +51,7 @@ export interface AnalyzeOptions {
   minSupport?: number
   /** 写进报告的模型名 */
   modelName?: string
-  /** 报告保存目录，默认 <cwd>/.ugc-lens/reports；false 时不保存 */
+  /** 报告保存目录，默认 ~/.ugc-lens/reports（memory.homeDir 优先）；false 时不保存 */
   outDir?: string | false
   cwd?: string
   signal?: AbortSignal
@@ -163,7 +165,7 @@ export async function analyzeDataset(options: AnalyzeOptions): Promise<AnalyzeRe
 
   let path: string | undefined
   if (options.outDir !== false) {
-    const dir = options.outDir ?? join(options.cwd ?? process.cwd(), '.ugc-lens', 'reports')
+    const dir = options.outDir ?? defaultReportsDir(options.memory?.homeDir)
     await mkdir(dir, { recursive: true })
     path = join(dir, `${dataset.id}-${stamp(generatedAt)}.md`)
     await writeFile(path, markdown)
@@ -181,4 +183,8 @@ export async function analyzeDataset(options: AnalyzeOptions): Promise<AnalyzeRe
     },
   })
   return { insights, recheck, scenario: scenarioInfo, task_usage: currentTask()!.snapshot(), coverage, playbook: playbookInfo(playbook), memory_warning, markdown, path, themes: merge.themes, stats, plan, danmaku, summary, merge, calls, usage, duration_ms }
+}
+
+export function defaultReportsDir(homeDir: string = homedir()): string {
+  return join(dataDir(homeDir), 'reports')
 }

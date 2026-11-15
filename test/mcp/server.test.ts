@@ -93,7 +93,7 @@ test('MCP 情感工具调用分析模型并返回逐条结果路径', async () =
     assert.equal(result.summary.evaluated, dataset.items.length)
     assert.equal(result.summary.counts.positive, 1)
     assert.equal(result.summary.counts.negative, 1)
-    assert.ok(result.path.startsWith(env.dir))
+    assert.ok(result.path.startsWith(env.home))
     assert.equal(scoring.requests.length, 1)
   } finally { await connection.close(); env.restore() }
 })

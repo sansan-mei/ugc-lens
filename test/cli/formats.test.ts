@@ -23,8 +23,9 @@ test('实际 CLI analyze 支持 CSV/TXT/JSONL，ask 可按原文 ID 引用；只
     return sendJson(response, 200, { choices: [{ message: { role: 'assistant', content: null, tool_calls: [{ id: 'call-1', type: 'function', function: { name, arguments: JSON.stringify(args) } }] }, finish_reason: 'tool_calls' }] })
   })
   const project = join(isolated.dir, 'project')
-  await mkdir(join(project, '.ugc-lens'), { recursive: true })
-  await writeFile(join(project, '.ugc-lens', 'config.json'), JSON.stringify({ llm: { provider: 'custom', model: 'mock-model', base_url: server.baseUrl, max_retries: 0 } }))
+  await mkdir(project, { recursive: true })
+  await mkdir(join(isolated.dir, '.ugc-lens'), { recursive: true })
+  await writeFile(join(isolated.dir, '.ugc-lens', 'config.json'), JSON.stringify({ llm: { provider: 'custom', model: 'mock-model', base_url: server.baseUrl, max_retries: 0 } }))
   const run = (args: string[]) => exec(process.execPath, [CLI, ...args], { cwd: project, env: { ...process.env, HOME: isolated.dir } })
   try {
     const cases = [['survey.csv', '编号,回答\n001,希望客服更快回复\n002,期待更快处理售后'], ['notes.txt', '希望客服更快回复\n期待更快处理售后'], ['answers.jsonl', '"希望客服更快回复"\n"期待更快处理售后"']] as const

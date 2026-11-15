@@ -2,11 +2,18 @@ import { createChatClient } from '../src/llm/client.ts'
 import { startMockServer, completion, sendJson } from './helpers/mock_server.ts'
 import assert from 'node:assert/strict'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
-import { homedir, tmpdir } from 'node:os'
+import { homedir, tmpdir, userInfo } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, test } from 'node:test'
-import { ConfigError, globalConfigPath, loadLlmConfig, writeGlobalConfig } from '../src/config.ts'
+import { ConfigError, dataDir, globalConfigPath, loadLlmConfig, writeGlobalConfig } from '../src/config.ts'
+import { defaultCacheDir } from '../src/ingest/index.ts'
+import { defaultReportsDir } from '../src/pipeline/analyze.ts'
+import { defaultTasksPath } from '../src/store/tasks.ts'
+import { defaultWebCacheDir } from '../src/web/tools.ts'
 import { isolateEnv } from './helpers/env.ts'
+
+// 在任何 isolateEnv 之前记录：所有测试进程都应已由 test/helpers/home.ts 换成临时主目录
+const homeAtLoad = homedir()
 
 let env: ReturnType<typeof isolateEnv>
 
@@ -18,9 +25,29 @@ afterEach(() => {
 })
 
 function writeConfig(llm: Record<string, unknown>): void {
-  mkdirSync(join(env.dir, '.ugc-lens'), { recursive: true })
-  writeFileSync(join(env.dir, '.ugc-lens', 'config.json'), JSON.stringify({ llm }))
+  mkdirSync(join(env.home, '.ugc-lens'), { recursive: true })
+  writeFileSync(join(env.home, '.ugc-lens', 'config.json'), JSON.stringify({ llm }))
 }
+
+test('测试进程默认使用临时主目录，不会写入本机真实的 ~/.ugc-lens', () => {
+  assert.notEqual(homeAtLoad, userInfo().homedir)
+  assert.ok(homeAtLoad.startsWith(tmpdir()) || homeAtLoad.includes('ugc-lens-test-home'), homeAtLoad)
+})
+
+test('所有数据只存放在 ~/.ugc-lens 一个目录，与启动目录无关', () => {
+  const root = join(env.home, '.ugc-lens')
+  assert.equal(dataDir(), root)
+  assert.equal(dataDir('/elsewhere'), join('/elsewhere', '.ugc-lens'))
+  for (const path of [defaultCacheDir(), defaultTasksPath(), defaultWebCacheDir(), defaultReportsDir()]) {
+    assert.ok(path.startsWith(root + '/') || path.startsWith(root + '\\'), path)
+  }
+})
+
+test('启动目录下的 .ugc-lens/config.json 不再读取，配置只来自全局与环境变量', () => {
+  mkdirSync(join(env.dir, '.ugc-lens'), { recursive: true })
+  writeFileSync(join(env.dir, '.ugc-lens', 'config.json'), JSON.stringify({ llm: { provider: 'ollama', model: 'from-project' } }))
+  assert.throws(() => loadLlmConfig({}, env.dir), /未选择模型提供商/)
+})
 
 test('测试环境的用户主目录指向空临时目录，不读取本机全局配置', () => {
   assert.equal(homedir(), env.home)
@@ -65,11 +92,6 @@ describe('loadLlmConfig', () => {
     assert.equal(config.model, '')
   })
 
-  test('项目配置里的 api_key 被拒绝，错误信息提示改用全局配置且不含 key', () => {
-    writeConfig({ provider: 'deepseek', api_key: 'project-secret' })
-    assert.throws(() => loadLlmConfig({}, env.dir), (error: Error) => error instanceof ConfigError && /全局配置/.test(error.message) && !error.message.includes('project-secret'))
-  })
-
   test('base_url 覆盖预设地址，并去掉末尾斜杠', () => {
     process.env.OPENAI_API_KEY = 'k'
     const config = loadLlmConfig({ provider: 'openai', base_url: 'https://proxy.example.com/v1/' }, env.dir)
@@ -108,8 +130,8 @@ describe('loadLlmConfig', () => {
   })
 
   test('配置文件不是合法 JSON 时报错', () => {
-    mkdirSync(join(env.dir, '.ugc-lens'), { recursive: true })
-    writeFileSync(join(env.dir, '.ugc-lens', 'config.json'), '{ broken')
+    mkdirSync(join(env.home, '.ugc-lens'), { recursive: true })
+    writeFileSync(join(env.home, '.ugc-lens', 'config.json'), '{ broken')
     assert.throws(() => loadLlmConfig({ provider: 'ollama' }, env.dir), /无法解析/)
   })
 })
@@ -126,17 +148,18 @@ describe('全局配置 ~/.ugc-lens/config.json', () => {
     writeFileSync(join(home, '.ugc-lens', 'config.json'), JSON.stringify({ llm }))
   }
 
-  test('项目目录没有配置时用全局配置；项目配置和环境变量优先于它', () => {
+  test('使用全局配置；启动目录的配置被忽略，环境变量优先于全局配置', () => {
     writeGlobal({ provider: 'deepseek', model: 'from-global', api_key: 'global-key' })
     let config = loadLlmConfig({}, env.dir, home)
     assert.equal(config.provider, 'deepseek')
     assert.equal(config.model, 'from-global')
     assert.equal(config.apiKey, 'global-key')
 
-    writeConfig({ model: 'from-local' })
+    mkdirSync(join(env.dir, '.ugc-lens'), { recursive: true })
+    writeFileSync(join(env.dir, '.ugc-lens', 'config.json'), JSON.stringify({ llm: { model: 'from-local', base_url: 'https://untrusted.example/v1' } }))
     config = loadLlmConfig({}, env.dir, home)
-    assert.equal(config.model, 'from-local')
-    assert.equal(config.provider, 'deepseek')
+    assert.equal(config.model, 'from-global')
+    assert.equal(config.baseUrl, 'https://api.deepseek.com/v1')
 
     process.env.UGC_LENS_MODEL = 'from-env'
     process.env.DEEPSEEK_API_KEY = 'env-key'
@@ -145,40 +168,18 @@ describe('全局配置 ~/.ugc-lens/config.json', () => {
     assert.equal(config.apiKey, 'env-key')
   })
 
-  test('全局配置里的 key 让只写了提供商的项目配置也能用', () => {
-    writeGlobal({ provider: 'deepseek', model: 'm', api_key: 'global-key' })
-    writeConfig({ provider: 'deepseek' })
-    assert.equal(loadLlmConfig({}, env.dir, home).apiKey, 'global-key')
-  })
-
-  test('项目端点和项目 .env 不能携带全局或进程凭证，反复加载也不能提升信任', () => {
+  test('项目 .env 不能携带全局凭证到其他端点，反复加载也不能提升信任', () => {
     writeGlobal({ provider: 'deepseek', api_key: 'fictional-global' })
-    writeConfig({ base_url: 'https://untrusted.example/v1', api_key_env: 'DEEPSEEK_API_KEY' })
-    process.env.DEEPSEEK_API_KEY = 'fictional-process'
-    assert.throws(() => loadLlmConfig({}, env.dir, home), /端点.*凭证/)
-    writeConfig({})
-    delete process.env.DEEPSEEK_API_KEY
     // 项目 .env 不再读取，写在里面的端点不会生效，也不会提升为进程环境
     writeFileSync(join(env.dir, '.env'), 'UGC_LENS_BASE_URL=https://untrusted.example/v1\n')
     for (let i = 0; i < 2; i++) assert.equal(loadLlmConfig({}, env.dir, home).baseUrl, 'https://api.deepseek.com/v1')
     assert.equal(process.env.UGC_LENS_BASE_URL, undefined)
   })
 
-  test('项目改变提供商或区域不能把全局凭证带到另一端点', () => {
-    writeGlobal({ provider: 'kimi', api_key: 'fictional-global' })
-    writeConfig({ region: 'global' })
-    assert.throws(() => loadLlmConfig({}, env.dir, home), /端点.*凭证/)
-    writeConfig({ provider: 'custom', base_url: 'https://untrusted.example/v1' })
-    assert.throws(() => loadLlmConfig({}, env.dir, home), /端点.*凭证/)
-  })
-
-  test('不可信端点实际收不到请求；可信显式绑定后走真实 fetch', async () => {
+  test('可信参数显式绑定端点后走真实 fetch，带全局凭证', async () => {
     const server = await startMockServer((_request, response) => sendJson(response, 200, completion('ok')))
     try {
       writeGlobal({ provider: 'deepseek', model: 'mock', api_key: 'fictional-only' })
-      writeConfig({ base_url: server.baseUrl })
-      assert.throws(() => loadLlmConfig({}, env.dir, home), /端点.*凭证/)
-      assert.equal(server.requests.length, 0)
       const config = loadLlmConfig({ base_url: server.baseUrl }, env.dir, home)
       await createChatClient(config).chat([{ role: 'user', content: '测试' }])
       assert.equal(server.requests[0]?.headers.authorization, 'Bearer fictional-only')
@@ -186,8 +187,7 @@ describe('全局配置 ~/.ugc-lens/config.json', () => {
   })
 
   test('同一端点规范化可复用；可信参数或进程显式端点允许绑定', () => {
-    writeGlobal({ provider: 'deepseek', api_key: 'fictional-global' })
-    writeConfig({ base_url: 'https://api.deepseek.com/v1/' })
+    writeGlobal({ provider: 'deepseek', api_key: 'fictional-global', base_url: 'https://api.deepseek.com/v1/' })
     assert.equal(loadLlmConfig({}, env.dir, home).apiKey, 'fictional-global')
     const endpoint = 'https://trusted.example/v1'
     assert.equal(loadLlmConfig({ base_url: endpoint }, env.dir, home).baseUrl, endpoint)

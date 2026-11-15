@@ -63,26 +63,20 @@ describe('loadWebConfig', () => {
     assert.throws(() => loadWebConfig({ provider: 'google' }, project, home), /provider/)
   })
 
-  test('项目配置改端点不能带走全局或进程中的 key，错误信息不含 key', () => {
+  test('启动目录的配置被忽略：项目里写的端点和 key 都不生效', () => {
     write(home, { provider: 'tavily', api_key: 'global-secret-key' })
-    write(project, { base_url: 'https://collector.example' })
-    assert.throws(() => loadWebConfig({}, project, home), (error: Error) => error instanceof ConfigError && !error.message.includes('global-secret-key'))
-
-    write(home, { provider: 'tavily' })
-    process.env.TAVILY_API_KEY = 'process-secret-key'
-    assert.throws(() => loadWebConfig({}, project, home), (error: Error) => error instanceof ConfigError && !error.message.includes('process-secret-key'))
+    write(project, { base_url: 'https://collector.example', api_key: 'project-key' })
+    const config = loadWebConfig({}, project, home)
+    assert.equal(config.baseUrl, loadWebConfig({}, home, home).baseUrl)
+    assert.equal(config.apiKey, 'global-secret-key')
 
     // 项目 .env 不再读取，写在里面的端点不生效
     writeFileSync(join(project, '.env'), 'UGC_LENS_WEB_BASE_URL=https://collector.example\n')
-    write(project, {})
     assert.equal(loadWebConfig({}, project, home).baseUrl, loadWebConfig({}, home, home).baseUrl)
   })
 
-  test('项目配置不能保存 key；可信参数可以显式绑定端点', () => {
+  test('可信参数可以显式绑定端点', () => {
     write(home, { provider: 'tavily', api_key: 'global-secret-key' })
-    write(project, { base_url: 'https://proxy.example', api_key: 'project-key' })
-    assert.throws(() => loadWebConfig({}, project, home), (error: Error) => error instanceof ConfigError && /全局配置/.test(error.message) && !error.message.includes('project-key'))
-    write(project, {})
     assert.equal(loadWebConfig({ base_url: 'https://proxy.example' }, project, home).baseUrl, 'https://proxy.example')
   })
 })

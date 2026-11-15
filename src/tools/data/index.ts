@@ -18,7 +18,7 @@ export function createDataTools(store: DatasetStore, options: DataToolOptions = 
     createGetDatasetStatsTool(store, options),
     createSearchFeedbackTool(store, options),
     createGetFeedbackTool(store, options),
-    ...(options.sentimentModel ? [createAnalyzeSentimentTool(store, options.sentimentModel)] : []),
+    ...(options.sentimentModel ? [createAnalyzeSentimentTool(store, options.sentimentModel, options.memory?.homeDir)] : []),
     ...createDeepAnalysisTools(store, options.sentimentModel, options.memory),
   ]
 }

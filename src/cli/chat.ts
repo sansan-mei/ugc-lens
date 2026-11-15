@@ -1,6 +1,6 @@
 import { createInterface } from 'node:readline'
 import { createSession, type ChatSession } from '../chat/session.ts'
-import { ConfigError, loadLlmConfig, sharedMappingsDir } from '../config.ts'
+import { ConfigError, loadLlmConfig } from '../config.ts'
 import { parseArgs } from 'node:util'
 import { analysisModel, askModel, formatWebCitations, UsageError, webSessionFor } from './common.ts'
 import { formatEvent } from './format_event.ts'
@@ -70,7 +70,6 @@ export async function runChat(argv: readonly string[] = []): Promise<void> {
   process.on('SIGINT', interrupt)
   rl.on('SIGINT', interrupt)
   const session = createSession({
-    sharedCacheDir: sharedMappingsDir(),
     memory: { cwd: process.cwd(), onWarning: (message) => console.error(message) },
     model: askModel(config), analysisModel: analysisModel(config), modelName: config.model, web,
     onEvent: (event) => {

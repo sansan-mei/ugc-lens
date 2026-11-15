@@ -111,7 +111,15 @@ jobs:
           codesign --sign - --force --deep "$APP"
           ln -s /Applications build/dmg/Applications
           cp "scripts/desktop/打开前必读.txt" build/dmg/
-          hdiutil create -volname ugc-lens -srcfolder build/dmg -format ULMO "build/ugc-lens-${VERSION}-${{ matrix.target }}.dmg"
+          # GitHub 的 macOS 运行器上 hdiutil 偶尔报 "Resource busy"（磁盘映像服务被占用），间隔重试
+          DMG="build/ugc-lens-${VERSION}-${{ matrix.target }}.dmg"
+          for attempt in 1 2 3 4; do
+            rm -f "$DMG"
+            hdiutil create -volname ugc-lens -srcfolder build/dmg -format ULMO "$DMG" && break
+            if [ "$attempt" = 4 ]; then echo "hdiutil 连续 4 次失败"; exit 1; fi
+            echo "hdiutil 第 $attempt 次失败，$((attempt * 15)) 秒后重试"
+            sleep $((attempt * 15))
+          done
 
       - name: Package Windows
         if: runner.os == 'Windows'

@@ -49,3 +49,13 @@ test('工作流里引用的 action 都固定到完整版本号', () => {
     for (const [, ref] of read(name).matchAll(/uses: [\w-]+\/[\w-]+@(\S+)/g)) assert.match(ref!, /^v\d+\.\d+\.\d+$/, `${name}: @${ref}`)
   }
 })
+
+test('打 dmg 遇到 macOS 运行器偶发的 Resource busy 时重试，多次失败仍然报错', () => {
+  const desktop = read('desktop.yml')
+  const mac = desktop.slice(desktop.indexOf('Package macOS'), desktop.indexOf('Package Windows'))
+  const create = [...mac.matchAll(/for (\w+) in ([\d ]+); do\n([\s\S]*?)\n\s*done/g)].find((m) => m[3]!.includes('hdiutil create'))
+  assert.ok(create, '没有找到包住 hdiutil create 的重试循环')
+  assert.ok(create[2]!.trim().split(/\s+/).length >= 3, '至少尝试三次')
+  // 最后一次仍失败时要让步骤失败，不能静默产出没有 dmg 的结果
+  assert.match(create[3]!, /exit 1/)
+})

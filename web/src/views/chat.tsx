@@ -229,7 +229,7 @@ export function ChatView({ chat, o, openItem, actions, modelReady }: { chat: Cha
     if (parsed.action === 'new') chat.reset()
     else if (parsed.action === 'open') actions.open()
     else if (o) actions.search(parsed.arg ?? '')
-    else { setDraft(text); setHint('先打开数据文件，才能在原文页检索') }
+    else { setDraft(text); setHint('先打开数据文件，才能在检索页查找原文') }
   }
   const pick = (c: ChatCommand) => {
     if (c.arg) { edit(`/${c.name} `); input.current?.focus() } else submit(`/${c.name}`)

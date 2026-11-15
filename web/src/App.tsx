@@ -1,16 +1,17 @@
 import { AnimateUIProvider } from '@animate-ui/react/provider'
-import { Fade } from '@animate-ui/react/primitives/effects/fade'
-import { BarChart3, FileText, FolderOpen, History, MessageCircle, Search, Settings, Upload, Aperture } from 'lucide-react'
+import { BarChart3, ChevronsUpDown, FileText, FolderOpen, MessageCircle, Search, Settings, Upload, Aperture } from 'lucide-react'
 import { AnimatePresence, MotionConfig, motion } from 'motion/react'
 import { useEffect, useRef, useState } from 'react'
 import { Button } from './components/ui/button.tsx'
 import { Card, Empty, inputClass, Notice, Spinner } from './components/ui/card.tsx'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from './components/ui/dialog.tsx'
 import { Tabs, TabsList, TabsTrigger } from './components/ui/tabs.tsx'
+import { HomeHero } from './components/home_hero.tsx'
 import { ItemSheet } from './components/item_sheet.tsx'
 import { SettingsDialog } from './components/settings_dialog.tsx'
 import { api, ApiError, token, upload } from './lib/api.ts'
 import { baseName, dirName, isUpload, kb, tabAfterOpen } from './lib/format.ts'
+import { DATA_EXT, headerFileAction, visibleTabs } from './lib/home.ts'
 import { connectionLost, HEARTBEAT_MS } from './lib/lifecycle.ts'
 import { needsReopen, type ChatDataset } from './lib/chat.ts'
 import type { FileEntry, FilesResponse, Overview, SettingsView } from './lib/types.ts'
@@ -19,7 +20,6 @@ import { OverviewView } from './views/overview.tsx'
 import { ReportsView, type ReportSelection } from './views/reports.tsx'
 import { ChatView, useChat } from './views/chat.tsx'
 
-const DATA_EXT = '.json,.jsonl,.ndjson,.csv,.tsv,.txt,.md,.markdown,.log'
 const initialSearch: SearchState = { query: '', kinds: [], sort: 'likes' }
 
 export default function App() {
@@ -135,6 +135,8 @@ export default function App() {
   }
   const openItem = (id: string) => { if (o) setItemId(id); else setToast('先打开对应的数据文件，才能查看引用原文') }
   const keywordSearch = (query: string, kinds: string[] = []) => { setSearch({ query, kinds, sort: 'likes' }); setTab('items') }
+  const fileAction = headerFileAction(tab, !!o)
+  const openRecent = () => { setRecentOpen(true); void refresh() }
   const recent = files.recent.filter((f) => f.path.toLowerCase().includes(filter.toLowerCase()))
   const local = files.files.filter((f) => f.path.toLowerCase().includes(filter.toLowerCase()))
   function entry(f: FileEntry) {
@@ -146,13 +148,13 @@ export default function App() {
         <header className="glass sticky top-0 z-30 border-b">
           <div className="mx-auto flex max-w-[1360px] items-center justify-between gap-3 px-4 py-3 sm:px-8">
             <button type="button" className="flex items-center gap-2.5" onClick={() => setTab('overview')}><span className="grid size-8 place-items-center rounded-lg bg-primary text-primary-foreground"><Aperture className="size-[18px]" /></span><span className="hidden text-lg font-semibold tracking-tight sm:block">ugc-lens</span></button>
-            <TabsList className="min-w-0" aria-label="视图">{[['overview', '概况', BarChart3], ['items', '原文', Search], ['reports', '报告', FileText], ['chat', '对话', MessageCircle]].map(([id, label, Icon]) => { const I = Icon as typeof BarChart3; return <TabsTrigger key={String(id)} value={String(id)} className="px-2.5 sm:px-3"><I className="hidden sm:block" /><span>{String(label)}</span></TabsTrigger> })}</TabsList>
-            <div className="flex gap-1.5"><Button variant="ghost" size="icon" aria-label="设置" title={modelReady === false ? '还没有配置模型' : '设置'} className="relative" onClick={() => openSettings()}><Settings />{modelReady === false && <span className="absolute right-1.5 top-1.5 size-2 rounded-full bg-destructive" />}</Button><Button variant="ghost" size="icon" aria-label="最近打开" onClick={() => { setRecentOpen(true); void refresh() }}><History /></Button><Button id="open-file" className="px-3 sm:px-5" onClick={() => choose()}><FolderOpen /><span className="hidden sm:inline">打开数据</span><span className="sm:hidden">打开</span></Button></div>
+            <TabsList className="min-w-0" aria-label="视图">{[['overview', '概况', BarChart3], ['items', '检索', Search], ['reports', '报告', FileText], ['chat', '对话', MessageCircle]].filter(([id]) => visibleTabs(!!o).includes(String(id))).map(([id, label, Icon]) => { const I = Icon as typeof BarChart3; return <TabsTrigger key={String(id)} value={String(id)} className="px-2.5 sm:px-3"><I className="hidden sm:block" /><span>{String(label)}</span></TabsTrigger> })}</TabsList>
+            <div className="flex min-w-0 items-center gap-1.5">{fileAction === 'current' && o ? <Button variant="outline" title={`当前文件：${o.file}\n点击切换到其他文件`} aria-label={`当前文件 ${baseName(o.file)}，点击切换`} className="max-w-[220px] gap-2 px-3" hoverScale={1.01} onClick={openRecent}><FileText className="text-muted-foreground" /><span className="hidden truncate sm:inline">{baseName(o.file)}</span><span className="sm:hidden">文件</span><ChevronsUpDown className="text-muted-foreground" /></Button> : fileAction === 'open' ? <Button variant="outline" className="px-3" onClick={openRecent}><FolderOpen /><span className="hidden sm:inline">选择数据文件</span><span className="sm:hidden">文件</span></Button> : null}<Button variant="ghost" size="icon" aria-label="设置" title={modelReady === false ? '还没有配置模型' : '设置'} className="relative" onClick={() => openSettings()}><Settings />{modelReady === false && <span className="absolute right-1.5 top-1.5 size-2 rounded-full bg-destructive" />}</Button></div>
           </div>
         </header>
         <main className="mx-auto max-w-[1360px] px-4 pt-7 sm:px-8">
           {stopped ? <Card><Empty>{stopped === 'quit' ? 'ugc-lens 已退出，可以关闭这个页面。需要时再打开 ugc-lens 即可。' : '与 ugc-lens 的连接已断开：服务已退出，或页面关闭太久后自动退出了。请重新打开 ugc-lens。'}</Empty></Card> : !token ? <Card><Empty>缺少访问令牌，请使用 ugc-lens ui 启动时打印的完整网址。</Empty></Card> : busy ? <Card><Spinner label={busy} /></Card> : <AnimatePresence mode="wait"><motion.div key={tab + (o?.id ?? '')} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -5 }} transition={{ duration: 0.18 }}>
-            {(tab === 'overview' || tab === 'items') && !o ? <Fade><section className="mx-auto max-w-[740px] py-[8vh]"><div className="mb-5 inline-flex items-center gap-2 rounded-md border px-2.5 py-1 text-xs font-medium text-muted-foreground shadow-xs">本地查看 · 模型分析按配置调用</div><h1 className="text-4xl font-semibold leading-tight tracking-tight sm:text-5xl">从原文里，<br /><span className="text-muted-foreground">看清真实反馈。</span></h1><p className="mb-7 mt-5 max-w-lg text-base leading-relaxed text-muted-foreground">打开评论、弹幕、问卷或工单，查看分布与趋势，沿着引用回到每一条原文。</p><div className="flex items-center gap-4"><Button size="lg" data-action="choose" onClick={() => choose()}><FolderOpen />选择文件…</Button><span className="text-sm text-muted-foreground">或把文件拖到这里</span></div>{(recent.length > 0 || local.length > 0) && <Card className="mt-9 p-2"><p className="px-3 py-2 text-xs font-medium text-muted-foreground">{recent.length ? '最近打开' : '启动目录里的文件'}</p>{(recent.length ? recent : local.map((f) => ({ ...f, path: `${files.cwd}/${f.path}` }))).slice(0, 5).map(entry)}</Card>}</section></Fade> : tab === 'overview' && o ? <OverviewView o={o} openItem={openItem} search={keywordSearch} reload={() => { api<Overview>(`datasets/${encodeURIComponent(o.id)}/overview`).then(setO).catch((e) => setToast((e as Error).message)) }} settings={() => openSettings('analysis')} /> : tab === 'items' && o ? <ItemsView o={o} search={search} onSearch={setSearch} openItem={openItem} /> : tab === 'reports' ? <ReportsView report={report} setReport={setReport} recent={files.recent} choose={() => choose('report')} o={o} openItem={openItem} /> : <ChatView chat={chat} o={o} openItem={openItem} actions={{ open: () => void choose(), search: (q) => keywordSearch(q), settings: () => openSettings() }} modelReady={modelReady} />}
+            {(tab === 'overview' || tab === 'items') && !o ? <HomeHero entries={(recent.length ? recent : local.map((f) => ({ ...f, path: `${files.cwd}/${f.path}` }))).slice(0, 6)} recentLabel={recent.length ? '最近打开' : '启动目录里的文件'} onChoose={() => void choose()} onOpen={openEntry} /> : tab === 'overview' && o ? <OverviewView o={o} openItem={openItem} search={keywordSearch} reload={() => { api<Overview>(`datasets/${encodeURIComponent(o.id)}/overview`).then(setO).catch((e) => setToast((e as Error).message)) }} settings={() => openSettings('analysis')} /> : tab === 'items' && o ? <ItemsView o={o} search={search} onSearch={setSearch} openItem={openItem} /> : tab === 'reports' ? <ReportsView report={report} setReport={setReport} recent={files.recent} choose={() => choose('report')} o={o} openItem={openItem} /> : <ChatView chat={chat} o={o} openItem={openItem} actions={{ open: () => void choose(), search: (q) => keywordSearch(q), settings: () => openSettings() }} modelReady={modelReady} />}
           </motion.div></AnimatePresence>}
         </main>
       </Tabs.Root>

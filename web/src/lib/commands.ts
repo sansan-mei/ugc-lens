@@ -17,7 +17,7 @@ const focus = (arg: string) => (arg ? `\n关注点：${arg}` : '')
 export const COMMANDS: readonly ChatCommand[] = [
   { name: 'new', description: '开始新对话，清空当前上下文', group: '界面', run: { action: 'new' } },
   { name: 'open', description: '打开数据文件', group: '界面', run: { action: 'open' } },
-  { name: 'search', arg: { hint: '关键词', required: true }, description: '在原文页检索，不调用模型', group: '界面', run: { action: 'search' } },
+  { name: 'search', arg: { hint: '关键词', required: true }, description: '在检索页查找原文，不调用模型', group: '界面', run: { action: 'search' } },
   { name: 'summary', arg: { hint: '关注点' }, description: '概括主要讨论和代表性原文', group: '分析', run: { prompt: (arg) => `先用 get_dataset_stats 了解当前数据，再检索代表性原文，概括主要讨论点、正反观点和代表性原文，每个观点附引用 ID。${focus(arg)}` } },
   { name: 'report', arg: { hint: '关注点' }, description: '生成完整分析报告并保存', group: '分析', run: { prompt: (arg) => `用 analyze_dataset 为当前数据生成完整分析报告，完成后说明保存位置并列出核心结论。${focus(arg)}` } },
   { name: 'reputation', arg: { hint: '关注点' }, description: '口碑与危机报告', group: '分析', run: { prompt: (arg) => `用 analyze_dataset 并设置 scenario=reputation，为当前数据生成口碑与危机分析报告，完成后说明保存位置并列出核心结论。${focus(arg)}` } },

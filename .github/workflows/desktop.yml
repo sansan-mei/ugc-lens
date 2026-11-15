@@ -1,10 +1,12 @@
 name: Desktop package
 
 # 桌面单文件包（roadmap 第 19.1 步）：Node 26 SEA + 虚拟文件系统，产出 macOS dmg 和 Windows 安装包。
-# 只做构建和冒烟检查，产物作为 Actions artifact 保存，不发布、不签名公证；随版本发布并入 release.yml 是第 19.1 步第 4 项。
+# 构建、冒烟检查，产物作为 Actions artifact 保存，不签名公证。
+# 版本号变化时由 release.yml 调用（workflow_call），再把产物挂到 GitHub Release；本工作流自身不发布。
 # 自动触发只看打包相关文件，避免每次推送都占用 macOS、Windows 运行器；其他改动需要新包时手动运行。
 on:
   workflow_dispatch:
+  workflow_call:
   push:
     branches: [master]
     paths:

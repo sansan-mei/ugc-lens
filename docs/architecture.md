@@ -119,7 +119,7 @@ ugc-lens 是一个**分析用户互动内容（评论、弹幕、回复等）的
 - 配置从进程环境变量、当前目录的 `.ugc-lens/config.json`（不含密钥）、全局 `~/.ugc-lens/config.json` 读取（优先级从高到低，见 [providers.md](providers.md) 第 4 节）。任务状态和报告仍写在当前目录的 `.ugc-lens/` 下，只有模型配置进全局目录。
 - 代码 API：`src/index.ts` 导出 `loadDataset`、`analyzeDataset`、`askDataset`、`watchDirectory`、`openTaskStore`、模型客户端和配置读取等，命令行和 MCP 复用这些核心能力。
 - 发布：开发时直接运行 `.ts`；发布前用 `tsc -p tsconfig.build.json` 把 `src/` 编译到 `dist/`（含类型声明），因为 Node 不对 `node_modules` 里的 `.ts` 做类型剥离。包里只放 `dist/`、README、LICENSE。
-- CI（GitHub Actions）：`ci.yml` 在每次推送和 PR 时跑类型检查、测试、编译，并把 `npm pack` 的包装到临时目录里运行 `--help`。`release.yml` 在 master 上 `package.json` 的版本号和 npm 上的不同时发布，用 npm Trusted Publishing（OIDC，不存 token），然后打 `v版本号` 标签。
+- CI（GitHub Actions）：`ci.yml` 在每次推送和 PR 时跑类型检查、测试、编译，并把 `npm pack` 的包装到临时目录里运行 `--help`。`release.yml` 在 master 上 `package.json` 的版本号和 npm 上的不同时发布，用 npm Trusted Publishing（OIDC，不存 token），然后打 `v版本号` 标签；同一次运行调用 `desktop.yml`（`workflow_call`）构建 macOS dmg 与 Windows 安装包，上传到 `v版本号` 的 GitHub Release（Release 不存在时新建，已有同名文件时覆盖）。是否需要打包看 Release 上有没有 dmg，所以 npm 已发布但桌面包失败时，手动重跑 `release.yml` 只补桌面包。
 
 ### 2.3 默认交互对话（roadmap 第 11 步）
 
@@ -862,7 +862,7 @@ ugc-lens/
   skills/         宿主技能说明
   scripts/        编译（build.ts）、桌面单文件包（sea.ts、desktop_entry.mjs、desktop_smoke.ts）；desktop/ 图标、安装说明、Windows 安装脚本
   dist/           编译结果，只用于发布（git 忽略）
-  .github/        CI：ci.yml 检查，release.yml 发布 npm，desktop.yml 桌面安装包
+  .github/        CI：ci.yml 检查，release.yml 发布 npm 与 GitHub Release，desktop.yml 桌面安装包
   examples/       练习脚本、样本数据（真实模型，手动运行）
   test/           测试用例（node:test），目录结构与 src/ 对应
   docs/           架构、提供商、路线图、changelog/ 更新记录

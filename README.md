@@ -385,7 +385,7 @@ npm run analyze      # 完整分析，Markdown 报告打印出来并保存到 .u
 npm run watch -- <目录> # 监听目录，新出现的 *_all.json 写完后自动分析（需要 .env）
 ```
 
-发布：修改 `package.json` 的版本号并推送到 master，GitHub Actions（`release.yml`）会检查、编译并发布到 npm，然后打 `v版本号` 标签。
+发布：修改 `package.json` 的版本号并推送到 master，GitHub Actions（`release.yml`）会检查、编译并发布到 npm，然后打 `v版本号` 标签，并构建 macOS dmg 和 Windows 安装包，挂到同名的 GitHub Release。
 
 ## 许可
 

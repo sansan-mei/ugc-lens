@@ -543,8 +543,9 @@
      - 界面内模型配置：首次启动没有可用配置时引导填写，写入全局配置 `~/.ugc-lens/config.json`（权限 0600），与命令行 `init` 结果一致。
      - 退出方式：界面退出按钮，以及页面关闭一段时间后自动退出；重复双击时复用已在运行的实例，不开第二个服务。（已完成，2026-11-14）
      - Windows 双击不弹控制台窗口，同时保留在终端里使用命令行的能力。
-     - 应用图标（.icns、.ico）。（macOS .icns 已完成；Windows .ico 未做）
-  4. 统一发版：`release.yml` 在版本号变化时，除发布 npm 外，同一次运行构建 dmg 与 Windows 安装包并上传到该版本的 GitHub Release（是否同步到 COS 另定）；三个渠道的版本号都取自 `package.json`。
+     - 应用图标（.icns、.ico）。（已完成，2026-11-15：图标改为放大镜样式；Windows 安装程序、快捷方式、卸载项使用 .ico，`ugc-lens.exe` 文件本身未写入图标资源）
+  4. 统一发版：`release.yml` 在版本号变化时，除发布 npm 外，同一次运行构建 dmg 与 Windows 安装包并上传到该版本的 GitHub Release（是否同步到 COS 另定）；三个渠道的版本号都取自 `package.json`。（已实现，2026-11-15，等待第一次版本发布实际运行）
+     - 笔记：`desktop.yml` 增加 `workflow_call`，由 `release.yml` 的 `desktop` job 调用，`github-release` job 下载两个平台的产物后 `gh release create`（Release 不存在时）或 `gh release upload --clobber`。是否打包不看 npm，看该版本 Release 上有没有 dmg：npm 发布成功而打包失败时，手动重跑 `release.yml` 会跳过 npm、只补桌面包。Release 说明附下载表和未签名的放行提示，后面接 GitHub 自动生成的变更列表。
   5. 更新提示：桌面版启动时查询最新版本号，有新版本在界面提示下载；不做自动更新。
   6. 签名：先不签名，说明里写清放行方法；面向普通用户推广前申请 Apple Developer ID 做签名与公证，Windows 代码签名证书视下载量再定。
   7. 文档：README 增加“下载桌面版”一节，写明 Intel Mac 和 Linux 用 npm 版、桌面版的命令行用法（可执行文件带参数时与 `ugc-lens` 相同，可填进宿主的 MCP 配置，但不会自动加入 PATH）。
@@ -562,7 +563,7 @@
   | Windows x64 | 安装包 29.2MB | 99.0MB |
   其中 ugc-lens 自身（编译产物、界面、手册、生产依赖）压缩后 3.4MB，其余是 Node 运行时；只要用 Node，下载包下限约 25～30MB。
 - 完成标准：三个渠道由同一次发版产生且版本一致；普通用户不用命令行就能完成安装、配置模型、分析一个文件并退出；README 有下载入口和放行说明。
-- 状态：第 1 项已完成并合入 master；第 2 项等待用户真机验证；第 3 项中模型配置（master 已合入）、退出与单实例、macOS 图标已完成，Windows 不弹控制台和 .ico 未做；第 4～7 项已规划未实现（dmg 已附带放行说明，README 下载入口未写）。
+- 状态：第 1 项已完成并合入 master；第 2 项等待用户真机验证；第 3 项中模型配置（master 已合入）、退出与单实例、应用图标已完成，Windows 不弹控制台未做；第 4 项已实现、等待第一次发版验证；第 5～7 项已规划未实现（dmg 已附带放行说明，README 下载入口未写）。
 - 笔记（2026-11-14 真机安装 0.0.19 dmg）：
   - 放行：ad-hoc 签名被 Gatekeeper 拒绝，新版 macOS 的提示只有“完成”，右键“打开”无效，只能在“隐私与安全性”点“仍要打开”或 `xattr` 去除隔离标记；用户容易在 dmg 窗口里直接双击（那份副本带隔离标记）。dmg 现附带《打开前必读.txt》。
   - 再次双击无效：macOS 对已在运行的应用只会激活，不会再启动进程；`LSUIElement` 应用又没有程序坞图标，关掉页面后就回不去了。改为双击时运行一个很快退出的启动器，复用或后台启动服务（docs/architecture.md 第 2.1 节“退出与桌面单实例”）。

@@ -2,6 +2,8 @@ name: Release
 
 # master 上 package.json 的版本号和 npm 上已有的都不同时发布。
 # 认证用 npm Trusted Publishing（OIDC），不需要 token；npmjs.com 上配置的工作流文件名必须是 release.yml。
+# 同一次运行还会调用 desktop.yml 构建 dmg 和 Windows 安装包，挂到同版本的 GitHub Release（roadmap 第 19.1 步第 4 项）。
+# npm 已发布但 Release 上还没有桌面包时（例如上次打包失败），手动重跑本工作流只补桌面包。
 on:
   push:
     branches: [master]
@@ -19,6 +21,9 @@ concurrency:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      desktop: ${{ steps.version.outputs.desktop }}
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: oven-sh/setup-bun@v2.2.0
@@ -33,6 +38,8 @@ jobs:
 
       - name: Check version
         id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           VERSION=$(node -p "require('./package.json').version")
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
@@ -41,6 +48,12 @@ jobs:
             echo "publish=false" >> "$GITHUB_OUTPUT"
           else
             echo "publish=true" >> "$GITHUB_OUTPUT"
+          fi
+          if gh release view "v$VERSION" --json assets --jq '.assets[].name' 2>/dev/null | grep -q '\.dmg$'; then
+            echo "v$VERSION 的 Release 已有桌面包，跳过打包"
+            echo "desktop=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "desktop=true" >> "$GITHUB_OUTPUT"
           fi
 
       - if: steps.version.outputs.publish == 'true'
@@ -58,4 +71,44 @@ jobs:
           else
             git tag "$TAG"
             git push origin "$TAG"
+          fi
+
+  desktop:
+    needs: publish
+    if: needs.publish.outputs.desktop == 'true'
+    uses: ./.github/workflows/desktop.yml
+
+  github-release:
+    needs: [publish, desktop]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v8.0.2
+        with:
+          pattern: ugc-lens-*
+          path: packages
+          merge-multiple: true
+
+      - name: Upload to GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: v${{ needs.publish.outputs.version }}
+        run: |
+          ls -la packages
+          FILES=(packages/*.dmg packages/*-setup.exe)
+          cat > notes.md <<EOF
+          ## 下载
+
+          | 系统 | 文件 |
+          |---|---|
+          | macOS（Apple 芯片） | \`ugc-lens-${TAG#v}-mac-arm64.dmg\` |
+          | Windows x64 | \`ugc-lens-${TAG#v}-win-x64-setup.exe\` |
+          | Intel Mac、Linux 或已装 Node 22.18+ | \`npm install -g ugc-lens\` |
+
+          安装包没有签名。macOS 首次打开前请看 dmg 里的《打开前必读.txt》；Windows 出现 SmartScreen 提示时点“更多信息”→“仍要运行”。
+          EOF
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            gh release upload "$TAG" "${FILES[@]}" --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            # 新建 Release：publish 已打好标签就用它，没有标签时按本次提交创建
+            gh release create "$TAG" "${FILES[@]}" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "$TAG" --notes-file notes.md --generate-notes
           fi

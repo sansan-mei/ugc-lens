@@ -1,6 +1,6 @@
 import * as z from 'zod'
 import { searchFeedback } from '../../dataset/query.ts'
-import { computeStats } from '../../dataset/stats.ts'
+import { computeStats, shareRows } from '../../dataset/stats.ts'
 import type { DatasetStore } from '../../dataset/store.ts'
 import type { ContentInfo, Dataset } from '../../dataset/types.ts'
 import { defineTool } from '../define.ts'
@@ -50,7 +50,9 @@ export function formatDatasetStats(dataset: Dataset, maxChars: number): string {
   }
   if (stats.time_range) lines.push(`发布时间：${stats.time_range.from.slice(0, 10)} ~ ${stats.time_range.to.slice(0, 10)}`)
   if (stats.with_location > 0) {
-    lines.push(`IP 属地（${stats.with_location} 条有属地）：${stats.locations.map((l) => `${l.name} ${l.count}`).join('，')}`)
+    // 占比直接给出：模型自己算时容易拿评论数等其他数做分母，算出超过 100% 的比例
+    const shares = shareRows(stats.locations, stats.with_location, stats.locations.length)
+    lines.push(`IP 属地（${stats.with_location} 条有属地，占比以此为分母，合计 100%）：${shares.map((l) => `${l.name} ${l.count} 条（${l.percent}%）`).join('，')}`)
   }
 
   const top = searchFeedback(dataset, { kinds: ['comment', 'answer', 'record'], sort: 'likes', limit: 5 })

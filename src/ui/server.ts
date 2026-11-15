@@ -15,7 +15,7 @@ import { getFeedback, getReplies, searchFeedback, type FeedbackSort } from '../d
 import { FEEDBACK_KINDS, type Dataset, type FeedbackKind } from '../dataset/types.ts'
 import { ImportError, loadDataset } from '../ingest/index.ts'
 import { createChatClient } from '../llm/client.ts'
-import { buildOverview, itemView } from './overview.ts'
+import { buildStaticOverview, hostLabels, itemView } from './overview.ts'
 import { createChatHub, type ChatModels } from './chat.ts'
 import { HttpError } from './http.ts'
 import { createNativePicker, type NativePicker, type PickKind } from './picker.ts'
@@ -184,9 +184,13 @@ export function createUiServer(options: UiServerOptions): UiServer {
   })
   const analysisModel = options.analysisModel ?? (() => defaultChatModels(cwd, home).analysis)
   const analysis = createAnalysisRunner({ cwd, homeDir: home, model: analysisModel })
+  // 同一份已打开的数据，概况的统计部分只算一次；分析结果每次重读
+  const staticOverviews = new WeakMap<Dataset, ReturnType<typeof buildStaticOverview>>()
+  const labelsOf = async (d: Dataset) => [...await hostLabels(d, cwd), ...await analysis.results(d)]
   const overviewOf = async (d: Dataset) => {
-    const view = await buildOverview(d, cwd)
-    return { ...view, labels: [...view.labels, ...await analysis.results(d)] }
+    let view = staticOverviews.get(d)
+    if (!view) { view = buildStaticOverview(d); staticOverviews.set(d, view) }
+    return { ...view, labels: await labelsOf(d) }
   }
   const token = options.token ?? randomBytes(18).toString('base64url')
   const expected = Buffer.from(token)
@@ -370,6 +374,7 @@ export function createUiServer(options: UiServerOptions): UiServer {
     if (parts[0] === 'datasets' && parts[1] && req.method === 'GET') {
       const d = dataset(parts[1])
       if (parts[2] === 'overview') return json(res, await overviewOf(d))
+      if (parts[2] === 'labels' && parts.length === 3) return json(res, { labels: await labelsOf(d) })
       if (parts[2] === 'analysis' && parts.length === 3) return json(res, { ...analysis.status(d), settings: describeAnalysisSettings(home) })
       if (parts[2] === 'items' && parts[3]) {
         const evidence = getEvidence(d, parts[3])

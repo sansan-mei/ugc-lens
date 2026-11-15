@@ -186,7 +186,7 @@ describe('planChunks', () => {
     const plan = planChunks(dataset, {
       danmakuGroups: 1,
       danmaku: {
-        total: 7, unique: 3, groups, bin_sec: 5, timeline: [], terms: [],
+        total: 7, unique: 3, groups, bin_sec: 5, timeline: [], bins: [], terms: [],
         peaks: [{ start_sec: 300, end_sec: 305, count: 1, baseline: 0, z: 9, groups: [peakGroup], terms: [] }],
       },
     })

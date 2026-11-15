@@ -56,6 +56,21 @@ describe('数据工具', () => {
     assert.ok(top[0]!.length < 200, '概况里的评论正文要截断')
   })
 
+  test('get_dataset_stats：IP 属地直接给出占比（分母为带属地条数，前几名以外合为其他，合计 100%），模型不用自己算', async () => {
+    const located = [
+      ...Array.from({ length: 3 }, (_, i) => makeItem({ id: `g${i}`, author: { location: '广东' } })),
+      makeItem({ id: 'b1', kind: 'reply', parent_id: 'g0', author: { location: '北京' } }),
+      makeItem({ id: 'n1' }),
+    ]
+    const line = (await toolsFor([makeDataset(located)])('get_dataset_stats')).split('\n').find((l) => l.startsWith('IP 属地'))!
+    assert.match(line, /4 条有属地/)
+    assert.match(line, /广东 3 条（75%）/)
+    assert.match(line, /北京 1 条（25%）/)
+    const percents = [...line.matchAll(/（(\d+)%）/g)].map((m) => Number(m[1]))
+    assert.equal(percents.reduce((s, p) => s + p, 0), 100)
+    assert.ok(percents.every((p) => p <= 100))
+  })
+
   test('get_dataset_stats：样本数据中的计数与数据集一致', async () => {
     const dataset = await fixtureDataset()
     const result = await toolsFor([dataset])('get_dataset_stats')

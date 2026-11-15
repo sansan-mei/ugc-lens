@@ -3,7 +3,7 @@ import { dirname, join } from 'node:path'
 import { summarizeDanmaku } from '../analysis/danmaku.ts'
 import { countTerms, createTokenizerFor, topTerms } from '../analysis/keywords.ts'
 import { searchFeedback } from '../dataset/query.ts'
-import { computeStats } from '../dataset/stats.ts'
+import { computeStats, shareRows } from '../dataset/stats.ts'
 import type { Dataset, FeedbackItem } from '../dataset/types.ts'
 
 /** 页面用的条目摘要：只给展示需要的字段 */
@@ -43,7 +43,18 @@ export async function labelSummaries(cwd: string, datasetId: string): Promise<Ar
   return out
 }
 
-export async function buildOverview(dataset: Dataset, cwd: string) {
+/** 宿主模式结果在运行 host 命令的目录下：启动目录和数据文件所在目录都找 */
+export async function hostLabels(dataset: Dataset, cwd: string) {
+  const dirs = [...new Set([cwd, dirname(dataset.file_path)])]
+  const out = []
+  for (const dir of dirs) out.push(...await labelSummaries(dir, dataset.id))
+  return out
+}
+
+const BIN_TEXT = 80
+
+/** 概况里不随分析结果变化的部分：打开数据时算一次，之后刷新结果不必重算分词和弹幕统计 */
+export function buildStaticOverview(dataset: Dataset) {
   const stats = computeStats(dataset, { topLocations: 15 })
   const { tokenizer } = createTokenizerFor(dataset.items.map((item) => item.text))
   const keywords = topTerms(countTerms(dataset.items.filter((item) => item.kind !== 'danmaku'), tokenizer), 30)
@@ -56,17 +67,20 @@ export async function buildOverview(dataset: Dataset, cwd: string) {
     mapping: dataset.mapping.builtin ? 'builtin' : dataset.mapping.from_cache ? 'cache' : 'model',
     contents: dataset.contents.map((c) => ({ id: c.id, title: c.title, author: c.author, published_at: c.published_at, url: c.url, description: c.description, stats: c.stats, transcript_lines: c.transcript?.length ?? 0 })),
     stats,
+    // 前 10 名加“其他”，合计 100%；页面直接显示，不在前端重新计算
+    location_shares: shareRows(stats.locations, stats.with_location, 10),
     daily: dailyCounts(dataset),
     keywords,
     danmaku: danmaku && {
       total: danmaku.total, unique: danmaku.unique, bin_sec: danmaku.bin_sec, timeline: danmaku.timeline, terms: danmaku.terms.slice(0, 20),
       groups: danmaku.groups.slice(0, 12),
+      bins: danmaku.bins.map((groups) => groups.map((g) => ({ ...g, text: g.text.length > BIN_TEXT ? `${g.text.slice(0, BIN_TEXT)}…` : g.text }))),
       peaks: danmaku.peaks.map((p) => ({ start_sec: p.start_sec, end_sec: p.end_sec, count: p.count, baseline: p.baseline, groups: p.groups.slice(0, 3), terms: p.terms.slice(0, 5) })),
     },
     top: top.map(itemView),
-    // 宿主模式结果在运行 host 命令的目录下：启动目录和数据文件所在目录都找
-    labels: [...new Set([cwd, dirname(dataset.file_path)])].length === 1
-      ? await labelSummaries(cwd, dataset.id)
-      : [...await labelSummaries(cwd, dataset.id), ...await labelSummaries(dirname(dataset.file_path), dataset.id)],
   }
+}
+
+export async function buildOverview(dataset: Dataset, cwd: string) {
+  return { ...buildStaticOverview(dataset), labels: await hostLabels(dataset, cwd) }
 }

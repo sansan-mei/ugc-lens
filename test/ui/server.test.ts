@@ -94,7 +94,20 @@ test('ui：列出数据文件，打开后返回概况、检索、详情和引用
   assert.equal(o.mapping, 'builtin')
   assert.ok(o.stats.items.comment > 0)
   assert.ok(o.danmaku.timeline.length > 0)
+  // 弹幕密度悬浮用：每个时间段都有对应的弹幕样本，条数不超过该段总数
+  assert.equal(o.danmaku.bins.length, o.danmaku.timeline.length)
+  o.danmaku.bins.forEach((groups: Array<{ count: number }>, i: number) => assert.ok(groups.reduce((s, g) => s + g.count, 0) <= o.danmaku.timeline[i]))
+  assert.ok(o.danmaku.bins.some((groups: unknown[]) => groups.length > 0))
   assert.deepEqual(o.labels, [])
+  // IP 属地占比在服务端算好，合计 100%，单项不超过 100%
+  if (o.stats.with_location > 0) {
+    assert.equal(o.location_shares.reduce((s: number, l: { percent: number }) => s + l.percent, 0), 100)
+    assert.equal(o.location_shares.reduce((s: number, l: { count: number }) => s + l.count, 0), o.stats.with_location)
+  }
+  // 分析完成后只重读结果，不重算整份概况
+  const labels = await call(`/api/datasets/${o.id}/labels`)
+  assert.equal(labels.status, 200)
+  assert.deepEqual(labels.json, { labels: [] })
   assert.ok(o.top.length > 0)
 
   const all = await call(`/api/datasets/${o.id}/items?limit=5&kinds=comment`)

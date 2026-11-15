@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { computeStats } from '../../src/dataset/stats.ts'
+import { computeStats, shareRows } from '../../src/dataset/stats.ts'
 import type { Dataset, FeedbackItem } from '../../src/dataset/types.ts'
 
 function item(partial: Partial<FeedbackItem> & Pick<FeedbackItem, 'id' | 'kind'>): FeedbackItem {
@@ -56,4 +56,23 @@ test('computeStats：属地按次数排序并截取，with_location 统计全部
     { name: '北京', count: 2 },
   ])
   assert.equal(stats.with_location, 6)
+})
+
+test('IP 属地占比：只列前几名时补“其他”，各项四舍五入后合计正好 100%，单项不超过 100%', () => {
+  const rows = [{ name: '广东', count: 104 }, { name: '北京', count: 51 }, { name: '上海', count: 33 }, { name: '浙江', count: 30 }]
+  const out = shareRows(rows, 421, 3)
+  assert.deepEqual(out.map((r) => r.name), ['广东', '北京', '上海', '其他'])
+  assert.equal(out.at(-1)!.count, 421 - 104 - 51 - 33)
+  assert.equal(out.at(-1)!.other, true)
+  assert.equal(out.reduce((s, r) => s + r.count, 0), 421)
+  assert.equal(out.reduce((s, r) => s + r.percent, 0), 100)
+  // 三等分时四舍五入各是 33%，按最大余数补齐到 100
+  const thirds = shareRows([{ name: 'a', count: 1 }, { name: 'b', count: 1 }, { name: 'c', count: 1 }], 3, 10)
+  assert.equal(thirds.reduce((s, r) => s + r.percent, 0), 100)
+  assert.equal(thirds.some((r) => r.name === '其他'), false)
+  // 分母比条目之和还小（统计口径不一致）时以条目之和为准，不会出现 131%
+  const bad = shareRows([{ name: '广东', count: 131 }], 100, 10)
+  assert.ok(bad.every((r) => r.percent <= 100))
+  assert.equal(bad.reduce((s, r) => s + r.percent, 0), 100)
+  assert.deepEqual(shareRows([], 0, 10), [])
 })

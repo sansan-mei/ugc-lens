@@ -10,7 +10,7 @@ import { HomeHero } from './components/home_hero.tsx'
 import { ItemSheet } from './components/item_sheet.tsx'
 import { SettingsDialog } from './components/settings_dialog.tsx'
 import { api, ApiError, token, upload } from './lib/api.ts'
-import { baseName, dirName, isUpload, kb, tabAfterOpen } from './lib/format.ts'
+import { baseName, dirName, highlightTerms, isUpload, kb, tabAfterOpen } from './lib/format.ts'
 import { DATA_EXT, headerFileAction, visibleTabs } from './lib/home.ts'
 import { connectionLost, HEARTBEAT_MS } from './lib/lifecycle.ts'
 import { needsReopen, type ChatDataset } from './lib/chat.ts'
@@ -133,6 +133,12 @@ export default function App() {
     setRecentOpen(false)
     if (f.kind === 'report') { setReport(f.path); setTab('reports') } else void openFile(f.path)
   }
+  /** 分析完成后只重读结果；期间换了文件就丢弃，不把旧文件的结果写到新文件上 */
+  function reloadLabels(id: string) {
+    api<{ labels: Overview['labels'] }>(`datasets/${encodeURIComponent(id)}/labels`)
+      .then(({ labels }) => setO((current) => current && current.id === id ? { ...current, labels } : current))
+      .catch((e) => setToast((e as Error).message))
+  }
   const openItem = (id: string) => { if (o) setItemId(id); else setToast('先打开对应的数据文件，才能查看引用原文') }
   const keywordSearch = (query: string, kinds: string[] = []) => { setSearch({ query, kinds, sort: 'likes' }); setTab('items') }
   const fileAction = headerFileAction(tab, !!o)
@@ -154,13 +160,13 @@ export default function App() {
         </header>
         <main className="mx-auto max-w-[1360px] px-4 pt-7 sm:px-8">
           {stopped ? <Card><Empty>{stopped === 'quit' ? 'ugc-lens 已退出，可以关闭这个页面。需要时再打开 ugc-lens 即可。' : '与 ugc-lens 的连接已断开：服务已退出，或页面关闭太久后自动退出了。请重新打开 ugc-lens。'}</Empty></Card> : !token ? <Card><Empty>缺少访问令牌，请使用 ugc-lens ui 启动时打印的完整网址。</Empty></Card> : busy ? <Card><Spinner label={busy} /></Card> : <AnimatePresence mode="wait"><motion.div key={tab + (o?.id ?? '')} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -5 }} transition={{ duration: 0.18 }}>
-            {(tab === 'overview' || tab === 'items') && !o ? <HomeHero entries={(recent.length ? recent : local.map((f) => ({ ...f, path: `${files.cwd}/${f.path}` }))).slice(0, 6)} recentLabel={recent.length ? '最近打开' : '启动目录里的文件'} onChoose={() => void choose()} onOpen={openEntry} /> : tab === 'overview' && o ? <OverviewView o={o} openItem={openItem} search={keywordSearch} reload={() => { api<Overview>(`datasets/${encodeURIComponent(o.id)}/overview`).then(setO).catch((e) => setToast((e as Error).message)) }} settings={() => openSettings('analysis')} /> : tab === 'items' && o ? <ItemsView o={o} search={search} onSearch={setSearch} openItem={openItem} /> : tab === 'reports' ? <ReportsView report={report} setReport={setReport} recent={files.recent} choose={() => choose('report')} o={o} openItem={openItem} /> : <ChatView chat={chat} o={o} openItem={openItem} actions={{ open: () => void choose(), search: (q) => keywordSearch(q), settings: () => openSettings() }} modelReady={modelReady} />}
+            {(tab === 'overview' || tab === 'items') && !o ? <HomeHero entries={(recent.length ? recent : local.map((f) => ({ ...f, path: `${files.cwd}/${f.path}` }))).slice(0, 6)} recentLabel={recent.length ? '最近打开' : '启动目录里的文件'} onChoose={() => void choose()} onOpen={openEntry} /> : tab === 'overview' && o ? <OverviewView o={o} openItem={openItem} search={keywordSearch} reload={() => reloadLabels(o.id)} settings={() => openSettings('analysis')} /> : tab === 'items' && o ? <ItemsView o={o} search={search} onSearch={setSearch} openItem={openItem} /> : tab === 'reports' ? <ReportsView report={report} setReport={setReport} recent={files.recent} choose={() => choose('report')} o={o} openItem={openItem} /> : <ChatView chat={chat} o={o} openItem={openItem} actions={{ open: () => void choose(), search: (q) => keywordSearch(q), settings: () => openSettings() }} modelReady={modelReady} />}
           </motion.div></AnimatePresence>}
         </main>
       </Tabs.Root>
       <Dialog.Root open={recentOpen} onOpenChange={setRecentOpen}><DialogContent><DialogTitle className="text-lg font-semibold leading-none">打开数据文件</DialogTitle><DialogDescription className="-mt-2 text-sm text-muted-foreground">选择任意位置的文件，或从最近打开中继续。</DialogDescription><div className="flex flex-wrap items-center justify-center gap-3 rounded-lg border border-dashed bg-muted/40 p-6"><Button onClick={() => choose()}><FolderOpen />选择文件…</Button><span className="text-xs text-muted-foreground">支持拖放</span></div><input aria-label="筛选文件" value={filter} onChange={(e) => setFilter(e.target.value)} className={inputClass} placeholder="筛选文件名" /><div className="min-h-0 overflow-auto">{recent.length > 0 && <><p className="px-3 py-2 text-xs text-muted-foreground">最近打开</p>{recent.map(entry)}</>}{local.length > 0 && <><p className="px-3 py-2 text-xs text-muted-foreground">启动目录</p>{local.map((f) => entry({ ...f, path: `${files.cwd}/${f.path}` }))}</>}{!recent.length && !local.length && <Empty>没有匹配文件</Empty>}</div></DialogContent></Dialog.Root>
       <SettingsDialog open={settingsOpen} section={settingsSection} onOpenChange={setSettingsOpen} onSaved={(v) => setModelReady(v.effective.ok)} onQuit={stopped ? undefined : () => { setSettingsOpen(false); void quit() }} />
-      <ItemSheet id={itemId} datasetId={o?.id} close={() => setItemId(null)} openItem={openItem} />
+      <ItemSheet id={itemId} datasetId={o?.id} close={() => setItemId(null)} openItem={openItem} highlight={tab === 'items' ? highlightTerms(search.query) : undefined} />
       <input type="file" id="file-input" hidden ref={input} onChange={(e) => { void handleFile(e.target.files?.[0], pickKind.current) }} />
       <AnimatePresence>{toast && <motion.div role="status" initial={{ opacity: 0, y: 20, scale: 0.96 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 10 }} className="fixed bottom-6 right-6 z-[70] max-w-[min(380px,calc(100vw-3rem))] rounded-lg border bg-popover px-4 py-3 text-sm text-popover-foreground shadow-lg">{toast}</motion.div>}</AnimatePresence>
       {dragging && <div className="glass pointer-events-none fixed inset-0 z-[80] grid place-items-center"><div className="flex items-center gap-3 rounded-xl border border-dashed bg-background px-8 py-6 text-lg font-medium shadow-lg"><Upload />松开即可打开文件</div></div>}

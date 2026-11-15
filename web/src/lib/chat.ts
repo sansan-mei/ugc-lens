@@ -76,7 +76,7 @@ const TOOL_LABELS: Record<string, string> = {
   start_watch: '开始监听', watch_status: '查询监听', stop_watch: '停止监听', analyze_topics: '主题统计', analyze_business: '商业分析',
   get_analysis_coverage: '分析覆盖', get_content_timeline: '内容时间轴', read_profile: '读取画像', record_profile: '记录画像',
   search_learnings: '查找经验', record_learning: '记录经验', playbook_update: '更新手册',
-  web_search: '联网搜索', web_fetch: '读取网页',
+  web_search: '联网搜索', web_fetch: '读取网页', list_chats: '查看历史对话', read_chat: '读取历史对话',
 }
 export const toolLabel = (name: string): string => TOOL_LABELS[name] ?? name
 

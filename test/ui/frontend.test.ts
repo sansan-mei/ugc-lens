@@ -196,6 +196,8 @@ test('对话事件：done 带回联网来源，工具名有中文说明', async 
   assert.deepEqual(done.web_sources, [{ id: 'web:1', title: 't', url: 'https://x.example' }])
   assert.equal(toolLabel('web_search'), '联网搜索')
   assert.equal(toolLabel('web_fetch'), '读取网页')
+  assert.notEqual(toolLabel('list_chats'), 'list_chats')
+  assert.notEqual(toolLabel('read_chat'), 'read_chat')
 })
 
 test('联网设置表单：初始值来自已保存设置，空 key 不发送，key 提示与服务端沿用规则一致', async () => {

@@ -19,6 +19,7 @@ import { openTaskStore, type TaskStore } from '../store/tasks.ts'
 import { createDataTools } from '../tools/data/index.ts'
 import { resolveDataset } from '../tools/data/shared.ts'
 import { defineTool } from '../tools/define.ts'
+import type { AgentTool } from '../tools/types.ts'
 import { watchDirectory, type WatchEvent } from '../watch/index.ts'
 import { scenarioIds } from '../analysis/scenarios.ts'
 import { findWebCitations, guardAfterWeb, WEB_PROMPT, type WebCitations, type WebSession } from '../web/tools.ts'
@@ -57,6 +58,10 @@ export interface SessionOptions {
   stream?: boolean
   /** 恢复已保存的对话：不含 system 的历史消息，接在本次的 system prompt 之后 */
   history?: readonly ChatMessage[]
+  /** 入口层追加的只读工具（如界面的历史对话） */
+  extraTools?: readonly AgentTool[]
+  /** 与 extraTools 配套的使用说明，接在 system prompt 末尾，整个会话不变 */
+  extraPrompt?: string
 }
 
 export interface ChatSession {
@@ -70,7 +75,7 @@ export interface ChatSession {
 export function createSession(options: SessionOptions): ChatSession {
   const cwd = resolve(options.cwd ?? process.cwd())
   const playbook = loadPlaybook(options.memory)
-  const system = options.web ? `${buildSessionPrompt(playbook)}\n\n${WEB_PROMPT}` : buildSessionPrompt(playbook)
+  const system = [buildSessionPrompt(playbook), options.web ? WEB_PROMPT : '', options.extraPrompt ?? ''].filter(Boolean).join('\n\n')
   const lifetime = new AbortController()
   const datasets = new Map<string, Dataset>()
   const store = { list: () => [...datasets.values()], get: (id: string) => datasets.get(id) }
@@ -105,6 +110,7 @@ export function createSession(options: SessionOptions): ChatSession {
       ...(options.memory ? createMemoryTools(store, options.memory, playbook) : []),
     ], options.web),
     ...(options.web?.tools() ?? []),
+    ...(options.extraTools ?? []),
     defineTool({
       name: 'list_files',
       description: '列出目录中的文件和子目录（分页），用于寻找用户的数据文件；不读取文件正文。',

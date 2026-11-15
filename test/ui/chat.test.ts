@@ -107,7 +107,75 @@ test('ui 对话：接入当前打开的数据集，流式返回正文片段、�
   script.push({ content: '补充说明', deltas: ['补充说明'] })
   const again = await call(`/api/chat/${sid}/messages`, { method: 'POST', body: { text: '再说说' } })
   assert.equal(again.events.at(-1).answer, '补充说明')
-  assert.deepEqual(lastModel!.requests.at(-1)!.messages.filter((m) => m.role === 'user').map((m) => m.content), ['大家怎么评价', '再说说'])
+  const users = lastModel!.requests.at(-1)!.messages.filter((m) => m.role === 'user').map((m) => String(m.content))
+  assert.equal(users.length, 2)
+  assert.ok(users[0]!.startsWith('大家怎么评价'))
+  assert.equal(users[1], '再说说')
+})
+
+test('ui 对话：界面接入（含上传）的文件，第一次发给模型时附上文件路径和 dataset_id，之后不重复', async () => {
+  const { id } = await openDataset()
+  script = [{ content: '好的' }, { content: '继续' }, { content: '还在' }]
+  const sid = (await call('/api/chat', { method: 'POST', body: {} })).json.id as string
+  await call(`/api/chat/${sid}/messages`, { method: 'POST', body: { text: '看看这份数据', dataset_id: id } })
+  const first = lastModel!.requests.at(-1)!.messages.filter((m) => m.role === 'user').map((m) => String(m.content))
+  assert.equal(first.length, 1)
+  assert.ok(first[0]!.startsWith('看看这份数据'))
+  assert.ok(first[0]!.includes(id), '附上 dataset_id')
+  assert.ok(first[0]!.includes(join(cwd, 'data', 'bilibili_all.json')) || /bilibili_all\.json/.test(first[0]!), '附上文件路径')
+  // 界面显示和历史标题仍是用户原话
+  const record = (await call(`/api/chats/${sid}`)).json
+  assert.equal(record.turns[0].text, '看看这份数据')
+
+  // 同一文件再次随消息带上，不重复附加
+  await call(`/api/chat/${sid}/messages`, { method: 'POST', body: { text: '再看看', dataset_id: id } })
+  const users = lastModel!.requests.at(-1)!.messages.filter((m) => m.role === 'user').map((m) => String(m.content))
+  assert.equal(users[1], '再看看')
+  assert.equal(users[0], first[0], '已发给模型的消息不变')
+
+  // 服务重启恢复对话后同样不重复
+  const restarted = createUiServer({ cwd, token: 't', homeDir: join(root, 'home'), picker: { available: false, pick: async () => undefined }, model: noModel, chatModels, staticDir: root })
+  await new Promise<void>((done) => restarted.server.listen(0, '127.0.0.1', done))
+  const savedPort = port
+  port = (restarted.server.address() as AddressInfo).port
+  try {
+    const reopened = await call('/api/open', { method: 'POST', body: { chat: sid } })
+    await call(`/api/chat/${sid}/messages`, { method: 'POST', body: { text: '第三问', dataset_id: reopened.json.id } })
+    const after = lastModel!.requests.at(-1)!.messages.filter((m) => m.role === 'user').map((m) => String(m.content))
+    assert.equal(after.at(-1), '第三问')
+  } finally {
+    await restarted.close(); restarted.server.closeAllConnections(); await new Promise((done) => restarted.server.close(done))
+    port = savedPort
+  }
+})
+
+test('ui 对话：模型可以列出并读取其他历史对话', async () => {
+  script = [{ content: '价格偏贵是主要抱怨' }]
+  const older = (await call('/api/chat', { method: 'POST', body: {} })).json.id as string
+  await call(`/api/chat/${older}/messages`, { method: 'POST', body: { text: '总结一下价格问题' } })
+
+  script = [
+    { tool_calls: [{ name: 'list_chats', args: {} }] },
+    { tool_calls: [{ name: 'read_chat', args: { chat_id: older } }] },
+    { tool_calls: [{ name: 'read_chat', args: { chat_id: 'nosuchchat01' } }] },
+    { content: '上次结论是价格偏贵' },
+  ]
+  const sid = (await call('/api/chat', { method: 'POST', body: {} })).json.id as string
+  const reply = await call(`/api/chat/${sid}/messages`, { method: 'POST', body: { text: '上次对话说了什么' } })
+  assert.equal(reply.events.at(-1).type, 'done', reply.text)
+  const results = lastModel!.requests.at(-1)!.messages.filter((m) => m.role === 'tool').map((m) => String(m.content))
+  const listed = JSON.parse(results[0]!) as { chats: Array<{ id: string; title: string }> }
+  const hit = listed.chats.find((c) => c.id === older)
+  assert.equal(hit?.title, '总结一下价格问题')
+  assert.equal(listed.chats.some((c) => c.id === sid), false, '不列出当前对话')
+  const read = JSON.parse(results[1]!) as { id: string; turns: Array<{ role: string; text: string }> }
+  assert.equal(read.id, older)
+  assert.deepEqual(read.turns.map((t) => [t.role, t.text]), [['user', '总结一下价格问题'], ['assistant', '价格偏贵是主要抱怨']])
+  assert.match(results[2]!, /^错误/)
+  // 用户问“上次对话”时，system prompt 引导模型查历史对话，而不是拿画像或经验代替
+  const system = String(lastModel!.requests.at(-1)!.messages.find((m) => m.role === 'system')!.content)
+  assert.match(system, /list_chats/)
+  assert.match(system, /read_chat/)
 })
 
 test('ui 对话：与命令行对话一致，可以导入和列出启动目录以外的文件', async () => {

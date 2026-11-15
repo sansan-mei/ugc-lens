@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { inflateSync } from 'node:zlib'
 import { test } from 'node:test'
-import { encodePng, iconPixels } from '../../scripts/desktop/icon.ts'
+import { encodeIco, encodePng, iconFile, iconPixels, ICO_SIZES } from '../../scripts/desktop/icon.ts'
 
 const alpha = (pixels: Uint8Array, size: number, x: number, y: number) => pixels[(y * size + x) * 4 + 3]
 
@@ -59,4 +59,47 @@ test('桌面打包工作流：master 上改动打包相关文件时触发，不�
   const covered = (file: string) => triggers.includes(`- ${file}`) || (file.startsWith('scripts/desktop/') && triggers.includes('- scripts/desktop/**'))
   for (const file of used) assert.ok(covered(file), `${file} 不在触发路径里`)
   assert.ok(triggers.includes('- .github/workflows/desktop.yml'))
+})
+
+test('ICO 编码：目录项与内嵌 PNG 一一对应，256 像素记为 0', () => {
+  const images = [16, 32, 256].map((size) => ({ size, png: encodePng(iconPixels(size), size) }))
+  const ico = encodeIco(images)
+  assert.equal(ico.readUInt16LE(0), 0)
+  assert.equal(ico.readUInt16LE(2), 1)
+  assert.equal(ico.readUInt16LE(4), images.length)
+  images.forEach(({ size, png }, i) => {
+    const entry = 6 + i * 16
+    assert.equal(ico[entry], size % 256)
+    assert.equal(ico[entry + 1], size % 256)
+    assert.equal(ico.readUInt16LE(entry + 6), 32)
+    const length = ico.readUInt32LE(entry + 8)
+    const offset = ico.readUInt32LE(entry + 12)
+    assert.equal(length, png.length)
+    assert.deepEqual(ico.subarray(offset, offset + length), png)
+  })
+})
+
+test('图标文件按扩展名输出：.png 为单张，.ico 含 Windows 常用尺寸', () => {
+  const png = iconFile('icon.png', 32)
+  assert.equal(png.toString('latin1', 1, 4), 'PNG')
+  assert.equal(png.readUInt32BE(16), 32)
+  const ico = iconFile('icon.ico')
+  assert.equal(ico.readUInt16LE(4), ICO_SIZES.length)
+  for (const size of [16, 32, 48, 256]) assert.ok(ICO_SIZES.includes(size))
+  assert.throws(() => iconFile('icon.jpg'))
+})
+
+test('Windows 安装包：生成 .ico，安装程序、快捷方式和卸载项都使用它', () => {
+  const workflow = readFileSync(new URL('../../.github/workflows/desktop.yml', import.meta.url), 'utf8')
+  const iss = readFileSync(new URL('../../scripts/desktop/ugc-lens.iss', import.meta.url), 'utf8')
+  const windows = workflow.slice(workflow.indexOf('Package Windows'))
+  assert.match(windows, /node scripts\/desktop\/icon\.ts build\/ugc-lens\.ico/)
+  assert.match(windows, /\/DIconFile=/)
+  assert.match(iss, /^SetupIconFile=\{#IconFile\}/m)
+  assert.match(iss, /^UninstallDisplayIcon=\{app\}\\ugc-lens\.ico/m)
+  assert.match(iss, /Source: "\{#IconFile\}"; DestDir: "\{app\}"/)
+  // 每个快捷方式都要带图标
+  const shortcuts = iss.slice(iss.indexOf('[Icons]'), iss.indexOf('[Tasks]')).split('\n').filter((l) => l.startsWith('Name:'))
+  assert.ok(shortcuts.length > 0)
+  for (const line of shortcuts) assert.match(line, /IconFilename: "\{app\}\\ugc-lens\.ico"/)
 })

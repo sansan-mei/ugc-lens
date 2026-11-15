@@ -120,7 +120,9 @@ jobs:
           if (-not (Test-Path $iscc)) {
             choco install innosetup -y --no-progress
           }
-          & $iscc /Qp "/DAppVersion=$version" "/DSourceExe=$PWD\build\sea\ugc-lens.exe" "/DOutDir=$PWD\build" scripts\desktop\ugc-lens.iss
+          # 安装程序、快捷方式和卸载项用脚本画出的 .ico；不改 SEA 可执行文件本身的资源，避免碰到注入的程序数据
+          node scripts/desktop/icon.ts build/ugc-lens.ico
+          & $iscc /Qp "/DAppVersion=$version" "/DSourceExe=$PWD\build\sea\ugc-lens.exe" "/DIconFile=$PWD\build\ugc-lens.ico" "/DOutDir=$PWD\build" scripts\desktop\ugc-lens.iss
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Sizes

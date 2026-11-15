@@ -1,4 +1,4 @@
-import { clock, fmt, KIND } from '../lib/format.ts'
+import { clock, fmt, highlightSegments, KIND, snippetAround } from '../lib/format.ts'
 import type { ItemView } from '../lib/types.ts'
 import { cn } from '../lib/utils.ts'
 
@@ -19,11 +19,17 @@ export function ItemMeta({ item, extra }: { item: ItemView; extra?: boolean }) {
   )
 }
 
-export function ItemRow({ item, onOpen, className }: { item: ItemView; onOpen: (id: string) => void; className?: string }) {
+/** 原文里命中检索词的部分标黄 */
+export function Highlighted({ text, terms }: { text: string; terms?: readonly string[] }) {
+  if (!terms?.length) return <>{text}</>
+  return <>{highlightSegments(text, terms).map((part, i) => part.hit ? <mark key={i} className="rounded-[3px] bg-yellow-200 px-0.5 text-inherit dark:bg-yellow-500/40">{part.text}</mark> : part.text)}</>
+}
+
+export function ItemRow({ item, onOpen, className, highlight }: { item: ItemView; onOpen: (id: string) => void; className?: string; highlight?: readonly string[] }) {
   return (
     <button type="button" onClick={() => onOpen(item.id)} className={cn('block w-full rounded-lg px-3 py-3 text-left transition-colors hover:bg-accent', className)}>
       <ItemMeta item={item} />
-      <p className="mt-1.5 line-clamp-3 text-sm leading-relaxed">{item.text}</p>
+      <p className="mt-1.5 line-clamp-3 text-sm leading-relaxed"><Highlighted text={highlight?.length ? snippetAround(item.text, highlight) : item.text} terms={highlight} /></p>
     </button>
   )
 }

@@ -20,3 +20,12 @@ export function analysisTaskView(status: JobStatus): { text: string; action: str
 }
 
 export const anyRunning = (status: Partial<AnalysisStatus>): boolean => Object.values(status).some((s) => s?.state === 'running')
+
+/**
+ * 已经完成、但概况里还没有结果的任务：需要重新读取结果。
+ * 按每项任务各自判断，两项同时进行时先完成的一项立即显示，不等另一项；
+ * 页面打开前就已完成的任务也会补读，不必手动刷新；重新分析时 previous 里还在进行、现在完成的也要重读。
+ */
+export function tasksToLoad(status: Partial<AnalysisStatus>, loaded: readonly string[], previous: Partial<AnalysisStatus> = {}): AnalysisTask[] {
+  return ANALYSIS_TASKS.map((t) => t.id).filter((id) => status[id]?.state === 'done' && (!loaded.includes(id) || previous[id]?.state === 'running'))
+}

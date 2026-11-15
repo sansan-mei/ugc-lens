@@ -4,7 +4,7 @@ import type { DanmakuSummary } from '../analysis/danmaku.ts'
 import type { TermStat } from '../analysis/keywords.ts'
 import { dedupeKey, stripReplyPrefix } from '../analysis/text.ts'
 import { getEvidence } from '../dataset/evidence.ts'
-import type { DatasetStats } from '../dataset/stats.ts'
+import { shareRows, type DatasetStats } from '../dataset/stats.ts'
 import type { Dataset, FeedbackItem } from '../dataset/types.ts'
 import type { Usage } from '../llm/types.ts'
 import { clock, compactRepeats, oneLine, sliceText } from '../tools/data/format.ts'
@@ -121,7 +121,7 @@ function overview(input: Pick<ReportInput, 'stats' | 'coverage' | 'danmaku'>): s
     lines.push(`- 弹幕：去重后 ${n(c.danmaku_unique)} 种，分析了重复最多的 ${n(c.danmaku_groups_included)} 种，代表 ${n(c.danmaku_represented)} 条（${percent(c.danmaku_represented, c.danmaku_total)}）`)
   }
   if (stats.with_location > 0 && stats.locations.length > 0) {
-    const top = stats.locations.slice(0, 8).map((l) => `${l.name} ${percent(l.count, stats.with_location)}`)
+    const top = shareRows(stats.locations, stats.with_location, 8).map((l) => `${l.name} ${l.percent}%`)
     lines.push(`- IP 属地（${n(stats.with_location)} 条有属地）：${top.join('、')}`)
   }
   return lines

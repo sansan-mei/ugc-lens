@@ -39,3 +39,15 @@ test('summarizeDanmaku：没有弹幕时返回空结果', () => {
   const summary = summarizeDanmaku([makeItem({ id: 'c1', text: 'x' })], createTokenizer())
   assert.deepEqual([summary.total, summary.unique, summary.peaks, summary.timeline], [0, 0, [], []])
 })
+
+test('summarizeDanmaku：每个时间段给出段内重复最多的几种弹幕，供悬浮查看', () => {
+  const items = [dm('开头', 1), dm('开头', 2), dm('第二句', 3), dm('中间', 12), dm('结尾', 26), dm('结尾', 27), dm('结尾', 29)]
+  const summary = summarizeDanmaku(items, createTokenizer(), { binSec: 10, groupsPerBin: 2 })
+  assert.equal(summary.bins.length, summary.timeline.length)
+  summary.bins.forEach((groups, i) => {
+    assert.ok(groups.length <= 2)
+    assert.ok(groups.reduce((s, g) => s + g.count, 0) <= summary.timeline[i]!)
+    for (const g of groups) assert.ok(g.first_sec! >= i * 10 && g.first_sec! < (i + 1) * 10)
+  })
+  assert.deepEqual(summary.bins.map((groups) => groups.map((g) => [g.text, g.count])), [[['开头', 2], ['第二句', 1]], [['中间', 1]], [['结尾', 3]]])
+})

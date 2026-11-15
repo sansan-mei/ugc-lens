@@ -1,10 +1,10 @@
 import { Search } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { ItemRow } from '../components/item_row.tsx'
 import { Button } from '../components/ui/button.tsx'
 import { Card, Empty, inputClass, Spinner } from '../components/ui/card.tsx'
 import { api } from '../lib/api.ts'
-import { fmt, KIND } from '../lib/format.ts'
+import { fmt, highlightTerms, KIND } from '../lib/format.ts'
 import type { ItemView, Overview } from '../lib/types.ts'
 import { cn } from '../lib/utils.ts'
 
@@ -14,6 +14,7 @@ export function ItemsView({ o, search, onSearch, openItem }: { o: Overview; sear
   const [page, setPage] = useState<{ total: number; items: ItemView[] }>({ total: 0, items: [] })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const terms = useMemo(() => highlightTerms(search.query), [search.query])
   useEffect(() => { setQuery(search.query) }, [search.query])
   useEffect(() => {
     let stale = false
@@ -39,7 +40,7 @@ export function ItemsView({ o, search, onSearch, openItem }: { o: Overview; sear
     <div className="my-4 flex flex-wrap gap-2">{Object.entries(o.stats.items).filter(([, n]) => n > 0).map(([kind, n]) => <button key={kind} type="button" aria-pressed={search.kinds.includes(kind)} onClick={() => onSearch({ ...search, kinds: search.kinds.includes(kind) ? search.kinds.filter((k) => k !== kind) : [...search.kinds, kind] })} className={cn('inline-flex h-8 items-center rounded-md border px-3 text-sm font-medium shadow-xs transition-colors', search.kinds.includes(kind) ? 'bg-accent text-accent-foreground border-ring/60' : 'bg-background text-muted-foreground hover:bg-accent hover:text-foreground')}>{KIND[kind]} <span className="ml-1 tabular-nums opacity-70">{fmt(n)}</span></button>)}</div>
     <p className="mb-2 text-xs text-muted-foreground">共 {fmt(page.total)} 条{search.query ? `匹配“${search.query}”` : ''}</p>
     {error && <Empty>{error}</Empty>}
-    <div className="-mx-3 divide-y">{page.items.map((item) => <ItemRow key={item.id} item={item} onOpen={openItem} />)}</div>
+    <div className="-mx-3 divide-y">{page.items.map((item) => <ItemRow key={item.id} item={item} onOpen={openItem} highlight={terms} />)}</div>
     {!loading && !page.items.length && !error && <Empty>没有匹配的原文</Empty>}
     {loading ? <Spinner label="读取原文…" /> : page.items.length < page.total && <div className="mt-5 text-center"><Button variant="secondary" onClick={more}>加载更多</Button></div>}
   </Card>

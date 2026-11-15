@@ -14,6 +14,8 @@ export interface ItemView {
 
 export interface Term { word: string; docs: number }
 
+export interface DanmakuGroup { id: string; text: string; count: number; first_sec?: number }
+
 export interface Peak { start_sec: number; end_sec: number; count: number; baseline: number; groups: Array<{ id: string; text: string; count: number; first_sec?: number }>; terms: Term[] }
 
 /** source 为 model 时是界面自动分析的结果，否则是宿主模式的逐条标注 */
@@ -32,9 +34,12 @@ export interface Overview {
   mapping: 'builtin' | 'cache' | 'model'
   contents: Array<{ id: string; title?: string; author?: string; published_at?: string; url?: string; description?: string; transcript_lines: number }>
   stats: { items: Record<string, number>; with_location: number; locations: Array<{ name: string; count: number }> }
+  /** IP 属地前 10 名加“其他”，服务端算好，合计 100% */
+  location_shares: Array<{ name: string; count: number; percent: number; other?: true }>
   daily: Array<{ day: string; count: number }>
   keywords: Term[]
-  danmaku?: { total: number; unique: number; bin_sec: number; timeline: number[]; terms: Term[]; peaks: Peak[] }
+  /** bins 与 timeline 一一对应：每段里重复最多的几种弹幕 */
+  danmaku?: { total: number; unique: number; bin_sec: number; timeline: number[]; bins?: DanmakuGroup[][]; terms: Term[]; peaks: Peak[] }
   top: ItemView[]
   labels: LabelResult[]
 }

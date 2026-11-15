@@ -30,6 +30,8 @@ export interface DanmakuSummary {
   bin_sec: number
   /** 每段的弹幕数 */
   timeline: number[]
+  /** 与 timeline 一一对应：每段里重复最多的几种弹幕 */
+  bins: DanmakuGroup[][]
   peaks: DanmakuPeak[]
   terms: TermStat[]
 }
@@ -56,6 +58,7 @@ export interface DanmakuOptions {
   binSec?: number
   peaks?: number
   groupsPerPeak?: number
+  groupsPerBin?: number
   terms?: number
 }
 
@@ -66,6 +69,9 @@ export function summarizeDanmaku(items: readonly FeedbackItem[], tokenizer: Toke
   const duration = Math.max(0, ...timed.map((item) => item.video_time_sec!))
   const binSec = options.binSec ?? chooseBinSeconds(duration)
   const timeline = binCounts(timed.map((item) => item.video_time_sec!), binSec)
+  const byBin = timeline.map((): FeedbackItem[] => [])
+  for (const item of timed) byBin[Math.floor(item.video_time_sec! / binSec)]?.push(item)
+  const bins = byBin.map((list) => groupDanmaku(list).slice(0, options.groupsPerBin ?? 8))
   const docs = (list: readonly FeedbackItem[]) => list.map((item) => ({ id: item.id, text: item.text }))
 
   const peaks = detectPeaks(timeline, binSec, { limit: options.peaks ?? 5 }).map((peak): DanmakuPeak => {
@@ -85,6 +91,7 @@ export function summarizeDanmaku(items: readonly FeedbackItem[], tokenizer: Toke
     groups,
     bin_sec: binSec,
     timeline,
+    bins,
     peaks,
     terms: topTerms(countTerms(docs(danmaku), tokenizer), options.terms ?? 20),
   }

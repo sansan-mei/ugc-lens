@@ -243,3 +243,50 @@ test('工具详情：结果随 tool_end 保存；JSON 格式化显示，非 JSON
   assert.equal(prettyJson('第 1 条：价格贵'), '第 1 条：价格贵')
   assert.equal(prettyJson('{"a":1'), '{"a":1')
 })
+
+test('检索高亮：按检索语法拆出关键词，不区分大小写标出命中，拼回原文不变', async () => {
+  const { highlightTerms, highlightSegments } = await import('../../web/src/lib/format.ts')
+  assert.deepEqual(highlightTerms('  价格 贵|便宜  '), ['价格', '便宜', '贵'])
+  assert.deepEqual(highlightTerms(''), [])
+  const text = 'AI 价格太贵了，ai 便宜点就好(真的)'
+  const parts = highlightSegments(text, highlightTerms('ai 贵|便宜 (真'))
+  assert.equal(parts.map((p) => p.text).join(''), text)
+  assert.deepEqual(parts.filter((p) => p.hit).map((p) => p.text), ['AI', '贵', 'ai', '便宜', '(真'])
+  assert.deepEqual(highlightSegments('没有命中', ['价格']), [{ text: '没有命中', hit: false }])
+  assert.deepEqual(highlightSegments('abc', []), [{ text: 'abc', hit: false }])
+})
+
+test('弹幕密度：鼠标位置换算成时间段，超出范围时取两端', async () => {
+  const { binAt } = await import('../../web/src/lib/format.ts')
+  assert.equal(binAt(0, 10), 0)
+  assert.equal(binAt(0.55, 10), 5)
+  assert.equal(binAt(1, 10), 9)
+  assert.equal(binAt(-0.2, 10), 0)
+  assert.equal(binAt(1.4, 10), 9)
+  assert.equal(binAt(0.5, 0), -1)
+})
+
+test('自动分析：任务完成但概况里还没有它的结果时需要刷新，已经有结果或仍在进行时不刷新', async () => {
+  const { tasksToLoad } = await import('../../web/src/lib/analysis.ts')
+  const status = { sentiment: { state: 'done' as const, finished_at: 't1' }, topics: { state: 'running' as const } }
+  // 两项同时跑：先完成的一项马上刷新，不等另一项
+  assert.deepEqual(tasksToLoad(status, []), ['sentiment'])
+  assert.deepEqual(tasksToLoad(status, ['sentiment']), [])
+  assert.deepEqual(tasksToLoad({ sentiment: { state: 'done' }, topics: { state: 'done' } }, ['sentiment']), ['topics'])
+  assert.deepEqual(tasksToLoad({ sentiment: { state: 'error' }, topics: { state: 'idle' } }, []), [])
+  // 重新分析：概况里已有旧结果，上次轮询还在进行、这次完成了，也要刷新
+  const previous = { sentiment: { state: 'running' as const }, topics: { state: 'done' as const } }
+  assert.deepEqual(tasksToLoad({ sentiment: { state: 'done' }, topics: { state: 'done' } }, ['sentiment', 'topics'], previous), ['sentiment'])
+})
+
+test('检索高亮：命中在长文后面时列表从命中前不远处开始显示，保证三行内能看到', async () => {
+  const { snippetAround } = await import('../../web/src/lib/format.ts')
+  const long = `${'铺垫'.repeat(100)}这里说价格太贵`
+  const cut = snippetAround(long, ['价格'], 20)
+  assert.ok(cut.startsWith('…'))
+  assert.ok(cut.includes('价格'))
+  assert.ok(cut.indexOf('价格') <= 21)
+  assert.ok(long.endsWith(cut.slice(1)))
+  assert.equal(snippetAround('价格就在开头', ['价格'], 20), '价格就在开头')
+  assert.equal(snippetAround(long, [], 20), long)
+})

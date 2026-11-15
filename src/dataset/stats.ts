@@ -48,3 +48,25 @@ export function computeStats(dataset: Dataset, options: { topLocations?: number 
     with_location: withLocation,
   }
 }
+
+/**
+ * 占比列表：取前 limit 项，其余合成“其他”，百分比用最大余数法取整，合计正好 100。
+ * 分母取 total 与各项之和中较大的一个，统计口径不一致时也不会出现超过 100% 的项。
+ */
+export function shareRows(rows: ReadonlyArray<{ name: string; count: number }>, total: number, limit: number): Array<{ name: string; count: number; percent: number; other?: true }> {
+  const listed = rows.slice(0, limit)
+  const sum = rows.reduce((s, r) => s + r.count, 0)
+  const denominator = Math.max(total, sum)
+  if (denominator <= 0) return []
+  const other = denominator - listed.reduce((s, r) => s + r.count, 0)
+  const all: Array<{ name: string; count: number; other?: true }> = other > 0 ? [...listed, { name: '其他', count: other, other: true }] : [...listed]
+  const exact = all.map((r) => (r.count / denominator) * 100)
+  const percents = exact.map(Math.floor)
+  let left = 100 - percents.reduce((s, p) => s + p, 0)
+  for (const i of exact.map((x, i) => i).sort((a, b) => (exact[b]! - percents[b]!) - (exact[a]! - percents[a]!))) {
+    if (left <= 0) break
+    percents[i]!++
+    left--
+  }
+  return all.map((r, i) => ({ ...r, percent: percents[i]! }))
+}

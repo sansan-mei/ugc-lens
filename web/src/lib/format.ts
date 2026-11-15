@@ -52,3 +52,42 @@ export function donutArcs<T extends { value: number }>(segments: T[], circumfere
 export function tabAfterOpen(tab: string): string {
   return tab === 'chat' ? 'chat' : 'overview'
 }
+
+/** 检索语法（空格表示都要出现，| 表示任一出现）里的全部关键词，长的在前，重叠时优先标出整个长词 */
+export function highlightTerms(query: string): string[] {
+  const terms = [...new Set(query.trim().split(/\s+/).flatMap((t) => t.split('|')).filter(Boolean))]
+  return terms.sort((a, b) => b.length - a.length)
+}
+
+/** 把原文切成命中与未命中的片段，不区分大小写，与服务端检索一致 */
+export function highlightSegments(text: string, terms: readonly string[]): Array<{ text: string; hit: boolean }> {
+  const lower = text.toLowerCase()
+  const needles = terms.map((t) => t.toLowerCase()).filter(Boolean)
+  const out: Array<{ text: string; hit: boolean }> = []
+  let plain = 0
+  let i = 0
+  while (i < text.length && needles.length) {
+    const found = needles.find((n) => lower.startsWith(n, i))
+    if (!found) { i++; continue }
+    if (i > plain) out.push({ text: text.slice(plain, i), hit: false })
+    out.push({ text: text.slice(i, i + found.length), hit: true })
+    i += found.length
+    plain = i
+  }
+  if (plain < text.length || !out.length) out.push({ text: text.slice(plain), hit: false })
+  return out
+}
+
+/** 面积图上横向位置（0～1）最近的数据点序号（与 areaPaths 的点位一致），超出范围取两端；没有数据时为 -1 */
+export function binAt(ratio: number, bins: number): number {
+  if (bins <= 0) return -1
+  return Math.min(bins - 1, Math.max(0, Math.round(ratio * (bins - 1))))
+}
+
+/** 列表只显示三行：第一个命中离开头太远时，从命中前 before 个字开始，前面用省略号 */
+export function snippetAround(text: string, terms: readonly string[], before = 40): string {
+  const lower = text.toLowerCase()
+  const first = Math.min(...terms.map((t) => lower.indexOf(t.toLowerCase())).filter((i) => i >= 0))
+  if (!Number.isFinite(first) || first <= before) return text
+  return `…${text.slice(first - before)}`
+}

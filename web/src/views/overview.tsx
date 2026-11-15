@@ -3,14 +3,14 @@ import { Fade } from '@animate-ui/react/primitives/effects/fade'
 import { ExternalLink, LoaderCircle, Play, RotateCcw, Settings, Sparkles } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { useEffect, useRef, useState } from 'react'
-import { BarList, Columns, DensityArea, Donut } from '../components/charts.tsx'
+import { BarList, Columns, DensityArea, Donut, type DensitySelection } from '../components/charts.tsx'
 import { ItemRow } from '../components/item_row.tsx'
 import { Badge, Card, CardHeader, Empty, Notice } from '../components/ui/card.tsx'
 import { Button } from '../components/ui/button.tsx'
 import { api } from '../lib/api.ts'
-import { ANALYSIS_TASKS, analysisTaskView, anyRunning, type AnalysisSettings, type AnalysisStatus, type AnalysisTask } from '../lib/analysis.ts'
+import { ANALYSIS_TASKS, analysisTaskView, anyRunning, tasksToLoad, type AnalysisSettings, type AnalysisStatus, type AnalysisTask } from '../lib/analysis.ts'
 import { baseName, clock, fmt, KIND, pct } from '../lib/format.ts'
-import type { LabelResult, Overview, Term } from '../lib/types.ts'
+import type { DanmakuGroup, LabelResult, Overview, Term } from '../lib/types.ts'
 import { cn } from '../lib/utils.ts'
 
 const SENTIMENT = [
@@ -21,6 +21,7 @@ const SENTIMENT = [
   ['uncertain', '无法判断', 'stroke-uncertain', 'bg-uncertain'],
 ] as const
 
+/** reload：只重新读取分析结果（labels），不重算整份概况 */
 interface Actions { openItem: (id: string) => void; search: (query: string, kinds?: string[]) => void; reload: () => void; settings: () => void }
 
 function Reveal({ children, className, index }: { children: React.ReactNode; className?: string; index: number }) {
@@ -31,42 +32,49 @@ export function OverviewView({ o, ...actions }: { o: Overview } & Actions) {
   const content = o.contents.length === 1 ? o.contents[0] : undefined
   const title = content?.title ?? (o.contents.length > 1 ? `${o.contents.length} 个内容` : baseName(o.file))
   const counts = Object.entries(o.stats.items).filter(([, n]) => n > 0)
-  const cards: Array<{ span: string; node: React.ReactNode }> = []
-  const [peak, setPeak] = useState(0)
+  const cards: Array<{ key: string; span: string; node: React.ReactNode }> = []
+  const [selected, setSelected] = useState<DensitySelection | null>(o.danmaku?.peaks.length ? { kind: 'peak', index: 0 } : null)
+  useEffect(() => { setSelected(o.danmaku?.peaks.length ? { kind: 'peak', index: 0 } : null) }, [o.id])
 
   if (o.danmaku?.timeline.length) {
     const d = o.danmaku
     cards.push({
+      key: 'danmaku',
       span: 'lg:col-span-12',
       node: (
         <Card>
-          <CardHeader title="弹幕密度" sub={`每 ${d.bin_sec} 秒一段，共 ${fmt(d.total)} 条，去重后 ${fmt(d.unique)} 种。${d.peaks.length ? '粉色区域是高峰，点击查看这段在刷什么。' : '没有明显高于平时的时段。'}`} />
-          <DensityArea timeline={d.timeline} binSec={d.bin_sec} peaks={d.peaks} active={peak} onPeak={setPeak} />
-          {d.peaks.length > 0 && <PeakDetail peak={d.peaks[peak]!} onOpen={actions.openItem} />}
+          <CardHeader title="弹幕密度" sub={`每 ${d.bin_sec} 秒一段，共 ${fmt(d.total)} 条，去重后 ${fmt(d.unique)} 种。鼠标悬浮查看这段的弹幕，点击在下方展开。${d.peaks.length ? '粉色区域是高峰。' : '没有明显高于平时的时段。'}`} />
+          <DensityArea timeline={d.timeline} binSec={d.bin_sec} peaks={d.peaks} bins={d.bins} selected={selected} onSelect={setSelected} />
+          {selected?.kind === 'peak' && d.peaks[selected.index] && <PeakDetail peak={d.peaks[selected.index]!} onOpen={actions.openItem} />}
+          {selected?.kind === 'bin' && <BinDetail start={selected.index * d.bin_sec} end={(selected.index + 1) * d.bin_sec} count={d.timeline[selected.index] ?? 0} groups={d.bins?.[selected.index] ?? []} onOpen={actions.openItem} />}
         </Card>
       ),
     })
   }
   if (o.daily.length) {
-    cards.push({ span: 'lg:col-span-7', node: <Card className="h-full"><CardHeader title="发布时间" sub="评论、回复按天统计，弹幕没有发布时间。" /><Columns values={o.daily.map((d) => ({ label: d.day.slice(5), value: d.count }))} /></Card> })
+    cards.push({ key: 'daily', span: 'lg:col-span-7', node: <Card className="h-full"><CardHeader title="发布时间" sub="评论、回复按天统计，弹幕没有发布时间。" /><Columns values={o.daily.map((d) => ({ label: d.day.slice(5), value: d.count }))} /></Card> })
   }
   if (o.stats.locations.length) {
+    const locations = o.location_shares
     cards.push({
+      key: 'locations',
       span: o.daily.length ? 'lg:col-span-5' : 'lg:col-span-6',
       node: (
         <Card className="h-full">
-          <CardHeader title="IP 属地" sub={`${fmt(o.stats.with_location)} 条带属地，占比按这些条目计算。`} />
-          <BarList tone="chart" items={o.stats.locations.slice(0, 10).map((l) => ({ label: l.name, value: l.count, note: `${fmt(l.count)} · ${pct(l.count / o.stats.with_location)}` }))} />
+          <CardHeader title="IP 属地" sub={`${fmt(o.stats.with_location)} 条带属地，占比按这些条目计算，前 10 名以外合为“其他”，合计 100%。`} />
+          <BarList tone="chart" items={locations.filter((l) => !l.other).map((l) => ({ label: l.name, value: l.count, note: `${fmt(l.count)} · ${l.percent}%` }))} />
+          {locations.filter((l) => l.other).map((l) => <p key="other" className="mt-2 flex justify-between px-1 text-xs text-muted-foreground"><span>其他地区</span><span className="tabular-nums">{fmt(l.count)} · {l.percent}%</span></p>)}
         </Card>
       ),
     })
   }
   if (o.top.length) {
-    cards.push({ span: 'lg:col-span-7', node: <Card className="h-full"><CardHeader title="高赞内容" sub="按点赞排序，点击查看全文和回复。" /><div className="-mx-3 space-y-0.5">{o.top.map((item) => <ItemRow key={item.id} item={item} onOpen={actions.openItem} />)}</div></Card> })
+    cards.push({ key: 'top', span: 'lg:col-span-7', node: <Card className="h-full"><CardHeader title="高赞内容" sub="按点赞排序，点击查看全文和回复。" /><div className="-mx-3 space-y-0.5">{o.top.map((item) => <ItemRow key={item.id} item={item} onOpen={actions.openItem} />)}</div></Card> })
   }
   if (o.keywords.length || o.danmaku?.terms.length) {
     const textKinds = counts.map(([k]) => k).filter((k) => k !== 'danmaku')
     cards.push({
+      key: 'keywords',
       span: 'lg:col-span-5',
       node: (
         <Card className="h-full">
@@ -77,8 +85,9 @@ export function OverviewView({ o, ...actions }: { o: Overview } & Actions) {
       ),
     })
   }
-  for (const label of o.labels) cards.push(labelCard(label, actions.openItem))
-  cards.push({ span: 'lg:col-span-12', node: <AnalysisPanel datasetId={o.id} hasLabels={o.labels.length > 0} reload={actions.reload} settings={actions.settings} /> })
+  for (const label of o.labels) cards.push({ key: `label:${label.source ?? 'host'}:${label.task}:${label.dir}`, ...labelCard(label, actions.openItem) })
+  const loaded = o.labels.filter((l) => l.source === 'model').map((l) => l.task)
+  cards.push({ key: 'analysis', span: 'lg:col-span-12', node: <AnalysisPanel key={o.id} datasetId={o.id} loaded={loaded} hasLabels={o.labels.length > 0} reload={actions.reload} settings={actions.settings} /> })
 
   return (
     <div className="space-y-6">
@@ -105,7 +114,7 @@ export function OverviewView({ o, ...actions }: { o: Overview } & Actions) {
         </section>
       </Fade>
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-12">
-        {cards.map((card, i) => <Reveal key={i} index={i} className={card.span}>{card.node}</Reveal>)}
+        {cards.map((card, i) => <Reveal key={`${o.id}:${card.key}`} index={i} className={card.span}>{card.node}</Reveal>)}
       </div>
     </div>
   )
@@ -136,19 +145,36 @@ function TermCloud({ label, terms, onPick }: { label: string; terms: Term[]; onP
   )
 }
 
+function GroupButtons({ groups, onOpen }: { groups: DanmakuGroup[]; onOpen: (id: string) => void }) {
+  return (
+    <div className="mt-2 grid gap-1 sm:grid-cols-3">
+      {groups.map((g) => (
+        <button key={g.id} type="button" onClick={() => onOpen(g.id)} className="rounded-md border bg-background px-3 py-2 text-left shadow-xs transition-colors hover:bg-accent">
+          <div className="text-xs text-muted-foreground">×{fmt(g.count)}{g.first_sec !== undefined && ` · ${clock(g.first_sec)}`}</div>
+          <div className="mt-0.5 line-clamp-2 text-sm">{g.text}</div>
+        </button>
+      ))}
+    </div>
+  )
+}
+
+function BinDetail({ start, end, count, groups, onOpen }: { start: number; end: number; count: number; groups: DanmakuGroup[]; onOpen: (id: string) => void }) {
+  return (
+    <AnimatePresence mode="wait">
+      <motion.div key={start} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={{ duration: 0.22 }} className="mt-4 rounded-lg border bg-muted/40 p-4">
+        <h3 className="text-sm font-semibold">{clock(start)}–{clock(end)} · {fmt(count)} 条{count > groups.reduce((s, g) => s + g.count, 0) && <span className="ml-2 font-normal text-muted-foreground">列出重复最多的 {groups.length} 种</span>}</h3>
+        {groups.length ? <GroupButtons groups={groups} onOpen={onOpen} /> : <p className="mt-2 text-xs text-muted-foreground">这段没有弹幕</p>}
+      </motion.div>
+    </AnimatePresence>
+  )
+}
+
 function PeakDetail({ peak, onOpen }: { peak: NonNullable<Overview['danmaku']>['peaks'][number]; onOpen: (id: string) => void }) {
   return (
     <AnimatePresence mode="wait">
       <motion.div key={peak.start_sec} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={{ duration: 0.22 }} className="mt-4 rounded-lg border bg-muted/40 p-4">
         <h3 className="text-sm font-semibold">{clock(peak.start_sec)}–{clock(peak.end_sec)} · {fmt(peak.count)} 条<span className="ml-2 font-normal text-muted-foreground">平时每段约 {peak.baseline.toFixed(1)} 条</span></h3>
-        <div className="mt-2 grid gap-1 sm:grid-cols-3">
-          {peak.groups.map((g) => (
-            <button key={g.id} type="button" onClick={() => onOpen(g.id)} className="rounded-md border bg-background px-3 py-2 text-left shadow-xs transition-colors hover:bg-accent">
-              <div className="text-xs text-muted-foreground">×{fmt(g.count)}{g.first_sec !== undefined && ` · ${clock(g.first_sec)}`}</div>
-              <div className="mt-0.5 line-clamp-2 text-sm">{g.text}</div>
-            </button>
-          ))}
-        </div>
+        <GroupButtons groups={peak.groups} onOpen={onOpen} />
         {peak.terms.length > 0 && <p className="mt-2 text-xs text-muted-foreground">这段特有的词：{peak.terms.map((t) => t.word).join('、')}</p>}
       </motion.div>
     </AnimatePresence>
@@ -225,20 +251,29 @@ function labelCard(label: LabelResult, openItem: (id: string) => void): { span: 
   }
 }
 
-/** 情感分析与主题统计：显示后台任务状态，可手动开始；进行中时轮询，完成后刷新概况 */
-function AnalysisPanel({ datasetId, hasLabels, reload, settings }: { datasetId: string; hasLabels: boolean; reload: () => void; settings: () => void }) {
+/**
+ * 情感分析与主题统计：显示后台任务状态，可手动开始；进行中时轮询。
+ * 每项任务一完成就读取它的结果，不等另一项；打开页面前就已完成、但概况里还没有结果的也会补读。
+ */
+function AnalysisPanel({ datasetId, loaded, hasLabels, reload, settings }: { datasetId: string; loaded: string[]; hasLabels: boolean; reload: () => void; settings: () => void }) {
   const [status, setStatus] = useState<(AnalysisStatus & { settings: AnalysisSettings }) | null>(null)
   const [error, setError] = useState('')
-  const wasRunning = useRef(false)
+  const previous = useRef<Partial<AnalysisStatus>>({})
+  const loadedRef = useRef(loaded)
+  loadedRef.current = loaded
+  // 同一次完成只补读一次，结果文件读不到时不会反复请求
+  const requested = useRef(new Set<string>())
   const load = async () => {
     try {
       const next = await api<AnalysisStatus & { settings: AnalysisSettings }>(`datasets/${encodeURIComponent(datasetId)}/analysis`)
       setStatus(next)
-      if (wasRunning.current && !anyRunning(next)) reload()
-      wasRunning.current = anyRunning(next)
+      const due = tasksToLoad(next, loadedRef.current, previous.current).filter((t) => !requested.current.has(`${t}:${next[t].finished_at ?? ''}`))
+      for (const t of due) requested.current.add(`${t}:${next[t].finished_at ?? ''}`)
+      if (due.length) reload()
+      previous.current = next
     } catch (e) { setError((e as Error).message) }
   }
-  useEffect(() => { wasRunning.current = false; void load() }, [datasetId])
+  useEffect(() => { void load() }, [datasetId])
   useEffect(() => {
     if (!status || !anyRunning(status)) return
     const timer = setTimeout(() => void load(), 2000)
@@ -248,8 +283,10 @@ function AnalysisPanel({ datasetId, hasLabels, reload, settings }: { datasetId: 
     setError('')
     try {
       const next = await api<AnalysisStatus>(`datasets/${encodeURIComponent(datasetId)}/analysis/${task}`, { method: 'POST', body: '{}' })
-      wasRunning.current = true
+      previous.current = { ...previous.current, [task]: { state: 'running' } }
       setStatus((s) => s && { ...s, ...next })
+      // 很快就结束的任务（如只有一批）等不到下一次轮询，立即再查一次
+      if (next[task]?.state !== 'running') void load()
     } catch (e) { setError((e as Error).message) }
   }
   const auto = status?.settings && (status.settings.auto_sentiment || status.settings.auto_topics)

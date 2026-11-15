@@ -290,3 +290,11 @@ test('检索高亮：命中在长文后面时列表从命中前不远处开始�
   assert.equal(snippetAround('价格就在开头', ['价格'], 20), '价格就在开头')
   assert.equal(snippetAround(long, [], 20), long)
 })
+
+test('页面切换动画：对话页切换历史对话、重新接入文件时不重新挂载整个页面', async () => {
+  const { viewKey } = await import('../../web/src/lib/format.ts')
+  assert.equal(viewKey('chat', 'a'), viewKey('chat', 'b'))
+  assert.equal(viewKey('chat', null), viewKey('chat', 'b'))
+  assert.notEqual(viewKey('overview', 'a'), viewKey('overview', 'b'))
+  assert.notEqual(viewKey('overview', 'a'), viewKey('chat', 'a'))
+})

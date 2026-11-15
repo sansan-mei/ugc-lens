@@ -10,7 +10,7 @@ import { HomeHero } from './components/home_hero.tsx'
 import { ItemSheet } from './components/item_sheet.tsx'
 import { SettingsDialog } from './components/settings_dialog.tsx'
 import { api, ApiError, token, upload } from './lib/api.ts'
-import { baseName, dirName, highlightTerms, isUpload, kb, tabAfterOpen } from './lib/format.ts'
+import { baseName, dirName, highlightTerms, isUpload, kb, tabAfterOpen, viewKey } from './lib/format.ts'
 import { DATA_EXT, headerFileAction, visibleTabs } from './lib/home.ts'
 import { connectionLost, HEARTBEAT_MS } from './lib/lifecycle.ts'
 import { needsReopen, type ChatDataset } from './lib/chat.ts'
@@ -159,7 +159,7 @@ export default function App() {
           </div>
         </header>
         <main className="mx-auto max-w-[1360px] px-4 pt-7 sm:px-8">
-          {stopped ? <Card><Empty>{stopped === 'quit' ? 'ugc-lens 已退出，可以关闭这个页面。需要时再打开 ugc-lens 即可。' : '与 ugc-lens 的连接已断开：服务已退出，或页面关闭太久后自动退出了。请重新打开 ugc-lens。'}</Empty></Card> : !token ? <Card><Empty>缺少访问令牌，请使用 ugc-lens ui 启动时打印的完整网址。</Empty></Card> : busy ? <Card><Spinner label={busy} /></Card> : <AnimatePresence mode="wait"><motion.div key={tab + (o?.id ?? '')} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -5 }} transition={{ duration: 0.18 }}>
+          {stopped ? <Card><Empty>{stopped === 'quit' ? 'ugc-lens 已退出，可以关闭这个页面。需要时再打开 ugc-lens 即可。' : '与 ugc-lens 的连接已断开：服务已退出，或页面关闭太久后自动退出了。请重新打开 ugc-lens。'}</Empty></Card> : !token ? <Card><Empty>缺少访问令牌，请使用 ugc-lens ui 启动时打印的完整网址。</Empty></Card> : busy ? <Card><Spinner label={busy} /></Card> : <AnimatePresence mode="wait"><motion.div key={viewKey(tab, o?.id)} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -5 }} transition={{ duration: 0.18 }}>
             {(tab === 'overview' || tab === 'items') && !o ? <HomeHero entries={(recent.length ? recent : local.map((f) => ({ ...f, path: `${files.cwd}/${f.path}` }))).slice(0, 6)} recentLabel={recent.length ? '最近打开' : '启动目录里的文件'} onChoose={() => void choose()} onOpen={openEntry} /> : tab === 'overview' && o ? <OverviewView o={o} openItem={openItem} search={keywordSearch} reload={() => reloadLabels(o.id)} settings={() => openSettings('analysis')} /> : tab === 'items' && o ? <ItemsView o={o} search={search} onSearch={setSearch} openItem={openItem} /> : tab === 'reports' ? <ReportsView report={report} setReport={setReport} recent={files.recent} choose={() => choose('report')} o={o} openItem={openItem} /> : <ChatView chat={chat} o={o} openItem={openItem} actions={{ open: () => void choose(), search: (q) => keywordSearch(q), settings: () => openSettings() }} modelReady={modelReady} />}
           </motion.div></AnimatePresence>}
         </main>

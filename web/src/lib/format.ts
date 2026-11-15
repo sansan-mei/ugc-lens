@@ -91,3 +91,11 @@ export function snippetAround(text: string, terms: readonly string[], before = 4
   if (!Number.isFinite(first) || first <= before) return text
   return `…${text.slice(first - before)}`
 }
+
+/**
+ * 页面切换动画的 key。数据页换文件时要重新挂载；对话页不随数据集变化，
+ * 否则切回历史对话时自动重新接入文件会让整个对话页卸载重建并重播进场动画。
+ */
+export function viewKey(tab: string, datasetId: string | null | undefined): string {
+  return tab === 'chat' ? 'chat' : `${tab}:${datasetId ?? ''}`
+}

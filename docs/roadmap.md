@@ -544,7 +544,7 @@
      - 退出方式：界面退出按钮，以及页面关闭一段时间后自动退出；重复双击时复用已在运行的实例，不开第二个服务。（已完成，2026-11-14）
      - Windows 双击不弹控制台窗口，同时保留在终端里使用命令行的能力。
      - 应用图标（.icns、.ico）。（已完成，2026-11-15：图标改为放大镜样式；Windows 安装程序、快捷方式、卸载项使用 .ico，`ugc-lens.exe` 文件本身未写入图标资源）
-  4. 统一发版：`release.yml` 在版本号变化时，除发布 npm 外，同一次运行构建 dmg 与 Windows 安装包并上传到该版本的 GitHub Release（是否同步到 COS 另定）；三个渠道的版本号都取自 `package.json`。（已实现，2026-11-15，等待第一次版本发布实际运行）
+  4. 统一发版：`release.yml` 在版本号变化时，除发布 npm 外，同一次运行构建 dmg 与 Windows 安装包并上传到该版本的 GitHub Release（是否同步到 COS 另定）；三个渠道的版本号都取自 `package.json`。（已实现，2026-11-15，随 0.0.20 发布首次运行）
      - 笔记：`desktop.yml` 增加 `workflow_call`，由 `release.yml` 的 `desktop` job 调用，`github-release` job 下载两个平台的产物后 `gh release create`（Release 不存在时）或 `gh release upload --clobber`。是否打包不看 npm，看该版本 Release 上有没有 dmg：npm 发布成功而打包失败时，手动重跑 `release.yml` 会跳过 npm、只补桌面包。Release 说明附下载表和未签名的放行提示，后面接 GitHub 自动生成的变更列表。
   5. 更新提示：桌面版启动时查询最新版本号，有新版本在界面提示下载；不做自动更新。
   6. 签名：先不签名，说明里写清放行方法；面向普通用户推广前申请 Apple Developer ID 做签名与公证，Windows 代码签名证书视下载量再定。
